@@ -22,12 +22,12 @@ import os
 import sys
 import textwrap
 import typing
-from collections import OrderedDict
 from collections.abc import (
     Collection,
     Hashable,
     Iterable,
     Iterator,
+    Mapping,
     MutableMapping,
     MutableSequence,
     Sequence,
@@ -1325,7 +1325,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         domain: str,
         op_type: str,
         inputs: Iterable[Value | None],
-        attributes: Iterable[Attr] = (),
+        attributes: Iterable[Attr] | Mapping[str, Attr] = (),
         *,
         overload: str = "",
         num_outputs: int | None = None,
@@ -1371,15 +1371,10 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         self._inputs: tuple[Value | None, ...] = tuple(inputs)
         # Values belong to their defining nodes. The values list is immutable
         self._outputs: tuple[Value, ...] = self._create_outputs(num_outputs, outputs)
-        attributes = tuple(attributes)
-        if attributes and not isinstance(attributes[0], Attr):
-            raise TypeError(
-                f"Expected the attributes to be Attr, got {type(attributes[0])}. "
-                "If you are copying the attributes from another node, make sure you call "
-                "node.attributes.values() because it is a dictionary."
-            )
-        self._attributes: OrderedDict[str, Attr] = OrderedDict(
-            (attr.name, attr) for attr in attributes
+        if isinstance(attributes, Mapping):
+            attributes = tuple(attributes.values())
+        self._attributes: _graph_containers.Attributes = _graph_containers.Attributes(
+            attributes
         )
         self._overload: str = overload
         # TODO(justinchuby): Potentially support a version range
@@ -1637,7 +1632,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         raise AttributeError("outputs is immutable. Please create a new node instead.")
 
     @property
-    def attributes(self) -> OrderedDict[str, Attr]:
+    def attributes(self) -> _graph_containers.Attributes:
         """The attributes of the node."""
         return self._attributes
 
@@ -2271,7 +2266,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             raise ValueError(
                 f"Value '{value!r}' must have its const_value set to be an initializer."
             )
-        self._initializers[value.name] = value
+        self._initializers.add(value)
 
     @property
     def doc_string(self) -> str | None:
@@ -2927,13 +2922,15 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         # Ensure the inputs and outputs of the function belong to a graph
         # and not from an outer scope
         graph: Graph,
-        attributes: Sequence[Attr],
+        attributes: Iterable[Attr] | Mapping[str, Attr],
     ) -> None:
         self._domain = domain
         self._name = name
         self._overload = overload
         self._graph = graph
-        self._attributes = OrderedDict((attr.name, attr) for attr in attributes)
+        if isinstance(attributes, Mapping):
+            attributes = tuple(attributes.values())
+        self._attributes = _graph_containers.Attributes(attributes)
 
     def identifier(self) -> _protocols.OperatorIdentifier:
         return self.domain, self.name, self.overload
@@ -2971,7 +2968,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         return self._graph.outputs
 
     @property
-    def attributes(self) -> OrderedDict[str, Attr]:
+    def attributes(self) -> _graph_containers.Attributes:
         return self._attributes
 
     @typing.overload

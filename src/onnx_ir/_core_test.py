@@ -861,6 +861,117 @@ class NodeTest(unittest.TestCase):
         node.domain = "ai.onnx"
         self.assertEqual(node.domain, "")
 
+    def test_attributes_add(self):
+        node = _core.Node("ai.onnx", "TestOp", inputs=())
+        node.attributes.add(_core.AttrInt64("test_attr", 1))
+        self.assertIn("test_attr", node.attributes)
+        self.assertEqual(node.attributes["test_attr"].value, 1)
+
+    def test_attributes_set_raise_with_type_error(self):
+        node = _core.Node("ai.onnx", "TestOp", inputs=())
+        with self.assertRaises(TypeError):
+            node.attributes["test_attr"] = 1
+        with self.assertRaises(TypeError):
+            node.attributes[1] = _core.AttrInt64("test_attr", 1)
+
+    def test_init_accepts_attribute_mapping(self):
+        node = _core.Node(
+            "ai.onnx", "TestOp", inputs=(), attributes=[_core.AttrInt64("test_attr", 1)]
+        )
+        new_node = _core.Node("", "OtherOp", inputs=(), attributes=node.attributes)
+        self.assertEqual(new_node.attributes, node.attributes)
+
+    def test_attributes_get_int(self):
+        node = _core.Node(
+            "ai.onnx", "TestOp", inputs=(), attributes=[_core.AttrInt64("test_attr", 1)]
+        )
+        self.assertEqual(node.attributes.get_int("test_attr"), 1)
+        self.assertIsNone(node.attributes.get_int("non_existent_attr"))
+        self.assertEqual(node.attributes.get_int("non_existent_attr", 42), 42)
+
+    def test_attributes_get_float(self):
+        node = _core.Node(
+            "ai.onnx", "TestOp", inputs=(), attributes=[_core.AttrFloat32("test_attr", 1.0)]
+        )
+        self.assertEqual(node.attributes.get_float("test_attr"), 1.0)
+        self.assertIsNone(node.attributes.get_float("non_existent_attr"))
+        self.assertEqual(node.attributes.get_float("non_existent_attr", 42.0), 42.0)
+
+    def test_attributes_get_string(self):
+        node = _core.Node(
+            "ai.onnx", "TestOp", inputs=(), attributes=[_core.AttrString("test_attr", "value")]
+        )
+        self.assertEqual(node.attributes.get_string("test_attr"), "value")
+        self.assertIsNone(node.attributes.get_string("non_existent_attr"))
+        self.assertEqual(node.attributes.get_string("non_existent_attr", "default"), "default")
+
+    def test_attributes_get_tensor(self):
+        tensor = ir.Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+        node = _core.Node(
+            "ai.onnx", "TestOp", inputs=(), attributes=[_core.AttrTensor("test_attr", tensor)]
+        )
+        np.testing.assert_equal(
+            node.attributes.get_tensor("test_attr").numpy(), tensor.numpy()
+        )
+        self.assertIsNone(node.attributes.get_tensor("non_existent_attr"))
+        np.testing.assert_equal(
+            node.attributes.get_tensor("non_existent_attr", tensor).numpy(), tensor.numpy()
+        )
+
+    def test_attributes_get_ints(self):
+        node = _core.Node(
+            "ai.onnx",
+            "TestOp",
+            inputs=(),
+            attributes=[_core.AttrInt64s("test_attr", [1, 2, 3])],
+        )
+        self.assertEqual(node.attributes.get_ints("test_attr"), [1, 2, 3])
+        self.assertIsNone(node.attributes.get_ints("non_existent_attr"))
+        self.assertEqual(node.attributes.get_ints("non_existent_attr", [42]), [42])
+
+    def test_attributes_get_floats(self):
+        node = _core.Node(
+            "ai.onnx",
+            "TestOp",
+            inputs=(),
+            attributes=[_core.AttrFloat32s("test_attr", [1.0, 2.0, 3.0])],
+        )
+        self.assertEqual(node.attributes.get_floats("test_attr"), [1.0, 2.0, 3.0])
+        self.assertIsNone(node.attributes.get_floats("non_existent_attr"))
+        self.assertEqual(node.attributes.get_floats("non_existent_attr", [42.0]), [42.0])
+
+    def test_attributes_get_strings(self):
+        node = _core.Node(
+            "ai.onnx",
+            "TestOp",
+            inputs=(),
+            attributes=[_core.AttrStrings("test_attr", ["a", "b", "c"])],
+        )
+        self.assertEqual(node.attributes.get_strings("test_attr"), ["a", "b", "c"])
+        self.assertIsNone(node.attributes.get_strings("non_existent_attr"))
+        self.assertEqual(
+            node.attributes.get_strings("non_existent_attr", ["default"]), ["default"]
+        )
+
+    def test_attributes_get_tensors(self):
+        tensor1 = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        tensor2 = ir.Tensor(np.array([3.0, 4.0], dtype=np.float32))
+        node = _core.Node(
+            "ai.onnx",
+            "TestOp",
+            inputs=(),
+            attributes=[_core.AttrTensors("test_attr", [tensor1, tensor2])],
+        )
+        tensors = node.attributes.get_tensors("test_attr")
+        self.assertIsNotNone(tensors)
+        self.assertEqual(len(tensors), 2)
+        np.testing.assert_equal(tensors[0].numpy(), tensor1.numpy())
+        np.testing.assert_equal(tensors[1].numpy(), tensor2.numpy())
+        self.assertIsNone(node.attributes.get_tensors("non_existent_attr"))
+        np.testing.assert_equal(
+            node.attributes.get_tensors("non_existent_attr", [tensor1]), [tensor1]
+        )
+
     # TODO(justinchuby): Test all methods
 
 

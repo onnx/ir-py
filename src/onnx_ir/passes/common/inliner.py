@@ -9,7 +9,7 @@ import dataclasses
 __all__ = ["InlinePass", "InlinePassResult"]
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import onnx_ir as ir
 import onnx_ir.convenience as _ir_convenience
@@ -52,7 +52,7 @@ class _CopyReplace:
     def __init__(
         self,
         inliner: InlinePass,
-        attr_map: dict[str, ir.Attr],
+        attr_map: Mapping[str, ir.Attr],
         value_map: dict[ir.Value, ir.Value | None],
         metadata_props: dict[str, str],
         call_stack: CallStack,
@@ -96,6 +96,7 @@ class _CopyReplace:
             return attr
         assert attr.is_ref()
         ref_attr_name = attr.ref_attr_name
+        assert ref_attr_name is not None, "Reference attribute must have a name"
         if ref_attr_name in self._attr_map:
             ref_attr = self._attr_map[ref_attr_name]
             if not ref_attr.is_ref():
@@ -237,7 +238,7 @@ class InlinePass(ir.passes.InPlacePass):
                 )
 
         # Identify substitutions for both inputs and attributes of the function:
-        attributes: dict[str, ir.Attr] = node.attributes
+        attributes: Mapping[str, ir.Attr] = node.attributes
         default_attr_values = {
             attr.name: attr
             for attr in function.attributes.values()

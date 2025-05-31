@@ -6,19 +6,21 @@
 
 from __future__ import annotations
 
+from onnx_ir import _protocols
+
 __all__ = [
     "GraphInputs",
     "GraphOutputs",
 ]
 
 import collections
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, SupportsIndex
+from collections.abc import Iterable, Sequence
+from typing import SupportsIndex, TypeVar
 
 import onnx_ir
+from onnx_ir import _core
 
-if TYPE_CHECKING:
-    from onnx_ir import _core
+T = TypeVar("T")
 
 
 class _GraphIO(collections.UserList["_core.Value"]):
@@ -250,6 +252,8 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
             )
         if not isinstance(key, str):
             raise TypeError(f"Key must be a string, not {type(key)}")
+        if not value.name:
+            raise ValueError(f"Initializer must have a name: {value!r}")
         if key in self.data:
             # If the key already exists, unset the old value
             old_value = self.data[key]
@@ -266,3 +270,90 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
         # the dictionary is not modified
         self._maybe_unset_graph(value)
         super().__delitem__(key)
+
+    def add(self, value: _core.Value) -> None:
+        """Add an initializer to the graph."""
+        self[value.name] = value  # type: ignore[index]
+
+
+class Attributes(collections.UserDict[str, "_core.Attr"]):
+    """The attributes of a Node."""
+
+    def __init__(self, attrs: Iterable[_core.Attr]):
+        super().__init__({attr.name: attr for attr in attrs})
+
+    def __setitem__(self, key: str, value: _core.Attr) -> None:
+        """Set an attribute for the node."""
+        if type(key) is not str:
+            raise TypeError(f"Key must be a string, not {type(key)}")
+        if not isinstance(value, _core.Attr):
+            raise TypeError(f"Value must be an Attr, not {type(value)}")
+        super().__setitem__(key, value)
+
+    def add(self, value: _core.Attr) -> None:
+        """Add an attribute to the node."""
+        self[value.name] = value
+
+    def get_int(self, key: str, default: T = None) -> int | T:  # type: ignore[assignment]
+        """Get the integer value of the attribute."""
+        if key in self:
+            return self[key].as_int()
+        return default
+
+    def get_float(self, key: str, default: T = None) -> float | T:  # type: ignore[assignment]
+        """Get the float value of the attribute."""
+        if key in self:
+            return self[key].as_float()
+        return default
+
+    def get_string(self, key: str, default: T = None) -> str | T:  # type: ignore[assignment]
+        """Get the string value of the attribute."""
+        if key in self:
+            return self[key].as_string()
+        return default
+
+    def get_tensor(self, key: str, default: T = None) -> _protocols.TensorProtocol | T:  # type: ignore[assignment]
+        """Get the tensor value of the attribute."""
+        if key in self:
+            return self[key].as_tensor()
+        return default
+
+    def get_graph(self, key: str, default: T = None) -> _core.Graph | T:  # type: ignore[assignment]
+        """Get the graph value of the attribute."""
+        if key in self:
+            return self[key].as_graph()
+        return default
+
+    def get_ints(self, key: str, default: T = None) -> Sequence[int] | T:  # type: ignore[assignment]
+        """Get the Sequence of integers from the attribute."""
+        if key in self:
+            return self[key].as_ints()
+        return default
+
+    def get_floats(self, key: str, default: T = None) -> Sequence[float] | T:  # type: ignore[assignment]
+        """Get the Sequence of floats from the attribute."""
+        if key in self:
+            return self[key].as_floats()
+        return default
+
+    def get_strings(self, key: str, default: T = None) -> Sequence[str] | T:  # type: ignore[assignment]
+        """Get the Sequence of strings from the attribute."""
+        if key in self:
+            return self[key].as_strings()
+        return default
+
+    def get_tensors(
+        self,
+        key: str,
+        default: T = None,  # type: ignore[assignment]
+    ) -> Sequence[_protocols.TensorProtocol] | T:
+        """Get the Sequence of tensors from the attribute."""
+        if key in self:
+            return self[key].as_tensors()
+        return default
+
+    def get_graphs(self, key: str, default: T = None) -> Sequence[_core.Graph] | T:  # type: ignore[assignment]
+        """Get the Sequence of graphs from the attribute."""
+        if key in self:
+            return self[key].as_graphs()
+        return default
