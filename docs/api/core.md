@@ -37,7 +37,6 @@
     onnx_ir.GraphView
     onnx_ir.Function
     onnx_ir.Attr
-    onnx_ir.RefAttr
     onnx_ir.Shape
     onnx_ir.SymbolicDim
     onnx_ir.TypeAndShape
