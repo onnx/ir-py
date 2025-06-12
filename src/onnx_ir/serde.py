@@ -37,6 +37,7 @@ __all__ = [
     "deserialize_value_info_proto",
     # Serialization
     "to_proto",
+    "to_onnx_text",
     "serialize_attribute_into",
     "serialize_attribute",
     "serialize_dimension_into",
@@ -69,7 +70,7 @@ import numpy as np
 import onnx
 import onnx.external_data_helper
 
-from onnx_ir import _core, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _enums, _protocols, _type_casting
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
@@ -190,13 +191,58 @@ def from_proto(proto: object) -> object:
     )
 
 
-def from_onnx_text(model_text: str, /) -> _core.Model:
+def from_onnx_text(
+    model_text: str,
+    /,
+    with_initializers: Mapping[str, _protocols.TensorProtocol] | None = None,
+) -> _core.Model:
     """Convert the ONNX textual representation to an IR model.
 
     Read more about the textual representation at: https://onnx.ai/onnx/repo-docs/Syntax.html
+
+    Args:
+        model_text: The ONNX textual representation of the model.
+        with_initializers: A mapping of initializer names to tensors. If provided, these tensors
+            will be added to the model as initializers. If a name does not exist in the model,
+            a ValueError will be raised.
+
+    Returns:
+        The IR model corresponding to the ONNX textual representation.
+
+    Raises:
+        ValueError: If a name in `with_initializers` does not exist in the model.
     """
     proto = onnx.parser.parse_model(model_text)
-    return deserialize_model(proto)
+    model = deserialize_model(proto)
+    values = _convenience.create_value_mapping(model.graph)
+    if with_initializers:
+        # Add initializers to the model
+        for name, tensor in with_initializers.items():
+            if name not in values:
+                raise ValueError(f"Value '{name}' does not exist in model.")
+            initializer = values[name]
+            initializer.const_value = tensor
+            model.graph.register_initializer(initializer)
+    return model
+
+
+def to_onnx_text(
+    model: _protocols.ModelProtocol, /, exclude_initializers: bool = False
+) -> str:
+    """Convert the IR model to the ONNX textual representation.
+
+    Args:
+        model: The IR model to convert.
+        exclude_initializers: If True, the initializers will not be included in the output.
+
+    Returns:
+        The ONNX textual representation of the model.
+    """
+    proto = serialize_model(model)
+    if exclude_initializers:
+        del proto.graph.initializer[:]
+    text = onnx.printer.to_text(proto)
+    return text
 
 
 @typing.overload
