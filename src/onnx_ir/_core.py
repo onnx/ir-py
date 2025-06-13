@@ -2366,6 +2366,28 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return len(self)
 
+    def all_nodes(self) -> Iterator[Node]:
+        """Get all nodes in the graph and its subgraphs in O(#nodes + #attributes) time.
+
+        This is an alias for ``onnx_ir.traversal.RecursiveGraphIterator(graph)``.
+        Consider using
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        traversals on nodes.
+        """
+        # NOTE: This is a method specific to Graph, not required by the protocol unless proven
+        return onnx_ir.traversal.RecursiveGraphIterator(self)
+
+    def subgraphs(self) -> Iterator[Graph]:
+        """Get all subgraphs in the graph in O(#nodes + #attributes) time."""
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
+            if graph is self:
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
+
     # Mutation methods
     def append(self, node: Node, /) -> None:
         """Append a node to the graph in O(1) time.
@@ -2871,7 +2893,7 @@ Model(
         """Get all graphs and subgraphs in the model.
 
         This is a convenience method to traverse the model. Consider using
-        `onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
         """
         # NOTE(justinchuby): Given
@@ -2880,11 +2902,8 @@ Model(
         # (3) Users familiar with onnxruntime optimization tools expect this method
         # I created this method as a core method instead of an iterator in
         # `traversal.py`.
-        seen_graphs: set[Graph] = set()
-        for node in onnx_ir.traversal.RecursiveGraphIterator(self.graph):
-            if node.graph is not None and node.graph not in seen_graphs:
-                seen_graphs.add(node.graph)
-                yield node.graph
+        yield self.graph
+        yield from self.graph.subgraphs()
 
 
 class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrintable):
@@ -3017,6 +3036,28 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     @property
     def metadata_props(self) -> dict[str, str]:
         return self._graph.metadata_props
+
+    def all_nodes(self) -> Iterator[Node]:
+        """Get all nodes in the graph and its subgraphs in O(#nodes + #attributes) time.
+
+        This is an alias for ``onnx_ir.traversal.RecursiveGraphIterator(graph)``.
+        Consider using
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        traversals on nodes.
+        """
+        # NOTE: This is a method specific to Graph, not required by the protocol unless proven
+        return onnx_ir.traversal.RecursiveGraphIterator(self)
+
+    def subgraphs(self) -> Iterator[Graph]:
+        """Get all subgraphs in the function in O(#nodes + #attributes) time."""
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
+            if graph is self._graph:
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
