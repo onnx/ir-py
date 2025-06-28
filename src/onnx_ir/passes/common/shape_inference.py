@@ -15,6 +15,7 @@ import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir.passes.common import _c_api_utils
+from .symbolic_shape_infer import SymbolicShapeInference
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,15 @@ class ShapeInferencePass(ir.passes.InPlacePass):
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         def partial_infer_shapes(proto: onnx.ModelProto) -> onnx.ModelProto:
-            return onnx.shape_inference.infer_shapes(
-                proto,
-                check_type=self.check_type,
-                strict_mode=self.strict_mode,
-                data_prop=self.data_prop,
-            )
+            try:
+                return SymbolicShapeInference.infer_shapes(proto, auto_merge=True)
+            except Exception:
+                return onnx.shape_inference.infer_shapes(
+                    proto,
+                    check_type=self.check_type,
+                    strict_mode=self.strict_mode,
+                    data_prop=self.data_prop,
+                )
 
         try:
             inferred_model_proto = _c_api_utils.call_onnx_api(partial_infer_shapes, model)
