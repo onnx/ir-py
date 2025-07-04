@@ -7,6 +7,7 @@ __all__ = [
     "ClearMetadataAndDocStringPass",
     "CommonSubexpressionEliminationPass",
     "DeduplicateInitializersPass",
+    "IdentityEliminationPass",
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
@@ -29,6 +30,9 @@ from onnx_ir.passes.common.constant_manipulation import (
     LiftConstantsToInitializersPass,
     LiftSubgraphInitializersToMainGraphPass,
     RemoveInitializersFromInputsPass,
+)
+from onnx_ir.passes.common.identity_elimination import (
+    IdentityEliminationPass,
 )
 from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateInitializersPass,
