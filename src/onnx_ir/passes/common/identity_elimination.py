@@ -92,7 +92,6 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
             for idx, graph_output in enumerate(graph_like.outputs):
                 if graph_output is output_value:
                     graph_like.outputs[idx] = input_value
-                    break
 
         # Remove the identity node
         graph_like.remove(node, safe=True)
