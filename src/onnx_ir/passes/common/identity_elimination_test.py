@@ -441,7 +441,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
         func_input = ir.Input(
             "func_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
-        
+
         # Create Identity node in function
         identity_node = ir.Node("", "Identity", inputs=[func_input])
         identity_node.outputs[0].name = "func_identity_output"
@@ -473,7 +473,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
         main_input = ir.Input(
             "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
-        
+
         # Call the function
         call_node = ir.Node("test_domain", "test_function", inputs=[main_input])
         call_node.outputs[0].name = "main_output"
@@ -560,7 +560,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
         outputs = result.model.graph.outputs
         identity_output = None
         other_output = None
-        
+
         for output in outputs:
             if output.name == original_identity_output_name:
                 identity_output = output
@@ -569,11 +569,11 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
         self.assertIsNotNone(identity_output)
         self.assertIsNotNone(other_output)
-        
+
         # The identity output should now be the intermediate value (renamed)
         self.assertEqual(identity_output.name, original_identity_output_name)
         self.assertIs(identity_output, const_node.outputs[0])
-        
+
         # The other output should be unchanged
         self.assertEqual(other_output.name, "other_output")
         self.assertIs(other_output, add_node.outputs[0])
