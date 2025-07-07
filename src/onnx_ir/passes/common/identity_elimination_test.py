@@ -402,6 +402,229 @@ class TestIdentityEliminationPass(unittest.TestCase):
         self.assertEqual(len(identity_nodes), 1)
         self.assertEqual(identity_nodes[0].domain, "custom.domain")
 
+    def test_non_identity_node_skipped(self):
+        """Test that non-Identity nodes are skipped (covers line 55)."""
+        input_value = ir.Input(
+            "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create Add node (not Identity)
+        add_node = ir.Node("", "Add", inputs=[input_value, input_value])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = input_value.shape
+        add_node.outputs[0].type = input_value.type
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[add_node.outputs[0]],
+            nodes=[add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass did not modify the model
+        self.assertFalse(result.modified)
+
+        # Verify Add node was not eliminated
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 1)
+        self.assertEqual(remaining_nodes[0].op_type, "Add")
+
+    def test_function_with_identity_elimination(self):
+        """Test that Identity nodes in functions are processed."""
+        # Create function with Identity node
+        func_input = ir.Input(
+            "func_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        
+        # Create Identity node in function
+        identity_node = ir.Node("", "Identity", inputs=[func_input])
+        identity_node.outputs[0].name = "func_identity_output"
+        identity_node.outputs[0].shape = func_input.shape
+        identity_node.outputs[0].type = func_input.type
+
+        # Create Add node that uses the Identity output
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], func_input])
+        add_node.outputs[0].name = "func_add_output"
+        add_node.outputs[0].shape = func_input.shape
+        add_node.outputs[0].type = func_input.type
+
+        # Create function graph
+        func_graph = ir.Graph(
+            inputs=[func_input],
+            outputs=[add_node.outputs[0]],  # Identity output is NOT a function output
+            nodes=[identity_node, add_node],
+            name="test_function_graph",
+        )
+
+        function = ir.Function(
+            domain="test_domain",
+            name="test_function",
+            graph=func_graph,
+            attributes=[],
+        )
+
+        # Create a main graph
+        main_input = ir.Input(
+            "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        
+        # Call the function
+        call_node = ir.Node("test_domain", "test_function", inputs=[main_input])
+        call_node.outputs[0].name = "main_output"
+        call_node.outputs[0].shape = main_input.shape
+        call_node.outputs[0].type = main_input.type
+
+        main_graph = ir.Graph(
+            inputs=[main_input],
+            outputs=[call_node.outputs[0]],
+            nodes=[call_node],
+            name="main_graph",
+        )
+
+        model = ir.Model(main_graph, ir_version=10, functions=[function])
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity node in function was removed
+        remaining_func_nodes = list(result.model.functions[function.identifier()])
+        self.assertEqual(len(remaining_func_nodes), 1)  # Only Add node should remain
+        self.assertEqual(remaining_func_nodes[0].op_type, "Add")
+
+        # Verify Add node now uses func_input directly
+        add_node_after = remaining_func_nodes[0]
+        self.assertIs(add_node_after.inputs[0], func_input)
+        self.assertIs(add_node_after.inputs[1], func_input)
+
+    def test_multiple_graph_outputs_with_identity(self):
+        """Test case where graph has multiple outputs and only one is the Identity output."""
+        input_value = ir.Input(
+            "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create intermediate value (not a graph input)
+        const_node = ir.Node("", "Constant", inputs=[])
+        const_node.outputs[0].name = "intermediate"
+        const_node.outputs[0].shape = input_value.shape
+        const_node.outputs[0].type = input_value.type
+
+        # Create Identity node
+        identity_node = ir.Node("", "Identity", inputs=[const_node.outputs[0]])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = input_value.shape
+        identity_node.outputs[0].type = input_value.type
+
+        # Create another output (not related to Identity)
+        add_node = ir.Node("", "Add", inputs=[input_value, input_value])
+        add_node.outputs[0].name = "other_output"
+        add_node.outputs[0].shape = input_value.shape
+        add_node.outputs[0].type = input_value.type
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[identity_node.outputs[0], add_node.outputs[0]],  # Multiple outputs
+            nodes=[const_node, identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Store original output name
+        original_identity_output_name = identity_node.outputs[0].name
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity node was removed
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 2)  # Constant and Add nodes should remain
+
+        # Verify we still have 2 outputs
+        self.assertEqual(len(result.model.graph.outputs), 2)
+
+        # Verify the identity output was replaced with the intermediate value
+        outputs = result.model.graph.outputs
+        identity_output = None
+        other_output = None
+        
+        for output in outputs:
+            if output.name == original_identity_output_name:
+                identity_output = output
+            elif output.name == "other_output":
+                other_output = output
+
+        self.assertIsNotNone(identity_output)
+        self.assertIsNotNone(other_output)
+        
+        # The identity output should now be the intermediate value (renamed)
+        self.assertEqual(identity_output.name, original_identity_output_name)
+        self.assertIs(identity_output, const_node.outputs[0])
+        
+        # The other output should be unchanged
+        self.assertEqual(other_output.name, "other_output")
+        self.assertIs(other_output, add_node.outputs[0])
+
+    def test_duplicate_identity_output_in_graph_outputs(self):
+        """Test case where the same Identity output appears multiple times in graph outputs."""
+        # Create intermediate value (not a graph input)
+        const_node = ir.Node("", "Constant", inputs=[])
+        const_node.outputs[0].name = "intermediate"
+        const_node.outputs[0].shape = ir.Shape([2, 2])
+        const_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Identity node
+        identity_node = ir.Node("", "Identity", inputs=[const_node.outputs[0]])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = const_node.outputs[0].shape
+        identity_node.outputs[0].type = const_node.outputs[0].type
+
+        # Create graph with duplicate outputs (same output appears twice)
+        graph = ir.Graph(
+            inputs=[],
+            outputs=[identity_node.outputs[0], identity_node.outputs[0]],  # Same output twice
+            nodes=[const_node, identity_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Store original output name
+        original_identity_output_name = identity_node.outputs[0].name
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity node was removed
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 1)  # Only Constant node should remain
+
+        # Verify we still have 2 outputs
+        self.assertEqual(len(result.model.graph.outputs), 2)
+
+        # Verify BOTH outputs were replaced with the intermediate value
+        outputs = result.model.graph.outputs
+        for output in outputs:
+            self.assertEqual(output.name, original_identity_output_name)
+            self.assertIs(output, const_node.outputs[0])
+
 
 if __name__ == "__main__":
     unittest.main()
