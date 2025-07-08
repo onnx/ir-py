@@ -33,16 +33,14 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
 
         # Use RecursiveGraphIterator to process all nodes in the model graph and subgraphs
         for node in ir.traversal.RecursiveGraphIterator(model.graph):
-            if node.op_type == "Identity" and node.domain == "":
-                if self._try_eliminate_identity_node(node):
-                    modified = True
+            if self._try_eliminate_identity_node(node):
+                modified = True
 
         # Process nodes in functions
         for function in model.functions.values():
             for node in ir.traversal.RecursiveGraphIterator(function):
-                if node.op_type == "Identity" and node.domain == "":
-                    if self._try_eliminate_identity_node(node):
-                        modified = True
+                if self._try_eliminate_identity_node(node):
+                    modified = True
 
         if modified:
             logger.info("Identity elimination pass modified the model")
