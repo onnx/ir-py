@@ -36,20 +36,23 @@ class NameFixPass(ir.passes.InPlacePass):
         seen_value_names: set[str] = set()
         seen_node_names: set[str] = set()
         
+        # Dictionary to track which values have been assigned names
+        value_to_name: dict[ir.Value, str] = {}
+        
         # Counters for generating unique names (using list to pass by reference)
         value_counter = [0]
         node_counter = [0]
 
         # Process the main graph
         if self._fix_graph_names(
-            model.graph, seen_value_names, seen_node_names, value_counter, node_counter
+            model.graph, seen_value_names, seen_node_names, value_to_name, value_counter, node_counter
         ):
             modified = True
 
         # Process functions
         for function in model.functions.values():
             if self._fix_function_names(
-                function, seen_value_names, seen_node_names, value_counter, node_counter
+                function, seen_value_names, seen_node_names, value_to_name, value_counter, node_counter
             ):
                 modified = True
 
@@ -64,28 +67,26 @@ class NameFixPass(ir.passes.InPlacePass):
         graph: ir.Graph,
         seen_value_names: set[str],
         seen_node_names: set[str],
+        value_to_name: dict[ir.Value, str],
         value_counter: list[int],
         node_counter: list[int],
     ) -> bool:
         """Fix names in a graph and return whether modifications were made."""
         modified = False
-        
-        # Keep track of values we've already processed to avoid double-processing
-        processed_values: set[ir.Value] = set()
 
         # Step 1: Fix graph input names first (they have precedence)
         for input_value in graph.inputs:
-            if self._process_value(input_value, seen_value_names, value_counter, processed_values):
+            if self._process_value(input_value, seen_value_names, value_to_name, value_counter):
                 modified = True
 
         # Step 2: Fix graph output names (they have precedence)
         for output_value in graph.outputs:
-            if self._process_value(output_value, seen_value_names, value_counter, processed_values):
+            if self._process_value(output_value, seen_value_names, value_to_name, value_counter):
                 modified = True
 
         # Step 3: Fix initializer names
         for initializer in graph.initializers.values():
-            if self._process_value(initializer, seen_value_names, value_counter, processed_values):
+            if self._process_value(initializer, seen_value_names, value_to_name, value_counter):
                 modified = True
 
         # Step 4: Process all nodes and their values
@@ -101,12 +102,12 @@ class NameFixPass(ir.passes.InPlacePass):
             # Fix input value names (only if not already processed)
             for input_value in node.inputs:
                 if input_value is not None:
-                    if self._process_value(input_value, seen_value_names, value_counter, processed_values):
+                    if self._process_value(input_value, seen_value_names, value_to_name, value_counter):
                         modified = True
 
             # Fix output value names (only if not already processed)
             for output_value in node.outputs:
-                if self._process_value(output_value, seen_value_names, value_counter, processed_values):
+                if self._process_value(output_value, seen_value_names, value_to_name, value_counter):
                     modified = True
 
         return modified
@@ -116,23 +117,21 @@ class NameFixPass(ir.passes.InPlacePass):
         function: ir.Function,
         seen_value_names: set[str],
         seen_node_names: set[str],
+        value_to_name: dict[ir.Value, str],
         value_counter: list[int],
         node_counter: list[int],
     ) -> bool:
         """Fix names in a function and return whether modifications were made."""
         modified = False
-        
-        # Keep track of values we've already processed to avoid double-processing
-        processed_values: set[ir.Value] = set()
 
         # Process function inputs first (they have precedence)
         for input_value in function.inputs:
-            if self._process_value(input_value, seen_value_names, value_counter, processed_values):
+            if self._process_value(input_value, seen_value_names, value_to_name, value_counter):
                 modified = True
 
         # Process function outputs (they have precedence)
         for output_value in function.outputs:
-            if self._process_value(output_value, seen_value_names, value_counter, processed_values):
+            if self._process_value(output_value, seen_value_names, value_to_name, value_counter):
                 modified = True
 
         # Process all nodes and their values
@@ -148,12 +147,12 @@ class NameFixPass(ir.passes.InPlacePass):
             # Fix input value names (only if not already processed)
             for input_value in node.inputs:
                 if input_value is not None:
-                    if self._process_value(input_value, seen_value_names, value_counter, processed_values):
+                    if self._process_value(input_value, seen_value_names, value_to_name, value_counter):
                         modified = True
 
             # Fix output value names (only if not already processed)
             for output_value in node.outputs:
-                if self._process_value(output_value, seen_value_names, value_counter, processed_values):
+                if self._process_value(output_value, seen_value_names, value_to_name, value_counter):
                     modified = True
 
         return modified
@@ -162,19 +161,22 @@ class NameFixPass(ir.passes.InPlacePass):
         self, 
         value: ir.Value, 
         seen_value_names: set[str], 
-        value_counter: list[int], 
-        processed_values: set[ir.Value]
+        value_to_name: dict[ir.Value, str],
+        value_counter: list[int]
     ) -> bool:
         """Process a value only if it hasn't been processed before."""
-        if value in processed_values:
+        if value in value_to_name:
             return False
         
-        processed_values.add(value)
-        
+        modified = False
         if value.name is None or value.name == "":
-            return self._assign_value_name(value, seen_value_names, value_counter)
+            modified = self._assign_value_name(value, seen_value_names, value_counter)
         else:
-            return self._fix_duplicate_value_name(value, seen_value_names)
+            modified = self._fix_duplicate_value_name(value, seen_value_names)
+        
+        # Record the final name for this value
+        value_to_name[value] = value.name
+        return modified
 
     def _assign_value_name(
         self, value: ir.Value, seen_names: set[str], counter: list[int]
