@@ -417,9 +417,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         else:
             self._shape = shape
             self._shape.freeze()
-        if isinstance(value, np.generic):
-            # Turn numpy scalar into a numpy array
-            value = np.array(value)  # type: ignore[assignment]
         if dtype is None:
             if isinstance(value, np.ndarray):
                 self._dtype = _enums.DataType.from_numpy(value.dtype)
@@ -657,13 +654,15 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             self._array = np.empty(self.shape.numpy(), dtype=self.dtype.numpy())
             return
         # Map the whole file into the memory
+        # TODO(justinchuby): Verify if this would exhaust the memory address space
         with open(self.path, "rb") as f:
             self.raw = mmap.mmap(
                 f.fileno(),
                 0,
                 access=mmap.ACCESS_READ,
             )
-
+        # Handle the byte order correctly by always using little endian
+        dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
         if self.dtype in {
             _enums.DataType.INT4,
             _enums.DataType.UINT4,
@@ -673,18 +672,16 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             dt = np.dtype(np.uint8).newbyteorder("<")
             count = self.size // 2 + self.size % 2
         else:
-            # Handle the byte order correctly by always using little endian
-            dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
             count = self.size
-
         self._array = np.frombuffer(self.raw, dtype=dt, offset=self.offset or 0, count=count)
         shape = self.shape.numpy()
-
-        if self.dtype.bitwidth == 4:
-            # Unpack the 4bit arrays
-            self._array = _type_casting.unpack_4bitx2(self._array, shape).view(
-                self.dtype.numpy()
-            )
+        if self.dtype == _enums.DataType.INT4:
+            # Unpack the int4 arrays
+            self._array = _type_casting.unpack_int4(self._array, shape)
+        elif self.dtype == _enums.DataType.UINT4:
+            self._array = _type_casting.unpack_uint4(self._array, shape)
+        elif self.dtype == _enums.DataType.FLOAT4E2M1:
+            self._array = _type_casting.unpack_float4e2m1(self._array, shape)
         else:
             self._array = self._array.reshape(shape)
 
@@ -967,10 +964,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
-    """A tensor that stores 4bit datatypes in packed format.
-
-    .. versionadded:: 0.1.2
-    """
+    """A tensor that stores 4bit datatypes in packed format."""
 
     __slots__ = (
         "_dtype",
@@ -1071,7 +1065,15 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         """
         array = self.numpy_packed()
         # ONNX IR returns the unpacked arrays
-        return _type_casting.unpack_4bitx2(array, self.shape.numpy()).view(self.dtype.numpy())
+        if self.dtype == _enums.DataType.INT4:
+            return _type_casting.unpack_int4(array, self.shape.numpy())
+        if self.dtype == _enums.DataType.UINT4:
+            return _type_casting.unpack_uint4(array, self.shape.numpy())
+        if self.dtype == _enums.DataType.FLOAT4E2M1:
+            return _type_casting.unpack_float4e2m1(array, self.shape.numpy())
+        raise TypeError(
+            f"PackedTensor only supports INT4, UINT4, FLOAT4E2M1, but got {self.dtype}"
+        )
 
     def numpy_packed(self) -> npt.NDArray[np.uint8]:
         """Return the tensor as a packed array."""
@@ -2333,12 +2335,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(graph)``.
 
-    .. versionchanged:: 0.1.1
-        Values with non-none producers will be rejected as graph inputs or initializers.
-
-    .. versionadded:: 0.1.1
-        Added ``add`` method to initializers and attributes.
-
     Attributes:
         name: The name of the graph.
         inputs: The input values of the graph.
@@ -2549,17 +2545,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Consider using
         :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
-
-        .. versionadded:: 0.1.2
         """
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return onnx_ir.traversal.RecursiveGraphIterator(self)
 
     def subgraphs(self) -> Iterator[Graph]:
-        """Get all subgraphs in the graph in O(#nodes + #attributes) time.
-
-        .. versionadded:: 0.1.2
-        """
+        """Get all subgraphs in the graph in O(#nodes + #attributes) time."""
         seen_graphs: set[Graph] = set()
         for node in onnx_ir.traversal.RecursiveGraphIterator(self):
             graph = node.graph
@@ -2789,172 +2780,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
-
-    def __call__(self, *args: Value) -> tuple[Value, ...]:
-        """Create a copy of this graph and connect it with the provided input values.
-        
-        This enables graph composition by creating a copy of the graph with new
-        values connected as inputs. All nodes from this graph are cloned and
-        added to the graph that owns the input values.
-        
-        Args:
-            *args: Input values to connect to the graph inputs. The number of
-                arguments must match the number of graph inputs.
-                
-        Returns:
-            A tuple of output values from the cloned graph.
-            
-        Raises:
-            ValueError: If the number of input arguments doesn't match the graph inputs.
-            ValueError: If the input values don't all belong to the same graph.
-            ValueError: If any input value doesn't belong to a graph.
-        """
-        # Validate inputs
-        if len(args) != len(self.inputs):
-            raise ValueError(
-                f"Expected {len(self.inputs)} input arguments, got {len(args)}"
-            )
-        
-        if not args:
-            # Handle the case of a graph with no inputs
-            target_graph = None
-        else:
-            # Validate that all input values belong to a graph and the same graph
-            target_graph = args[0].graph
-            if target_graph is None:
-                raise ValueError(f"Input value {args[0]} does not belong to any graph")
-            
-            for i, arg in enumerate(args[1:], 1):
-                if arg.graph is None:
-                    raise ValueError(f"Input value {arg} does not belong to any graph")
-                if arg.graph is not target_graph:
-                    raise ValueError(
-                        f"All input values must belong to the same graph. "
-                        f"Value at index {i} belongs to a different graph."
-                    )
-        
-        # Create value mapping from original inputs to provided inputs
-        value_map: dict[Value, Value] = {}
-        for original_input, new_input in zip(self.inputs, args):
-            value_map[original_input] = new_input
-        
-        # Clone all nodes, building the value map as we go
-        cloned_nodes = []
-        for node in self:
-            cloned_node = self._clone_node_for_composition(node, value_map, target_graph)
-            cloned_nodes.append(cloned_node)
-        
-        # Clone initializers and add them to the target graph
-        if target_graph is not None:
-            for init in self.initializers.values():
-                cloned_init = self._clone_value_for_composition(init, value_map)
-                target_graph.register_initializer(cloned_init)
-        
-        # Add all cloned nodes to the target graph
-        if target_graph is not None and cloned_nodes:
-            target_graph.extend(cloned_nodes)
-        
-        # Return the cloned output values
-        cloned_outputs = []
-        for output in self.outputs:
-            if output in value_map:
-                cloned_outputs.append(value_map[output])
-            else:
-                # This should not happen if the graph is well-formed
-                raise RuntimeError(f"Output value {output} was not found in value mapping")
-        
-        return tuple(cloned_outputs)
-    
-    def _clone_node_for_composition(
-        self, node: Node, value_map: dict[Value, Value], target_graph: Graph | None
-    ) -> Node:
-        """Clone a node for graph composition, updating the value map."""
-        # Clone input values (or use existing mappings)
-        cloned_inputs = []
-        for input_val in node.inputs:
-            if input_val is None:
-                cloned_inputs.append(None)
-            elif input_val in value_map:
-                cloned_inputs.append(value_map[input_val])
-            else:
-                # This input is not yet mapped, clone it
-                cloned_input = self._clone_value_for_composition(input_val, value_map)
-                value_map[input_val] = cloned_input
-                cloned_inputs.append(cloned_input)
-        
-        # Clone attributes
-        cloned_attributes = []
-        for attr in node.attributes.values():
-            if isinstance(attr, Attr):
-                cloned_attr = self._clone_attr_for_composition(attr, value_map, target_graph)
-                if cloned_attr is not None:
-                    cloned_attributes.append(cloned_attr)
-        
-        # Create the new node
-        cloned_node = Node(
-            domain=node.domain,
-            op_type=node.op_type,
-            inputs=cloned_inputs,
-            attributes=cloned_attributes,
-            overload=node.overload,
-            num_outputs=len(node.outputs),
-            graph=target_graph,
-            name=node.name,  # Note: Graph.extend will assign unique names if needed
-            doc_string=node.doc_string,
-            metadata_props=node.metadata_props,
-        )
-        
-        # Map the output values
-        for original_output, cloned_output in zip(node.outputs, cloned_node.outputs):
-            value_map[original_output] = cloned_output
-            # Copy relevant properties
-            cloned_output.name = original_output.name
-            cloned_output.type = original_output.type
-            cloned_output.shape = original_output.shape
-            cloned_output.const_value = original_output.const_value
-        
-        return cloned_node
-    
-    def _clone_value_for_composition(
-        self, value: Value, value_map: dict[Value, Value]
-    ) -> Value:
-        """Clone a value for graph composition."""
-        if value in value_map:
-            return value_map[value]
-        
-        # Create a new value
-        cloned_value = Value(
-            name=value.name,
-            type=value.type,
-            shape=value.shape,
-            doc_string=value.doc_string,
-            const_value=value.const_value,
-        )
-        
-        value_map[value] = cloned_value
-        return cloned_value
-    
-    def _clone_attr_for_composition(
-        self, attr: Attr, value_map: dict[Value, Value], target_graph: Graph | None
-    ) -> Attr | None:
-        """Clone an attribute for graph composition."""
-        if not attr.is_ref():
-            if attr.type == _enums.AttributeType.GRAPH:
-                # Recursively clone subgraphs
-                subgraph = attr.as_graph()
-                # For subgraphs, we need to handle them specially
-                # For now, we'll just return the attribute as-is
-                # TODO: Implement proper subgraph composition if needed
-                return attr
-            elif attr.type == _enums.AttributeType.GRAPHS:
-                # Handle multiple subgraphs
-                # For now, we'll just return the attribute as-is
-                # TODO: Implement proper subgraph composition if needed
-                return attr
-            return attr
-        
-        # Handle reference attributes - for now just return as-is
-        return attr
 
     def __str__(self) -> str:
         return _graph_str(self)
@@ -3391,17 +3216,12 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         Consider using
         :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
-
-        .. versionadded:: 0.1.2
         """
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return onnx_ir.traversal.RecursiveGraphIterator(self)
 
     def subgraphs(self) -> Iterator[Graph]:
-        """Get all subgraphs in the function in O(#nodes + #attributes) time.
-
-        .. versionadded:: 0.1.2
-        """
+        """Get all subgraphs in the function in O(#nodes + #attributes) time."""
         seen_graphs: set[Graph] = set()
         for node in onnx_ir.traversal.RecursiveGraphIterator(self):
             graph = node.graph
