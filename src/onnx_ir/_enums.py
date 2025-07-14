@@ -99,8 +99,6 @@ class DataType(enum.IntEnum):
                 return DataType.INT4
             if dtype.names == ("float4e2m1",):
                 return DataType.FLOAT4E2M1
-            if dtype.names == ("e8m0fnu",):
-                return DataType.FLOAT8E8M0
         raise TypeError(f"Unsupported numpy data type: {dtype}")
 
     @classmethod
