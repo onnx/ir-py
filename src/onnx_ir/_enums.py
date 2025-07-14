@@ -65,6 +65,7 @@ class DataType(enum.IntEnum):
     UINT4 = 21
     INT4 = 22
     FLOAT4E2M1 = 23
+    FLOAT8E8M0 = 24
 
     @classmethod
     def from_numpy(cls, dtype: np.dtype) -> DataType:
@@ -167,6 +168,7 @@ class DataType(enum.IntEnum):
             DataType.FLOAT8E5M2,
             DataType.FLOAT8E5M2FNUZ,
             DataType.FLOAT4E2M1,
+            DataType.FLOAT8E8M0,
         }
 
     def is_integer(self) -> bool:
@@ -209,6 +211,7 @@ class DataType(enum.IntEnum):
             DataType.FLOAT8E5M2FNUZ,
             DataType.INT4,
             DataType.FLOAT4E2M1,
+            DataType.FLOAT8E8M0,
         }
 
     def __repr__(self) -> str:
@@ -241,6 +244,7 @@ _BITWIDTH_MAP = {
     DataType.UINT4: 4,
     DataType.INT4: 4,
     DataType.FLOAT4E2M1: 4,
+    DataType.FLOAT8E8M0: 8,
 }
 
 
@@ -266,6 +270,7 @@ _NP_TYPE_TO_DATA_TYPE = {
     np.dtype(ml_dtypes.float8_e4m3fnuz): DataType.FLOAT8E4M3FNUZ,
     np.dtype(ml_dtypes.float8_e5m2): DataType.FLOAT8E5M2,
     np.dtype(ml_dtypes.float8_e5m2fnuz): DataType.FLOAT8E5M2FNUZ,
+    np.dtype(ml_dtypes.float8_e8m0fnu): DataType.FLOAT8E8M0,
     np.dtype(ml_dtypes.int4): DataType.INT4,
     np.dtype(ml_dtypes.uint4): DataType.UINT4,
 }
@@ -290,6 +295,7 @@ _DATA_TYPE_TO_SHORT_NAME = {
     DataType.FLOAT8E5M2: "f8e5m2",
     DataType.FLOAT8E4M3FNUZ: "f8e4m3fnuz",
     DataType.FLOAT8E5M2FNUZ: "f8e5m2fnuz",
+    DataType.FLOAT8E8M0: "f8e8m0",
     DataType.FLOAT4E2M1: "f4e2m1",
     DataType.COMPLEX64: "c64",
     DataType.COMPLEX128: "c128",
