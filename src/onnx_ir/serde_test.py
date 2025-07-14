@@ -430,6 +430,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             ir.DataType.FLOAT8E5M2,
             ir.DataType.FLOAT8E4M3FN,
             ir.DataType.BFLOAT16,
+            ir.DataType.FLOAT8E8M0,
         }:
             # There is a bug in ml_dtypes that causes equality checks to fail for these dtypes
             # See https://github.com/jax-ml/ml_dtypes/issues/301
