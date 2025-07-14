@@ -238,7 +238,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             expected_array = np.array([[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]])
         else:
             expected_array = np.array([[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]])
-        
+
         # Handle the case where ONNX doesn't support FLOAT8E8M0 yet (value 24)
         if dtype == 24:  # FLOAT8E8M0
             # Create tensor proto manually since ONNX helper might not support this type yet
@@ -248,8 +248,10 @@ class TensorProtoTensorTest(unittest.TestCase):
             tensor_proto.dims[:] = [1, 9]
             tensor_proto.raw_data = expected_array.astype(np_dtype).tobytes()
         else:
-            tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 9], expected_array)
-        
+            tensor_proto = onnx.helper.make_tensor(
+                "test_tensor", dtype, [1, 9], expected_array
+            )
+
         tensor = serde.TensorProtoTensor(tensor_proto)
         np.testing.assert_array_equal(
             tensor.numpy().view(np_dtype).astype(np.float32), expected_array

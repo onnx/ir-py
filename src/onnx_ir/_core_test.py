@@ -411,9 +411,7 @@ class ExternalTensorTest(unittest.TestCase):
             expected_array = np.array(
                 [[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]]
             ).astype(np_dtype)
-            tensor_proto = ir.serde.serialize_tensor(
-                ir.Tensor(expected_array, dtype=dtype)
-            )
+            tensor_proto = ir.serde.serialize_tensor(ir.Tensor(expected_array, dtype=dtype))
         else:
             expected_array = np.array(
                 [[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]]
