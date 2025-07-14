@@ -52,7 +52,7 @@ class TensorTest(unittest.TestCase):
             ("float8e4m3fnuz", np.uint8, ir.DataType.FLOAT8E4M3FNUZ),
             ("float8e5m2", np.uint8, ir.DataType.FLOAT8E5M2),
             ("float8e5m2fnuz", np.uint8, ir.DataType.FLOAT8E5M2FNUZ),
-            ("float8e8m0", ml_dtypes.float8_e8m0fnu, ir.DataType.FLOAT8E8M0),
+            ("float8e8m0", np.uint8, ir.DataType.FLOAT8E8M0),
             ("int4", np.int8, ir.DataType.INT4),
             ("int4_uint8", np.uint8, ir.DataType.INT4),
             ("uint4", np.uint8, ir.DataType.UINT4),
