@@ -224,11 +224,32 @@ class TensorProtoTensorTest(unittest.TestCase):
                 onnx.TensorProto.FLOAT8E5M2FNUZ,
                 ml_dtypes.float8_e5m2fnuz,
             ),
+            (
+                "FLOAT8E8M0",
+                24,  # FLOAT8E8M0 value from the enum
+                ml_dtypes.float8_e8m0fnu,
+            ),
         ]
     )
     def test_tensor_proto_tensor_float8(self, _: str, dtype: int, np_dtype):
-        expected_array = np.array([[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]])
-        tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 9], expected_array)
+        # FLOAT8E8M0 has different precision characteristics (8 exponent bits, 0 mantissa bits)
+        # It can only represent powers of 2 and special values
+        if dtype == 24:  # FLOAT8E8M0
+            expected_array = np.array([[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]])
+        else:
+            expected_array = np.array([[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]])
+        
+        # Handle the case where ONNX doesn't support FLOAT8E8M0 yet (value 24)
+        if dtype == 24:  # FLOAT8E8M0
+            # Create tensor proto manually since ONNX helper might not support this type yet
+            tensor_proto = onnx.TensorProto()
+            tensor_proto.name = "test_tensor"
+            tensor_proto.data_type = dtype
+            tensor_proto.dims[:] = [1, 9]
+            tensor_proto.raw_data = expected_array.astype(np_dtype).tobytes()
+        else:
+            tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 9], expected_array)
+        
         tensor = serde.TensorProtoTensor(tensor_proto)
         np.testing.assert_array_equal(
             tensor.numpy().view(np_dtype).astype(np.float32), expected_array
@@ -371,6 +392,7 @@ class TensorProtoTensorTest(unittest.TestCase):
                     ("FLOAT8E4M3FNUZ", ir.DataType.FLOAT8E4M3FNUZ),
                     ("FLOAT8E5M2", ir.DataType.FLOAT8E5M2),
                     ("FLOAT8E5M2FNUZ", ir.DataType.FLOAT8E5M2FNUZ),
+                    ("FLOAT8E8M0", ir.DataType.FLOAT8E8M0),
                     ("UINT4", ir.DataType.UINT4),
                     ("INT4", ir.DataType.INT4),
                     ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
