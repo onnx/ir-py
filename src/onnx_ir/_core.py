@@ -262,6 +262,7 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
             ml_dtypes.float8_e4m3fn,
             ml_dtypes.float8_e5m2fnuz,
             ml_dtypes.float8_e5m2,
+            ml_dtypes.float8_e8m0fnu,
         ):
             raise TypeError(
                 f"The numpy array dtype must be uint8 or ml_dtypes.float8* (not {array.dtype}) for IR data type {dtype}."
@@ -280,11 +281,6 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
             if array.dtype not in (np.uint8, ml_dtypes.float4_e2m1fn):
                 raise TypeError(
                     f"The numpy array dtype must be uint8 or ml_dtypes.float4_e2m1fn (not {array.dtype}) for IR data type {dtype}."
-                )
-        if dtype == _enums.DataType.FLOAT8E8M0:
-            if array.dtype not in (np.uint8, ml_dtypes.float8_e8m0fnu):
-                raise TypeError(
-                    f"The numpy array dtype must be uint8 or ml_dtypes.float8_e8m0fnu (not {array.dtype}) for IR data type {dtype}."
                 )
         return
 
