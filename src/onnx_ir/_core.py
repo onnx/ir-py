@@ -512,7 +512,10 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         }:
             # Pack the array into int4
             array = _type_casting.pack_4bitx2(array)
-        else:
+        elif self.dtype not in {
+            _enums.DataType.STRING,
+            _enums.DataType.UNDEFINED,
+        }:
             assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
         if not _IS_LITTLE_ENDIAN:
             array = array.view(array.dtype.newbyteorder("<"))
