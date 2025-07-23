@@ -173,13 +173,13 @@ class OffloadExternalTensorTest(unittest.TestCase):
         node_1 = ir.Node(
             "",
             "Op_1",
-            inputs=[node_0.outputs[0]],
+            inputs=[node_0.o()],
             num_outputs=1,
             name="node_1",
         )
         graph = ir.Graph(
             inputs=node_0.inputs,  # type: ignore
-            outputs=[node_1.outputs[0]],
+            outputs=[node_1.o()],
             initializers=[
                 ir.Value(name="tensor1", const_value=tensor1),
                 ir.Value(name="tensor2", const_value=tensor2),
