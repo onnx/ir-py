@@ -216,7 +216,7 @@ class GraphOutputs(_GraphIO):
 
 
 class GraphInitializers(collections.UserDict[str, "_core.Value"]):
-    """The initializers of a Graph."""
+    """The initializers of a Graph as ``dict[str, Value]`` with additional mutation methods."""
 
     def __init__(self, graph: _core.Graph, dict=None, /, **kwargs):
         # Perform checks first in _set_graph before modifying the data structure with super().__init__()
@@ -291,7 +291,7 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 
 
 class Attributes(collections.UserDict[str, "_core.Attr"]):
-    """The attributes of a Node."""
+    """The attributes of a Node as ``dict[str, Attr]`` with additional access methods."""
 
     def __init__(self, attrs: Iterable[_core.Attr]):
         super().__init__({attr.name: attr for attr in attrs})

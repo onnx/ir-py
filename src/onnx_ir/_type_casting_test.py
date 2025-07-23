@@ -15,10 +15,10 @@ class TypeCastingTest(unittest.TestCase):
             ("unsigned", np.uint8),
         ]
     )
-    def test_pack_int4_even_sized_array(self, _: str, dtype):
+    def test_pack_4bitx2_even_sized_array(self, _: str, dtype):
         array = np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=dtype)
         expected = np.array([0x21, 0x43, 0x65, 0x87], dtype=np.uint8)
-        actual = _type_casting.pack_int4(array)
+        actual = _type_casting.pack_4bitx2(array)
         np.testing.assert_array_equal(actual, expected)
 
     @parameterized.parameterized.expand(
@@ -27,10 +27,10 @@ class TypeCastingTest(unittest.TestCase):
             ("unsigned", np.uint8),
         ]
     )
-    def test_pack_int4_odd_sized_array(self, _: str, dtype):
+    def test_pack_4bitx2_odd_sized_array(self, _: str, dtype):
         array = np.array([1, 2, 3, 4, 5], dtype=dtype)
         expected = np.array([0x21, 0x43, 0x5], dtype=np.uint8)
-        actual = _type_casting.pack_int4(array)
+        actual = _type_casting.pack_4bitx2(array)
         np.testing.assert_array_equal(actual, expected)
 
     @parameterized.parameterized.expand(
@@ -39,10 +39,10 @@ class TypeCastingTest(unittest.TestCase):
             ("unsigned", np.uint8),
         ]
     )
-    def test_pack_int4_returns_flatten_array(self, _: str, dtype):
+    def test_pack_4bitx2_returns_flatten_array(self, _: str, dtype):
         array = np.array([[[1, 2, 3, 4, 5]]], dtype=dtype)
         expected = np.array([0x21, 0x43, 0x5], dtype=np.uint8)
-        actual = _type_casting.pack_int4(array)
+        actual = _type_casting.pack_4bitx2(array)
         np.testing.assert_array_equal(actual, expected)
 
 

@@ -24,9 +24,9 @@ classifiers = [
 dependencies = ["numpy", "onnx>=1.16", "typing_extensions>=4.10", "ml_dtypes"]
 
 [project.urls]
-Homepage = "https://onnx.ai/onnx-ir"
-Issues = "https://github.com/onnx/onnx-ir/issues"
-Repository = "https://github.com/onnx/onnx-ir"
+Homepage = "https://onnx.ai/ir-py"
+Issues = "https://github.com/onnx/ir-py/issues"
+Repository = "https://github.com/onnx/ir-py"
 
 [tool.setuptools.dynamic]
 version = {attr = "onnx_ir.__version__"}
@@ -107,11 +107,16 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "pathlib".msg = "Using pathlib can impact performance. Use os.path instead"
+"onnx.helper".msg = "onnx helpers tend to be protobuf-y and slow. Consider using ir.tensor, ir.DataType and related methods instead"
+"onnx.numpy_helper".msg = "onnx numpy helpers tend to be slow. Consider using ir.tensor, ir.DataType and related methods instead"
+"onnx".msg = "Use onnx_ir methods and classes instead, or create an exception with `# noqa: TID251` if you need to use onnx directly"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["TID252"] # Allow relative imports in init files
 "setup.py" = ["TID251"] # pathlib is allowed in supporting code
 "**/*_test.py" = ["TID251"] # pathlib is allowed in tests
+"tools/**/*.py" = ["TID251"] # OK to use in tools
+"src/onnx_ir/testing.py" = ["TID251"] # OK to use in tools
 
 [tool.ruff.lint.flake8-tidy-imports]
 # Disallow all relative imports.

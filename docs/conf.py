@@ -61,6 +61,7 @@ master_doc = "index"
 language = "en"
 exclude_patterns = []
 pygments_style = "default"
+autodoc_typehints = "description"
 
 # -- Options for HTML output -------------------------------------------------
 

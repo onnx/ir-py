@@ -127,7 +127,7 @@ class PassBase(abc.ABC):
 
         # Check postconditions
         try:
-            self.ensures(model)
+            self.ensures(result.model)
         except PostconditionError:
             raise
         except Exception as e:

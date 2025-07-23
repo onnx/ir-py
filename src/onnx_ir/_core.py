@@ -78,6 +78,7 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.FLOAT8E4M3FNUZ,
         _enums.DataType.FLOAT8E5M2,
         _enums.DataType.FLOAT8E5M2FNUZ,
+        _enums.DataType.FLOAT8E8M0,
         _enums.DataType.INT4,
         _enums.DataType.UINT4,
         _enums.DataType.FLOAT4E2M1,
@@ -251,16 +252,17 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
     or corresponding dtypes from the ``ml_dtype`` package.
     """
     if dtype in _NON_NUMPY_NATIVE_TYPES:
-        if dtype.itemsize == 2 and array.dtype not in (np.uint16, ml_dtypes.bfloat16):
+        if dtype.bitwidth == 16 and array.dtype not in (np.uint16, ml_dtypes.bfloat16):
             raise TypeError(
                 f"The numpy array dtype must be uint16 or ml_dtypes.bfloat16 (not {array.dtype}) for IR data type {dtype}."
             )
-        if dtype.itemsize == 1 and array.dtype not in (
+        if dtype.bitwidth == 8 and array.dtype not in (
             np.uint8,
             ml_dtypes.float8_e4m3fnuz,
             ml_dtypes.float8_e4m3fn,
             ml_dtypes.float8_e5m2fnuz,
             ml_dtypes.float8_e5m2,
+            ml_dtypes.float8_e8m0fnu,
         ):
             raise TypeError(
                 f"The numpy array dtype must be uint8 or ml_dtypes.float8* (not {array.dtype}) for IR data type {dtype}."
@@ -319,6 +321,8 @@ def _maybe_view_np_array_with_ml_dtypes(
         return array.view(ml_dtypes.float8_e5m2)
     if dtype == _enums.DataType.FLOAT8E5M2FNUZ:
         return array.view(ml_dtypes.float8_e5m2fnuz)
+    if dtype == _enums.DataType.FLOAT8E8M0:
+        return array.view(ml_dtypes.float8_e8m0fnu)
     if dtype == _enums.DataType.INT4:
         return array.view(ml_dtypes.int4)
     if dtype == _enums.DataType.UINT4:
@@ -385,9 +389,10 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
         Args:
             value: The backing data of the tensor. It can be a numpy array compatible object or a DLPack compatible object.
-                When the dtype is not one of the numpy native dtypes, the value needs
-                to be ``uint8`` for 4-bit and 8-bit data types, and ``uint16`` for bfloat16
-                when the value is a numpy array; ``dtype`` must be specified in this case.
+                When the dtype is not one of the numpy native dtypes, the value can
+                be ``uint8`` (unpacked) or ml_dtypes types for 4-bit and 8-bit data types,
+                and ``uint16`` or ml_dtype.bfloat16 for bfloat16 when the value is a numpy array;
+                ``dtype`` must be specified in this case.
             dtype: The data type of the tensor. It can be None only when value is a numpy array.
                 Users are responsible for making sure the dtype matches the value when value is not a numpy array.
             shape: The shape of the tensor. If None, the shape is obtained from the value.
@@ -416,12 +421,16 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         else:
             self._shape = shape
             self._shape.freeze()
+        if isinstance(value, np.generic):
+            # Turn numpy scalar into a numpy array
+            value = np.array(value)  # type: ignore[assignment]
         if dtype is None:
             if isinstance(value, np.ndarray):
                 self._dtype = _enums.DataType.from_numpy(value.dtype)
             else:
                 raise ValueError(
-                    "The dtype must be specified when the value is not a numpy array."
+                    "The dtype must be specified when the value is not a numpy array. "
+                    "Value type: {type(value)}"
                 )
         else:
             if isinstance(value, np.ndarray):
@@ -502,7 +511,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             _enums.DataType.FLOAT4E2M1,
         }:
             # Pack the array into int4
-            array = _type_casting.pack_int4(array)
+            array = _type_casting.pack_4bitx2(array)
         else:
             assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
         if not _IS_LITTLE_ENDIAN:
@@ -652,15 +661,13 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             self._array = np.empty(self.shape.numpy(), dtype=self.dtype.numpy())
             return
         # Map the whole file into the memory
-        # TODO(justinchuby): Verify if this would exhaust the memory address space
         with open(self.path, "rb") as f:
             self.raw = mmap.mmap(
                 f.fileno(),
                 0,
                 access=mmap.ACCESS_READ,
             )
-        # Handle the byte order correctly by always using little endian
-        dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
+
         if self.dtype in {
             _enums.DataType.INT4,
             _enums.DataType.UINT4,
@@ -670,16 +677,18 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             dt = np.dtype(np.uint8).newbyteorder("<")
             count = self.size // 2 + self.size % 2
         else:
+            # Handle the byte order correctly by always using little endian
+            dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
             count = self.size
+
         self._array = np.frombuffer(self.raw, dtype=dt, offset=self.offset or 0, count=count)
         shape = self.shape.numpy()
-        if self.dtype == _enums.DataType.INT4:
-            # Unpack the int4 arrays
-            self._array = _type_casting.unpack_int4(self._array, shape)
-        elif self.dtype == _enums.DataType.UINT4:
-            self._array = _type_casting.unpack_uint4(self._array, shape)
-        elif self.dtype == _enums.DataType.FLOAT4E2M1:
-            self._array = _type_casting.unpack_float4e2m1(self._array, shape)
+
+        if self.dtype.bitwidth == 4:
+            # Unpack the 4bit arrays
+            self._array = _type_casting.unpack_4bitx2(self._array, shape).view(
+                self.dtype.numpy()
+            )
         else:
             self._array = self._array.reshape(shape)
 
@@ -961,8 +970,146 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         return self._evaluate().tobytes()
 
 
+class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
+    """A tensor that stores 4bit datatypes in packed format.
+
+    .. versionadded:: 0.1.2
+    """
+
+    __slots__ = (
+        "_dtype",
+        "_raw",
+        "_shape",
+    )
+
+    def __init__(
+        self,
+        value: TArrayCompatible,
+        dtype: _enums.DataType,
+        *,
+        shape: Shape | Sequence[int],
+        name: str | None = None,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize a tensor.
+
+        Args:
+            value: The backing data of the tensor. It can be a numpy array compatible object or a DLPack compatible object.
+                The value MUST be packed in an integer dtype.
+            dtype: The data type of the tensor. Must be one of INT4, UINT4, FLOAT4E2M1.
+            shape: The shape of the tensor.
+            name: The name of the tensor.
+            doc_string: The documentation string.
+            metadata_props: The metadata properties.
+
+        Raises:
+            TypeError: If the value is not a numpy array compatible or a DLPack compatible object.
+            TypeError: If the value is a numpy array and the dtype is not uint8 or one of the ml_dtypes dtypes.
+        """
+        super().__init__(name=name, doc_string=doc_string, metadata_props=metadata_props)
+        if not _compatible_with_numpy(value) and not _compatible_with_dlpack(value):
+            raise TypeError(f"Expected an array compatible object, got {type(value)}")
+        self._shape = Shape(shape)
+        self._shape.freeze()
+        if dtype.bitwidth != 4:
+            raise TypeError(
+                f"PackedTensor only supports INT4, UINT4, FLOAT4E2M1, but got {dtype}"
+            )
+        self._dtype = dtype
+        self._raw = value
+
+        if isinstance(value, np.ndarray):
+            if (
+                value.dtype == ml_dtypes.float4_e2m1fn
+                or value.dtype == ml_dtypes.uint4
+                or value.dtype == ml_dtypes.int4
+            ):
+                raise TypeError(
+                    f"PackedTensor expects the value to be packed, but got {value.dtype} which is not packed. "
+                    "Please pack the value or use `onnx_ir.Tensor`."
+                )
+            # Check after shape and dtype is set
+            if value.size != self.nbytes:
+                raise ValueError(
+                    f"Expected the packed array to be {self.nbytes} bytes (from shape {self.shape}), but got {value.nbytes} bytes"
+                )
+
+    def __array__(self, dtype: Any = None, copy: bool = False) -> np.ndarray:
+        return self.numpy()
+
+    def __dlpack__(self, *, stream: Any = None) -> Any:
+        if _compatible_with_dlpack(self._raw):
+            return self._raw.__dlpack__(stream=stream)
+        return self.__array__().__dlpack__(stream=stream)
+
+    def __dlpack_device__(self) -> tuple[int, int]:
+        if _compatible_with_dlpack(self._raw):
+            return self._raw.__dlpack_device__()
+        return self.__array__().__dlpack_device__()
+
+    def __repr__(self) -> str:
+        return f"{self._repr_base()}({self._raw!r}, name={self.name!r})"
+
+    @property
+    def dtype(self) -> _enums.DataType:
+        """The data type of the tensor. Immutable."""
+        return self._dtype
+
+    @property
+    def shape(self) -> Shape:
+        """The shape of the tensor. Immutable."""
+        return self._shape
+
+    @property
+    def raw(self) -> TArrayCompatible:
+        """Backing data of the tensor. Immutable."""
+        return self._raw  # type: ignore[return-value]
+
+    def numpy(self) -> np.ndarray:
+        """Return the tensor as a numpy array.
+
+        When the data type is not supported by numpy, the dtypes from the ``ml_dtype``
+        package are used. The values can be reinterpreted as bit representations
+        using the ``.view()`` method.
+        """
+        array = self.numpy_packed()
+        # ONNX IR returns the unpacked arrays
+        return _type_casting.unpack_4bitx2(array, self.shape.numpy()).view(self.dtype.numpy())
+
+    def numpy_packed(self) -> npt.NDArray[np.uint8]:
+        """Return the tensor as a packed array."""
+        if isinstance(self._raw, np.ndarray) or _compatible_with_numpy(self._raw):
+            array = np.asarray(self._raw)
+        else:
+            assert _compatible_with_dlpack(self._raw), (
+                f"Bug: Expected DLPack or Numpy compatible objects, got {type(self._raw)}"
+            )
+            array = np.from_dlpack(self._raw)
+        if array.nbytes != self.nbytes:
+            raise ValueError(
+                f"Expected the packed array to be {self.nbytes} bytes (from shape {self.shape}), but got {array.nbytes} bytes"
+            )
+        return array.view(np.uint8)
+
+    def tobytes(self) -> bytes:
+        """Returns the value as bytes encoded in little endian.
+
+        Override this method for more efficient serialization when the raw
+        value is not a numpy array.
+        """
+        array = self.numpy_packed()
+        if not _IS_LITTLE_ENDIAN:
+            array = array.view(array.dtype.newbyteorder("<"))
+        return array.tobytes()
+
+
 class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
-    """Immutable symbolic dimension that can be shared across multiple shapes."""
+    """Immutable symbolic dimension that can be shared across multiple shapes.
+
+    SymbolicDim is used to represent a symbolic (non-integer) dimension in a tensor shape.
+    It is immutable and can be compared or hashed.
+    """
 
     __slots__ = ("_value",)
 
@@ -971,6 +1118,9 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
 
         Args:
             value: The value of the dimension. It should not be an int.
+
+        Raises:
+            TypeError: If value is an int.
         """
         if isinstance(value, int):
             raise TypeError(
@@ -980,15 +1130,18 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         self._value = value
 
     def __eq__(self, other: object) -> bool:
+        """Check equality with another SymbolicDim or string/None."""
         if not isinstance(other, SymbolicDim):
             return self.value == other
         return self.value == other.value
 
     def __hash__(self) -> int:
+        """Return the hash of the symbolic dimension value."""
         return hash(self.value)
 
     @property
     def value(self) -> str | None:
+        """The value of the symbolic dimension (string or None)."""
         return self._value
 
     def __str__(self) -> str:
@@ -999,7 +1152,14 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
 
 
 def _is_int_compatible(value: object) -> TypeIs[SupportsInt]:
-    """Return True if the value is int compatible."""
+    """Check if the value is compatible with int (i.e., can be safely cast to int).
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        True if the value is an int or has an __int__ method, False otherwise.
+    """
     if isinstance(value, int):
         return True
     if hasattr(value, "__int__"):
@@ -1011,7 +1171,17 @@ def _is_int_compatible(value: object) -> TypeIs[SupportsInt]:
 def _maybe_convert_to_symbolic_dim(
     dim: int | SupportsInt | SymbolicDim | str | None,
 ) -> SymbolicDim | int:
-    """Convert the value to a SymbolicDim if it is not an int."""
+    """Convert the value to a SymbolicDim if it is not an int.
+
+    Args:
+        dim: The dimension value, which can be int, str, None, or SymbolicDim.
+
+    Returns:
+        An int or SymbolicDim instance.
+
+    Raises:
+        TypeError: If the value is not int, str, None, or SymbolicDim.
+    """
     if dim is None or isinstance(dim, str):
         return SymbolicDim(dim)
     if _is_int_compatible(dim):
@@ -1024,21 +1194,20 @@ def _maybe_convert_to_symbolic_dim(
 
 
 class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
-    """The shape of a tensor, including its dimensions and optional denotations.
+    """Represents the shape of a tensor, including its dimensions and optional denotations.
 
-    The :class:`Shape` stores the dimensions of a tensor, which can be integers, None (unknown), or
-    symbolic dimensions.
-
-    A shape can be compared to another shape or plain Python list.
+    The :class:`Shape` class stores the dimensions of a tensor, which can be integers, None (unknown), or
+    symbolic dimensions. It provides methods for querying and manipulating the shape, as well as for comparing
+    shapes to other shapes or plain Python lists.
 
     A shape can be frozen (made immutable). When the shape is frozen, it cannot be
     unfrozen, making it suitable to be shared across tensors or values.
-    Call :method:`freeze` to freeze the shape.
+    Call :meth:`freeze` to freeze the shape.
 
-    To update the dimension of a frozen shape, call :method:`copy` to create a
+    To update the dimension of a frozen shape, call :meth:`copy` to create a
     new shape with the same dimensions that can be modified.
 
-    Use :method:`get_denotation` and :method:`set_denotation` to access and modify the denotations.
+    Use :meth:`get_denotation` and :meth:`set_denotation` to access and modify the denotations.
 
     Example::
 
@@ -1066,7 +1235,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
 
     Attributes:
         dims: A tuple of dimensions representing the shape.
-            Each dimension can be an integer, None or a :class:`SymbolicDim`.
+            Each dimension can be an integer, None, or a :class:`SymbolicDim`.
         frozen: Indicates whether the shape is immutable. When frozen, the shape
             cannot be modified or unfrozen.
     """
@@ -1121,7 +1290,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         """Whether the shape is frozen.
 
         When the shape is frozen, it cannot be unfrozen, making it suitable to be shared.
-        Call :method:`freeze` to freeze the shape. Call :method:`copy` to create a
+        Call :meth:`freeze` to freeze the shape. Call :meth:`copy` to create a
         new shape with the same dimensions that can be modified.
         """
         return self._frozen
@@ -1289,19 +1458,24 @@ def _normalize_domain(domain: str) -> str:
 class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     """IR Node.
 
-    If the ``graph`` is provided, the node will be added to the graph. Otherwise,
-    user is responsible to call ``graph.append(node)`` (or other mutation methods
+    .. tip::
+        For a more convenient way (that supports Python objects
+        as attributes) to create a node, use the :func:`onnx_ir.node` constructor.
+
+    If ``graph`` is provided, the node will be added to the graph. Otherwise,
+    the user is responsible for calling ``graph.append(node)`` (or other mutation methods
     in :class:`Graph`) to add the node to the graph.
 
-    After the node is initialized, it will add itself as a user of the input values.
+    After the node is initialized, it will add itself as a user of its input values.
 
     The output values of the node are created during node initialization and are immutable.
-    To change the output values, create a new node and replace the each of the inputs of ``output.uses()`` with
-    the new output values by calling :meth:`replace_input_with` on the using nodes
-    of this node's outputs.
+    To change the output values, create a new node and, for each use of the old outputs (``output.uses()``),
+    replace the input in the consuming node by calling :meth:`replace_input_with`.
+    You can also use the :func:`~onnx_ir.convenience.replace_all_uses_with` method
+    to replace all uses of the output values.
 
-    .. note:
-        When the ``domain`` is `"ai.onnx"`, it is normalized to `""`.
+    .. note::
+        When the ``domain`` is ``"ai.onnx"``, it is normalized to ``""``.
     """
 
     __slots__ = (
@@ -1339,7 +1513,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         Args:
             domain: The domain of the operator. For onnx operators, this is an empty string.
-                When it is `"ai.onnx"`, it is normalized to `""`.
+                When it is ``"ai.onnx"``, it is normalized to ``""``.
             op_type: The name of the operator.
             inputs: The input values. When an input is ``None``, it is an empty input.
             attributes: The attributes. RefAttr can be used only when the node is defined in a Function.
@@ -1668,7 +1842,15 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
-        """The attributes of the node."""
+        """The attributes of the node as ``dict[str, Attr]`` with additional access methods.
+
+        Use it as a dictionary with keys being the attribute names and values being the
+        :class:`Attr` objects.
+
+        Use ``node.attributes.add(attr)`` to add an attribute to the node.
+        Use ``node.attributes.get_int(name, default)`` to get an integer attribute value.
+        Refer to the :class:`~onnx_ir._graph_containers.Attributes` for more methods.
+        """
         return self._attributes
 
     @property
@@ -1835,12 +2017,13 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     The index of the output of the node that produces the value can be accessed with
     :meth:`index`.
 
-    To find all the nodes that use this value as an input, call :meth:`uses`.
+    To find all the nodes that use this value as an input, call :meth:`uses`. Consuming
+    nodes can be obtained with :meth:`consumers`.
 
     To check if the value is an is an input, output or initializer of a graph,
     use :meth:`is_graph_input`, :meth:`is_graph_output` or :meth:`is_initializer`.
 
-    Use :meth:`graph` to get the graph that owns the value.
+    Use :attr:`graph` to get the graph that owns the value.
     """
 
     __slots__ = (
@@ -2190,6 +2373,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(graph)``.
 
+    .. versionchanged:: 0.1.1
+        Values with non-none producers will be rejected as graph inputs or initializers.
+
+    .. versionadded:: 0.1.1
+        Added ``add`` method to initializers and attributes.
+
     Attributes:
         name: The name of the graph.
         inputs: The input values of the graph.
@@ -2257,7 +2446,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def initializers(self) -> _graph_containers.GraphInitializers:
-        """The initializers of the graph as a ``MutableMapping[str, Value]``.
+        """The initializers of the graph as a ``dict[str, Value]``.
 
         The keys are the names of the initializers. The values are the :class:`Value` objects.
 
@@ -2392,6 +2581,33 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         """
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return len(self)
+
+    def all_nodes(self) -> Iterator[Node]:
+        """Get all nodes in the graph and its subgraphs in O(#nodes + #attributes) time.
+
+        This is an alias for ``onnx_ir.traversal.RecursiveGraphIterator(graph)``.
+        Consider using
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        traversals on nodes.
+
+        .. versionadded:: 0.1.2
+        """
+        # NOTE: This is a method specific to Graph, not required by the protocol unless proven
+        return onnx_ir.traversal.RecursiveGraphIterator(self)
+
+    def subgraphs(self) -> Iterator[Graph]:
+        """Get all subgraphs in the graph in O(#nodes + #attributes) time.
+
+        .. versionadded:: 0.1.2
+        """
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
+            if graph is self:
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -2898,7 +3114,7 @@ Model(
         """Get all graphs and subgraphs in the model.
 
         This is a convenience method to traverse the model. Consider using
-        `onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
         """
         # NOTE(justinchuby): Given
@@ -2907,11 +3123,8 @@ Model(
         # (3) Users familiar with onnxruntime optimization tools expect this method
         # I created this method as a core method instead of an iterator in
         # `traversal.py`.
-        seen_graphs: set[Graph] = set()
-        for node in onnx_ir.traversal.RecursiveGraphIterator(self.graph):
-            if node.graph is not None and node.graph not in seen_graphs:
-                seen_graphs.add(node.graph)
-                yield node.graph
+        yield self.graph
+        yield from self.graph.subgraphs()
 
 
 class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrintable):
@@ -3044,6 +3257,33 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     @property
     def metadata_props(self) -> dict[str, str]:
         return self._graph.metadata_props
+
+    def all_nodes(self) -> Iterator[Node]:
+        """Get all nodes in the graph and its subgraphs in O(#nodes + #attributes) time.
+
+        This is an alias for ``onnx_ir.traversal.RecursiveGraphIterator(graph)``.
+        Consider using
+        :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
+        traversals on nodes.
+
+        .. versionadded:: 0.1.2
+        """
+        # NOTE: This is a method specific to Graph, not required by the protocol unless proven
+        return onnx_ir.traversal.RecursiveGraphIterator(self)
+
+    def subgraphs(self) -> Iterator[Graph]:
+        """Get all subgraphs in the function in O(#nodes + #attributes) time.
+
+        .. versionadded:: 0.1.2
+        """
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
+            if graph is self._graph:
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
 
     # Mutation methods
     def append(self, node: Node, /) -> None:

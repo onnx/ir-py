@@ -65,6 +65,7 @@ class DataType(enum.IntEnum):
     UINT4 = 21
     INT4 = 22
     FLOAT4E2M1 = 23
+    FLOAT8E8M0 = 24
 
     @classmethod
     def from_numpy(cls, dtype: np.dtype) -> DataType:
@@ -114,7 +115,20 @@ class DataType(enum.IntEnum):
     @property
     def itemsize(self) -> float:
         """Returns the size of the data type in bytes."""
-        return _ITEMSIZE_MAP[self]
+        return self.bitwidth / 8
+
+    @property
+    def bitwidth(self) -> int:
+        """Returns the bit width of the data type.
+
+        .. versionadded:: 0.1.2
+
+        Raises:
+            TypeError: If the data type is not supported.
+        """
+        if self not in _BITWIDTH_MAP:
+            raise TypeError(f"Bitwidth not available for ONNX data type: {self}")
+        return _BITWIDTH_MAP[self]
 
     def numpy(self) -> np.dtype:
         """Returns the numpy dtype for the ONNX data type.
@@ -154,6 +168,50 @@ class DataType(enum.IntEnum):
             DataType.FLOAT8E5M2,
             DataType.FLOAT8E5M2FNUZ,
             DataType.FLOAT4E2M1,
+            DataType.FLOAT8E8M0,
+        }
+
+    def is_integer(self) -> bool:
+        """Returns True if the data type is an integer.
+
+        .. versionadded:: 0.1.4
+        """
+        return self in {
+            DataType.UINT8,
+            DataType.INT8,
+            DataType.UINT16,
+            DataType.INT16,
+            DataType.INT32,
+            DataType.INT64,
+            DataType.UINT32,
+            DataType.UINT64,
+            DataType.UINT4,
+            DataType.INT4,
+        }
+
+    def is_signed(self) -> bool:
+        """Returns True if the data type is a signed type.
+
+        .. versionadded:: 0.1.4
+        """
+        return self in {
+            DataType.FLOAT,
+            DataType.INT8,
+            DataType.INT16,
+            DataType.INT32,
+            DataType.INT64,
+            DataType.FLOAT16,
+            DataType.DOUBLE,
+            DataType.COMPLEX64,
+            DataType.COMPLEX128,
+            DataType.BFLOAT16,
+            DataType.FLOAT8E4M3FN,
+            DataType.FLOAT8E4M3FNUZ,
+            DataType.FLOAT8E5M2,
+            DataType.FLOAT8E5M2FNUZ,
+            DataType.INT4,
+            DataType.FLOAT4E2M1,
+            DataType.FLOAT8E8M0,
         }
 
     def __repr__(self) -> str:
@@ -163,30 +221,30 @@ class DataType(enum.IntEnum):
         return self.__repr__()
 
 
-_ITEMSIZE_MAP = {
-    DataType.FLOAT: 4,
-    DataType.UINT8: 1,
-    DataType.INT8: 1,
-    DataType.UINT16: 2,
-    DataType.INT16: 2,
-    DataType.INT32: 4,
-    DataType.INT64: 8,
-    DataType.STRING: 1,
-    DataType.BOOL: 1,
-    DataType.FLOAT16: 2,
-    DataType.DOUBLE: 8,
-    DataType.UINT32: 4,
-    DataType.UINT64: 8,
-    DataType.COMPLEX64: 8,
-    DataType.COMPLEX128: 16,
-    DataType.BFLOAT16: 2,
-    DataType.FLOAT8E4M3FN: 1,
-    DataType.FLOAT8E4M3FNUZ: 1,
-    DataType.FLOAT8E5M2: 1,
-    DataType.FLOAT8E5M2FNUZ: 1,
-    DataType.UINT4: 0.5,
-    DataType.INT4: 0.5,
-    DataType.FLOAT4E2M1: 0.5,
+_BITWIDTH_MAP = {
+    DataType.FLOAT: 32,
+    DataType.UINT8: 8,
+    DataType.INT8: 8,
+    DataType.UINT16: 16,
+    DataType.INT16: 16,
+    DataType.INT32: 32,
+    DataType.INT64: 64,
+    DataType.BOOL: 8,
+    DataType.FLOAT16: 16,
+    DataType.DOUBLE: 64,
+    DataType.UINT32: 32,
+    DataType.UINT64: 64,
+    DataType.COMPLEX64: 64,  # 2 * 32
+    DataType.COMPLEX128: 128,  # 2 * 64
+    DataType.BFLOAT16: 16,
+    DataType.FLOAT8E4M3FN: 8,
+    DataType.FLOAT8E4M3FNUZ: 8,
+    DataType.FLOAT8E5M2: 8,
+    DataType.FLOAT8E5M2FNUZ: 8,
+    DataType.UINT4: 4,
+    DataType.INT4: 4,
+    DataType.FLOAT4E2M1: 4,
+    DataType.FLOAT8E8M0: 8,
 }
 
 
@@ -212,6 +270,7 @@ _NP_TYPE_TO_DATA_TYPE = {
     np.dtype(ml_dtypes.float8_e4m3fnuz): DataType.FLOAT8E4M3FNUZ,
     np.dtype(ml_dtypes.float8_e5m2): DataType.FLOAT8E5M2,
     np.dtype(ml_dtypes.float8_e5m2fnuz): DataType.FLOAT8E5M2FNUZ,
+    np.dtype(ml_dtypes.float8_e8m0fnu): DataType.FLOAT8E8M0,
     np.dtype(ml_dtypes.int4): DataType.INT4,
     np.dtype(ml_dtypes.uint4): DataType.UINT4,
 }
@@ -236,6 +295,7 @@ _DATA_TYPE_TO_SHORT_NAME = {
     DataType.FLOAT8E5M2: "f8e5m2",
     DataType.FLOAT8E4M3FNUZ: "f8e4m3fnuz",
     DataType.FLOAT8E5M2FNUZ: "f8e5m2fnuz",
+    DataType.FLOAT8E8M0: "f8e8m0",
     DataType.FLOAT4E2M1: "f4e2m1",
     DataType.COMPLEX64: "c64",
     DataType.COMPLEX128: "c128",

@@ -14,7 +14,13 @@ from onnx_ir.passes.common import common_subexpression_elimination
 
 
 class TestCommonSubexpressionEliminationPass(unittest.TestCase):
-    def check_graph(self, model: ir.Model, inputs: list[ir.Value], delta_nodes: list[int]):
+    def check_graph(
+        self,
+        model: ir.Model,
+        inputs: list[ir.Value],
+        delta_nodes: list[int],
+        size_limit: int = 10,
+    ):
         """Check if the model applied the CSE pass correctly.
 
         Args:
@@ -23,6 +29,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             delta_nodes: The expected change in the number of nodes in the model.
                          The length of this list should match the number of graphs
                          in the model. (to support subgraphs in the future)
+            size_limit: The maximum size of the tensor to be csed. If the tensor contains
+                        number of elements larger than size_limit, it will not be csed.
 
         Raises:
             AssertionError: If the model does not match the expected number of nodes or outputs.
@@ -42,7 +50,9 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         original_model_session = ort.InferenceSession(model_proto.SerializeToString())
         original_model_results = original_model_session.run(None, ort_inputs)
 
-        result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(model)
+        result = common_subexpression_elimination.CommonSubexpressionEliminationPass(
+            size_limit=size_limit
+        )(model)
 
         result_graphs_node_count = np.array([graph.num_nodes() for graph in model.graphs()])
         # Check if the number of nodes in the model is correct
@@ -204,7 +214,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         model_proto = test_model.to_model_proto()
         model = ir.serde.deserialize_model(model_proto)
         self.check_graph(
-            model, [np.random.rand(2, 2), np.random.rand(2, 2)], delta_nodes=[0, 0, 0, 0, 0]
+            model, [np.random.rand(2, 2), np.random.rand(2, 2)], delta_nodes=[3, 0, 0, 0, 0]
         )
 
     def test_the_nodes_following_control_flow_ops_are_csed(self):
@@ -321,3 +331,43 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         model_proto = test_model.to_model_proto()
         model = ir.serde.deserialize_model(model_proto)
         self.check_graph(model, [np.random.rand(2, 2)], delta_nodes=[0])
+
+    def test_the_constant_nodes_have_the_same_tensor_are_csed(self):
+        """Test if the constant nodes with the same tensor are CSEd.
+
+        def f(x):
+            a = x + [1, 2]
+            b = x + [1, 2]
+            return a + b
+        """
+
+        @script()
+        def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
+            a = op.Add(x, op.Constant(value=np.array([1.0, 2.0], dtype=np.float32)))
+            b = op.Add(x, op.Constant(value=np.array([1.0, 2.0], dtype=np.float32)))
+            return a + b
+
+        model_proto = test_model.to_model_proto()
+        model = ir.serde.deserialize_model(model_proto)
+        # Add and Constant nodes should be CSEd
+        self.check_graph(model, [np.random.rand(2, 2)], delta_nodes=[2])
+
+    def test_the_constant_nodes_with_the_tensors_larger_than_size_limit_are_not_csed(self):
+        """Test if the constant nodes with the tensors larger than size limit are not CSEd.
+
+        def f(x):
+            a = x + [1, 2, 3, 4]
+            b = x + [1, 2, 3, 4]
+            return a + b
+        """
+
+        @script()
+        def test_model(x: FLOAT[4, 4]) -> FLOAT[4, 4]:
+            a = op.Add(x, op.Constant(value=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)))
+            b = op.Add(x, op.Constant(value=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)))
+            return a + b
+
+        model_proto = test_model.to_model_proto()
+        model = ir.serde.deserialize_model(model_proto)
+        # Add and Constant nodes should not be CSEd
+        self.check_graph(model, [np.random.rand(4, 4)], delta_nodes=[0], size_limit=3)
