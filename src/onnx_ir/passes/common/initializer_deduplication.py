@@ -4,14 +4,17 @@
 
 from __future__ import annotations
 
-import hashlib
-
 __all__ = [
     "DeduplicateInitializersPass",
 ]
 
 
+import hashlib
+import logging
+
 import onnx_ir as ir
+
+logger = logging.getLogger(__name__)
 
 
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
@@ -62,10 +65,14 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
             key = (const_val.dtype, tensor_dims, tensor_digest)
 
             if key in initializers:
-                assert initializers[key].const_value.tobytes() == const_val.tobytes(), (
-                    "Initializer deduplication failed: "
-                    f"hashes match but values differ with values {initializers[key]} and {initializer}"
-                )
+                if initializers[key].const_value.tobytes() != const_val.tobytes():
+                    logger.warning(
+                        "Initializer deduplication failed: "
+                        "hashes match but values differ with values %s and %s",
+                        initializers[key],
+                        initializer
+                    )
+                    continue
                 modified = True
                 ir.convenience.replace_all_uses_with(initializer, initializers[key])  # type: ignore[index]
                 assert initializer.name is not None
