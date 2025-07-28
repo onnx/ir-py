@@ -52,6 +52,7 @@ class TensorTest(unittest.TestCase):
             ("float8e4m3fnuz", np.uint8, ir.DataType.FLOAT8E4M3FNUZ),
             ("float8e5m2", np.uint8, ir.DataType.FLOAT8E5M2),
             ("float8e5m2fnuz", np.uint8, ir.DataType.FLOAT8E5M2FNUZ),
+            ("float8e8m0", np.uint8, ir.DataType.FLOAT8E8M0),
             ("int4", np.int8, ir.DataType.INT4),
             ("int4_uint8", np.uint8, ir.DataType.INT4),
             ("uint4", np.uint8, ir.DataType.UINT4),
@@ -396,15 +397,28 @@ class ExternalTensorTest(unittest.TestCase):
                 ir.DataType.FLOAT8E5M2FNUZ,
                 ml_dtypes.float8_e5m2fnuz,
             ),
+            (
+                "FLOAT8E8M0",
+                ir.DataType.FLOAT8E8M0,
+                ml_dtypes.float8_e8m0fnu,
+            ),
         ]
     )
     def test_external_tensor_float8(self, _: str, dtype: ir.DataType, np_dtype):
-        expected_array = np.array(
-            [[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]]
-        ).astype(np_dtype)
-        tensor_proto = ir.serde.serialize_tensor(
-            ir.Tensor(expected_array.view(np.uint8), dtype=dtype)
-        )
+        # FLOAT8E8M0 has different precision characteristics (8 exponent bits, 0 mantissa bits)
+        # It can only represent powers of 2 and special values
+        if dtype == ir.DataType.FLOAT8E8M0:
+            expected_array = np.array(
+                [[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]]
+            ).astype(np_dtype)
+            tensor_proto = ir.serde.serialize_tensor(ir.Tensor(expected_array, dtype=dtype))
+        else:
+            expected_array = np.array(
+                [[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]]
+            ).astype(np_dtype)
+            tensor_proto = ir.serde.serialize_tensor(
+                ir.Tensor(expected_array.view(np.uint8), dtype=dtype)
+            )
         with tempfile.TemporaryDirectory() as temp_dir:
             _to_external_tensor(tensor_proto, temp_dir, "tensor.bin")
             tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)

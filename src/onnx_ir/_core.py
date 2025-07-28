@@ -78,6 +78,7 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.FLOAT8E4M3FNUZ,
         _enums.DataType.FLOAT8E5M2,
         _enums.DataType.FLOAT8E5M2FNUZ,
+        _enums.DataType.FLOAT8E8M0,
         _enums.DataType.INT4,
         _enums.DataType.UINT4,
         _enums.DataType.FLOAT4E2M1,
@@ -261,6 +262,7 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
             ml_dtypes.float8_e4m3fn,
             ml_dtypes.float8_e5m2fnuz,
             ml_dtypes.float8_e5m2,
+            ml_dtypes.float8_e8m0fnu,
         ):
             raise TypeError(
                 f"The numpy array dtype must be uint8 or ml_dtypes.float8* (not {array.dtype}) for IR data type {dtype}."
@@ -319,6 +321,8 @@ def _maybe_view_np_array_with_ml_dtypes(
         return array.view(ml_dtypes.float8_e5m2)
     if dtype == _enums.DataType.FLOAT8E5M2FNUZ:
         return array.view(ml_dtypes.float8_e5m2fnuz)
+    if dtype == _enums.DataType.FLOAT8E8M0:
+        return array.view(ml_dtypes.float8_e8m0fnu)
     if dtype == _enums.DataType.INT4:
         return array.view(ml_dtypes.int4)
     if dtype == _enums.DataType.UINT4:

@@ -68,6 +68,7 @@ def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
             torch.float8_e4m3fnuz: ir.DataType.FLOAT8E4M3FNUZ,
             torch.float8_e5m2: ir.DataType.FLOAT8E5M2,
             torch.float8_e5m2fnuz: ir.DataType.FLOAT8E5M2FNUZ,
+            torch.float8_e8m0fnu: ir.DataType.FLOAT8E8M0,
             torch.int16: ir.DataType.INT16,
             torch.int32: ir.DataType.INT32,
             torch.int64: ir.DataType.INT64,
@@ -104,6 +105,7 @@ def to_torch_dtype(dtype: ir.DataType) -> torch.dtype:
             ir.DataType.FLOAT8E4M3FNUZ: torch.float8_e4m3fnuz,
             ir.DataType.FLOAT8E5M2: torch.float8_e5m2,
             ir.DataType.FLOAT8E5M2FNUZ: torch.float8_e5m2fnuz,
+            ir.DataType.FLOAT8E8M0: torch.float8_e8m0fnu,
             ir.DataType.INT16: torch.int16,
             ir.DataType.INT32: torch.int32,
             ir.DataType.INT64: torch.int64,
@@ -142,6 +144,7 @@ class TorchTensor(_core.Tensor):
             ir.DataType.FLOAT8E4M3FNUZ,
             ir.DataType.FLOAT8E5M2,
             ir.DataType.FLOAT8E5M2FNUZ,
+            ir.DataType.FLOAT8E8M0,
         }:
             return self.raw.view(torch.uint8).numpy(force=True).view(self.dtype.numpy())
 
