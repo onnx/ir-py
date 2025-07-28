@@ -41,8 +41,7 @@ class TestNameFixPass(unittest.TestCase):
         original_output_name = add_node.outputs[0].name
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass didn't modify anything (names were already assigned and unique)
         self.assertFalse(result.modified)
@@ -78,8 +77,7 @@ class TestNameFixPass(unittest.TestCase):
         original_node_name = add_node.name
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass didn't modify anything (node already had unique name)
         self.assertFalse(result.modified)
@@ -113,8 +111,7 @@ class TestNameFixPass(unittest.TestCase):
         add_node.outputs[0].name = ""
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass was applied
         self.assertTrue(result.modified)
@@ -178,8 +175,7 @@ class TestNameFixPass(unittest.TestCase):
         model = ir.Model(main_graph, ir_version=10)
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass was applied (should fix duplicates)
         self.assertTrue(result.modified)
@@ -266,8 +262,7 @@ class TestNameFixPass(unittest.TestCase):
         self.assertEqual(input2.name, "duplicate_name")
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass was applied
         self.assertTrue(result.modified)
@@ -312,8 +307,7 @@ class TestNameFixPass(unittest.TestCase):
         self.assertEqual(add_node2.name, "duplicate_node")
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass was applied
         self.assertTrue(result.modified)
@@ -352,8 +346,7 @@ class TestNameFixPass(unittest.TestCase):
         original_output_name = add_node.outputs[0].name
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass didn't modify anything
         self.assertFalse(result.modified)
@@ -392,8 +385,7 @@ class TestNameFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = naming.NameFixPass()
-        result = pass_instance(model)
+        result = naming.NameFixPass()(model)
 
         # Verify the pass was applied
         self.assertTrue(result.modified)
