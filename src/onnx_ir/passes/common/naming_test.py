@@ -35,7 +35,7 @@ class TestNameFixPass(unittest.TestCase):
         # Verify IR has auto-assigned names
         self.assertIsNotNone(input_value.name)
         self.assertIsNotNone(add_node.outputs[0].name)
-        
+
         # Store original names
         original_input_name = input_value.name
         original_output_name = add_node.outputs[0].name
@@ -53,7 +53,7 @@ class TestNameFixPass(unittest.TestCase):
 
     def test_assign_names_to_unnamed_nodes(self):
         """Test ensuring all nodes have names even if IR auto-assigned them."""
-        # Create a simple model 
+        # Create a simple model
         input_value = ir.Input(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
@@ -136,7 +136,7 @@ class TestNameFixPass(unittest.TestCase):
         sub_input = ir.Input(
             "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )  # Same name as main input - should cause conflict
-        
+
         sub_add_node = ir.Node("", "Add", inputs=[sub_input, sub_input])
         sub_add_node.outputs[0].name = "main_input"  # Another conflict
         sub_add_node.outputs[0].shape = sub_input.shape
@@ -156,9 +156,12 @@ class TestNameFixPass(unittest.TestCase):
 
         # Create If node with subgraph
         if_node = ir.Node(
-            "", "If",
+            "",
+            "If",
             inputs=[condition_input],
-            attributes={"then_branch": ir.Attr("then_branch", ir.AttributeType.GRAPH, subgraph)}
+            attributes={
+                "then_branch": ir.Attr("then_branch", ir.AttributeType.GRAPH, subgraph)
+            },
         )
         if_node.outputs[0].name = "if_output"
         if_node.outputs[0].shape = main_input.shape
@@ -183,13 +186,15 @@ class TestNameFixPass(unittest.TestCase):
 
         # Collect all value names to verify uniqueness
         all_value_names = set()
-        
+
         # Main graph values
         for input_val in main_graph.inputs:
             self.assertIsNotNone(input_val.name)
-            self.assertNotIn(input_val.name, all_value_names, f"Duplicate value name: {input_val.name}")
+            self.assertNotIn(
+                input_val.name, all_value_names, f"Duplicate value name: {input_val.name}"
+            )
             all_value_names.add(input_val.name)
-        
+
         for output_val in main_graph.outputs:
             self.assertIsNotNone(output_val.name)
             if output_val.name not in all_value_names:  # Could be same as input
@@ -208,9 +213,13 @@ class TestNameFixPass(unittest.TestCase):
         # Subgraph values
         for input_val in subgraph.inputs:
             self.assertIsNotNone(input_val.name)
-            self.assertNotIn(input_val.name, all_value_names, f"Duplicate value name in subgraph: {input_val.name}")
+            self.assertNotIn(
+                input_val.name,
+                all_value_names,
+                f"Duplicate value name in subgraph: {input_val.name}",
+            )
             all_value_names.add(input_val.name)
-        
+
         for output_val in subgraph.outputs:
             if output_val.name not in all_value_names:  # Could be same as input
                 all_value_names.add(output_val.name)
@@ -268,10 +277,7 @@ class TestNameFixPass(unittest.TestCase):
         # One should keep the original name, the other should have a suffix
         names = {input1.name, input2.name}
         self.assertIn("duplicate_name", names)
-        self.assertTrue(
-            "duplicate_name_1" in names,
-            f"Expected 'duplicate_name_1' in {names}"
-        )
+        self.assertTrue("duplicate_name_1" in names, f"Expected 'duplicate_name_1' in {names}")
 
     def test_handle_duplicate_node_names(self):
         """Test handling duplicate node names by making them unique."""
@@ -317,10 +323,7 @@ class TestNameFixPass(unittest.TestCase):
         # One should keep the original name, the other should have a suffix
         names = {add_node1.name, add_node2.name}
         self.assertIn("duplicate_node", names)
-        self.assertTrue(
-            "duplicate_node_1" in names,
-            f"Expected 'duplicate_node_1' in {names}"
-        )
+        self.assertTrue("duplicate_node_1" in names, f"Expected 'duplicate_node_1' in {names}")
 
     def test_no_modification_when_all_names_unique(self):
         """Test that the pass doesn't modify anything when all names are already unique."""
@@ -397,10 +400,10 @@ class TestNameFixPass(unittest.TestCase):
 
         # Verify input keeps its original name (has precedence)
         self.assertEqual(input_value.name, "important_input")
-        
+
         # Verify output keeps its original name (has precedence)
         self.assertEqual(mul_node.outputs[0].name, "important_output")
-        
+
         # Verify intermediate value got renamed to avoid conflict
         self.assertNotEqual(add_node.outputs[0].name, "important_input")
         self.assertTrue(add_node.outputs[0].name.startswith("important_input_"))
