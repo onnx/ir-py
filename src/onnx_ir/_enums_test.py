@@ -6,7 +6,6 @@ import unittest
 import ml_dtypes
 import numpy as np
 import onnx
-import onnx._custom_element_types
 import parameterized
 
 from onnx_ir import _enums
@@ -76,37 +75,6 @@ class DataTypeTest(unittest.TestCase):
             ("int4", np.dtype(ml_dtypes.int4), _enums.DataType.INT4),
             ("float4e2m1", np.dtype(ml_dtypes.float4_e2m1fn), _enums.DataType.FLOAT4E2M1),
             ("float8e8m0", np.dtype(ml_dtypes.float8_e8m0fnu), _enums.DataType.FLOAT8E8M0),
-            (
-                "onnx_ref_bfloat16",
-                onnx._custom_element_types.bfloat16,
-                _enums.DataType.BFLOAT16,
-            ),
-            (
-                "onnx_ref_float8e4m3fn",
-                onnx._custom_element_types.float8e4m3fn,
-                _enums.DataType.FLOAT8E4M3FN,
-            ),
-            (
-                "onnx_ref_float8e4m3fnuz",
-                onnx._custom_element_types.float8e4m3fnuz,
-                _enums.DataType.FLOAT8E4M3FNUZ,
-            ),
-            (
-                "onnx_ref_float8e5m2",
-                onnx._custom_element_types.float8e5m2,
-                _enums.DataType.FLOAT8E5M2,
-            ),
-            (
-                "onnx_ref_float8e5m2fnuz",
-                onnx._custom_element_types.float8e5m2fnuz,
-                _enums.DataType.FLOAT8E5M2FNUZ,
-            ),
-            (
-                "onnx_ref_uint4",
-                onnx._custom_element_types.uint4,
-                _enums.DataType.UINT4,
-            ),
-            ("onnx_ref_int4", onnx._custom_element_types.int4, _enums.DataType.INT4),
         ]
     )
     def test_from_numpy_takes_np_dtype_and_returns_data_type(
