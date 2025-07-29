@@ -41,7 +41,7 @@ class LiftConstantsToInitializersPass(ir.passes.InPlacePass):
             assert node.graph is not None
             if node.op_type != "Constant" or node.domain not in ("", "onnx.ai"):
                 continue
-            if node.outputs[0].is_graph_output():
+            if node.o().is_graph_output():
                 logger.debug(
                     "Constant node '%s' is used as output, so it can't be lifted.", node.name
                 )
@@ -54,7 +54,7 @@ class LiftConstantsToInitializersPass(ir.passes.InPlacePass):
                 continue
 
             attr_name, attr_value = next(iter(node.attributes.items()))
-            initializer_name = node.outputs[0].name
+            initializer_name = node.o().name
             assert initializer_name is not None
             assert isinstance(attr_value, ir.Attr)
             tensor = self._constant_node_attribute_to_tensor(
@@ -73,7 +73,7 @@ class LiftConstantsToInitializersPass(ir.passes.InPlacePass):
             assert node.graph is not None
             node.graph.register_initializer(initializer)
             # Replace the constant node with the initializer
-            ir.convenience.replace_all_uses_with(node.outputs[0], initializer)
+            ir.convenience.replace_all_uses_with(node.o(), initializer)
             node.graph.remove(node, safe=True)
             count += 1
             logger.debug(
