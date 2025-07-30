@@ -82,8 +82,8 @@ class NameFixPass(ir.passes.InPlacePass):
         """Fix names in a graph and return whether modifications were made."""
         modified = False
 
-        # Dictionaries to track which values have been assigned names
-        value_to_name: dict[ir.Value, str] = {}
+        # Set to track which values have been assigned names
+        seen_values: set[ir.Value] = set()
 
         # The first set is a dummy placeholder so that there is always a [-1] scope for access
         # (even though we don't write to it)
@@ -105,14 +105,14 @@ class NameFixPass(ir.passes.InPlacePass):
             # Step 1: Fix graph input names first (they have precedence)
             for input_value in graph_like.inputs:
                 if self._process_value(
-                    input_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                    input_value, scoped_seen_value_names[-1], seen_values, value_counter
                 ):
                     modified = True
 
             # Step 2: Fix graph output names (they have precedence)
             for output_value in graph_like.outputs:
                 if self._process_value(
-                    output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                    output_value, scoped_seen_value_names[-1], seen_values, value_counter
                 ):
                     modified = True
 
@@ -120,7 +120,7 @@ class NameFixPass(ir.passes.InPlacePass):
                 # For graphs, also fix initializers
                 for initializer in graph_like.initializers.values():
                     if self._process_value(
-                        initializer, scoped_seen_value_names[-1], value_to_name, value_counter
+                        initializer, scoped_seen_value_names[-1], seen_values, value_counter
                     ):
                         modified = True
 
@@ -146,14 +146,14 @@ class NameFixPass(ir.passes.InPlacePass):
             for input_value in node.inputs:
                 if input_value is not None:
                     if self._process_value(
-                        input_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                        input_value, scoped_seen_value_names[-1], seen_values, value_counter
                     ):
                         modified = True
 
             # Fix output value names (only if not already processed)
             for output_value in node.outputs:
                 if self._process_value(
-                    output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                    output_value, scoped_seen_value_names[-1], seen_values, value_counter
                 ):
                     modified = True
 
@@ -163,11 +163,11 @@ class NameFixPass(ir.passes.InPlacePass):
         self,
         value: ir.Value,
         seen_value_names: set[str],
-        value_to_name: dict[ir.Value, str],
+        seen_values: set[ir.Value],
         value_counter: list[int],
     ) -> bool:
         """Process a value only if it hasn't been processed before."""
-        if value in value_to_name:
+        if value in seen_values:
             return False
 
         modified = False
@@ -186,7 +186,7 @@ class NameFixPass(ir.passes.InPlacePass):
 
         # Record the final name for this value
         assert value.name is not None
-        value_to_name[value] = value.name
+        seen_values.add(value)
         return modified
 
     def _assign_value_name(
