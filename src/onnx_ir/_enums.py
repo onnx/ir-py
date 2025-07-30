@@ -82,6 +82,7 @@ class DataType(enum.IntEnum):
 
         # Special cases for handling custom dtypes defined in ONNX (as of onnx 1.18)
         # Ref: https://github.com/onnx/onnx/blob/2d42b6a60a52e925e57c422593e88cc51890f58a/onnx/_custom_element_types.py
+        # TODO(#137): Remove this when ONNX 1.19 is the minimum requirement
         if hasattr(dtype, "names"):
             if dtype.names == ("bfloat16",):
                 return DataType.BFLOAT16
