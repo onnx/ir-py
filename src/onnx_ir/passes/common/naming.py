@@ -51,40 +51,50 @@ def _fix_graph_names(graph_like: ir.Graph | ir.Function) -> bool:
 
     # Dictionaries to track which values have been assigned names
     value_to_name: dict[ir.Value, str] = {}
-    scoped_seen_value_names: list[set[str]] = [set()]
-    scoped_seen_node_names: list[set[str]] = [set()]
+    scoped_seen_value_names: list[set[str]] = []
+    scoped_seen_node_names: list[set[str]] = []
 
     # Counters for generating unique names (using list to pass by reference)
     value_counter = [0]
     node_counter = [0]
 
-    def enter_graph(graph: ir.Graph, node: ir.Node) -> None:
+    def enter_graph(graph_like) -> None:
         """Callback for entering a subgraph."""
         # Initialize new scopes with all names from the parent scope
         scoped_seen_value_names.append(set(scoped_seen_value_names[-1]))
         scoped_seen_node_names.append(set())
 
-    def exit_graph(graph: ir.Graph, node: ir.Node) -> None:
+        nonlocal modified
+
+        # Step 1: Fix graph input names first (they have precedence)
+        for input_value in graph_like.inputs:
+            if _process_value(
+                input_value, scoped_seen_value_names[-1], value_to_name, value_counter
+            ):
+                modified = True
+
+        # Step 2: Fix graph output names (they have precedence)
+        for output_value in graph_like.outputs:
+            if _process_value(
+                output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+            ):
+                modified = True
+
+        if isinstance(graph_like, ir.Graph):
+            # For graphs, also fix initializers
+            for initializer in graph_like.initializers.values():
+                if _process_value(
+                    initializer, scoped_seen_value_names[-1], value_to_name, value_counter
+                ):
+                    modified = True
+
+    def exit_graph(_) -> None:
         """Callback for exiting a subgraph."""
         # Pop the current scope
         scoped_seen_value_names.pop()
         scoped_seen_node_names.pop()
 
-    # Step 1: Fix graph input names first (they have precedence)
-    for input_value in graph_like.inputs:
-        if _process_value(
-            input_value, scoped_seen_value_names[0], value_to_name, value_counter
-        ):
-            modified = True
-
-    # Step 2: Fix graph output names (they have precedence)
-    for output_value in graph_like.outputs:
-        if _process_value(
-            output_value, scoped_seen_value_names[0], value_to_name, value_counter
-        ):
-            modified = True
-
-    # Step 3: Process all nodes and their values. Initializers are processed as node inputs.
+    # Step 3: Process all nodes and their values
     for node in ir.traversal.RecursiveGraphIterator(
         graph_like, enter_graph=enter_graph, exit_graph=exit_graph
     ):
