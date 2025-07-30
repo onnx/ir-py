@@ -30,44 +30,13 @@ class NameFixPass(ir.passes.InPlacePass):
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         modified = False
 
-        # Use sets to track seen names globally
-        seen_value_names: set[str] = set()
-        seen_node_names: set[str] = set()
-
-        # Dictionary to track which values have been assigned names
-        value_to_name: dict[ir.Value, str] = {}
-
-        # Counters for generating unique names (using list to pass by reference)
-        value_counter = [0]
-        node_counter = [0]
-
         # Process the main graph
-        if _fix_graph_names(
-            model.graph,
-            seen_value_names,
-            seen_node_names,
-            value_to_name,
-            value_counter,
-            node_counter,
-        ):
+        if _fix_graph_names(model.graph):
             modified = True
 
         # Process functions
         for function in model.functions.values():
-            # Reset seen names and counters for each function
-            seen_value_names: set[str] = set()
-            seen_node_names: set[str] = set()
-            value_to_name: dict[ir.Value, str] = {}
-            value_counter = [0]
-            node_counter = [0]
-            if _fix_graph_names(
-                function,
-                seen_value_names,
-                seen_node_names,
-                value_to_name,
-                value_counter,
-                node_counter,
-            ):
+            if _fix_graph_names(function):
                 modified = True
 
         if modified:
@@ -76,46 +45,70 @@ class NameFixPass(ir.passes.InPlacePass):
         return ir.passes.PassResult(model, modified=modified)
 
 
-def _fix_graph_names(
-    graph_like: ir.Graph | ir.Function,
-    seen_value_names: set[str],
-    seen_node_names: set[str],
-    value_to_name: dict[ir.Value, str],
-    value_counter: list[int],
-    node_counter: list[int],
-) -> bool:
+def _fix_graph_names(graph_like: ir.Graph | ir.Function) -> bool:
     """Fix names in a graph and return whether modifications were made."""
     modified = False
 
+    # Dictionaries to track which values have been assigned names
+    value_to_name: dict[ir.Value, str] = {}
+    scoped_seen_value_names: list[set[str]] = [set()]
+    scoped_seen_node_names: list[set[str]] = [set()]
+
+    # Counters for generating unique names (using list to pass by reference)
+    value_counter = [0]
+    node_counter = [0]
+
+    def enter_graph(graph: ir.Graph, node: ir.Node) -> None:
+        """Callback for entering a subgraph."""
+        # Initialize new scopes with all names from the parent scope
+        scoped_seen_value_names.append(set(scoped_seen_value_names[-1]))
+        scoped_seen_node_names.append(set())
+
+    def exit_graph(graph: ir.Graph, node: ir.Node) -> None:
+        """Callback for exiting a subgraph."""
+        # Pop the current scope
+        scoped_seen_value_names.pop()
+        scoped_seen_node_names.pop()
+
     # Step 1: Fix graph input names first (they have precedence)
     for input_value in graph_like.inputs:
-        if _process_value(input_value, seen_value_names, value_to_name, value_counter):
+        if _process_value(
+            input_value, scoped_seen_value_names[0], value_to_name, value_counter
+        ):
             modified = True
 
     # Step 2: Fix graph output names (they have precedence)
     for output_value in graph_like.outputs:
-        if _process_value(output_value, seen_value_names, value_to_name, value_counter):
+        if _process_value(
+            output_value, scoped_seen_value_names[0], value_to_name, value_counter
+        ):
             modified = True
 
     # Step 3: Process all nodes and their values. Initializers are processed as node inputs.
-    for node in ir.traversal.RecursiveGraphIterator(graph_like):
+    for node in ir.traversal.RecursiveGraphIterator(
+        graph_like, enter_graph=enter_graph, exit_graph=exit_graph
+    ):
         # Fix node name
         if not node.name:
-            if _assign_node_name(node, seen_node_names, node_counter):
+            if _assign_node_name(node, scoped_seen_node_names[-1], node_counter):
                 modified = True
         else:
-            if _fix_duplicate_node_name(node, seen_node_names):
+            if _fix_duplicate_node_name(node, scoped_seen_node_names[-1]):
                 modified = True
 
         # Fix input value names (only if not already processed)
         for input_value in node.inputs:
             if input_value is not None:
-                if _process_value(input_value, seen_value_names, value_to_name, value_counter):
+                if _process_value(
+                    input_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                ):
                     modified = True
 
         # Fix output value names (only if not already processed)
         for output_value in node.outputs:
-            if _process_value(output_value, seen_value_names, value_to_name, value_counter):
+            if _process_value(
+                output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+            ):
                 modified = True
 
     return modified
