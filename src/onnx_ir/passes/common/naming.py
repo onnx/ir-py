@@ -55,7 +55,9 @@ class NameFixPass(ir.passes.InPlacePass):
 
         Args:
             generate_node_name: Function to generate a preferred name for a node.
+                By default, it uses the node's existing name or "node".
             generate_value_name: Function to generate a preferred name for a value.
+                By default, it uses the value's existing name or "v".
         """
         super().__init__()
         self._generate_node_name = generate_node_name
