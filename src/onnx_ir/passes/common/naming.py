@@ -51,8 +51,11 @@ def _fix_graph_names(graph_like: ir.Graph | ir.Function) -> bool:
 
     # Dictionaries to track which values have been assigned names
     value_to_name: dict[ir.Value, str] = {}
-    scoped_seen_value_names: list[set[str]] = []
-    scoped_seen_node_names: list[set[str]] = []
+
+    # The first set is a dummy placeholder so that there is always a [-1] scope for access
+    # (even though we don't write to it)
+    scoped_seen_value_names: list[set[str]] = [set()]
+    scoped_seen_node_names: list[set[str]] = [set()]
 
     # Counters for generating unique names (using list to pass by reference)
     value_counter = [0]
