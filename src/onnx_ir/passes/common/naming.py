@@ -3,6 +3,7 @@
 """Name fix pass for ensuring unique names for all values and nodes."""
 
 from __future__ import annotations
+
 from typing import Callable
 
 __all__ = [
@@ -36,8 +37,8 @@ class NameFixPass(ir.passes.InPlacePass):
         """Initialize the NameFixPass with custom name generation functions.
 
         Args:
-            generate_node_name: Function to generate a unique name for a node.
-            generate_value_name: Function to generate a unique name for a value.
+            generate_node_name: Function to generate a preferred name for a node.
+            generate_value_name: Function to generate a preferred name for a value.
         """
         super().__init__()
         self._generate_node_name = generate_node_name
