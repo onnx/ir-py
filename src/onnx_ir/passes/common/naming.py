@@ -197,7 +197,8 @@ class NameFixPass(ir.passes.InPlacePass):
             "value should not have a name already if function is called correctly"
         )
 
-        new_name = f"v_{counter[0]}"
+        new_name = self._generate_value_name(value)
+
         while new_name in seen_names:
             counter[0] += 1
             new_name = f"v_{counter[0]}"
@@ -211,7 +212,7 @@ class NameFixPass(ir.passes.InPlacePass):
         """Assign a name to an unnamed node. Returns True if modified."""
         assert not node.name, "node should not have a name already if function is called correctly"
 
-        new_name = f"node_{counter[0]}"
+        new_name = self._generate_node_name(node)
 
         while new_name in seen_names:
             counter[0] += 1
