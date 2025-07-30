@@ -73,9 +73,6 @@ class NameFixPass(ir.passes.InPlacePass):
             if self._fix_graph_names(function):
                 modified = True
 
-        if modified:
-            logger.info("Name fix pass modified the model")
-
         return ir.passes.PassResult(model, modified=modified)
 
     def _fix_graph_names(self, graph_like: ir.Graph | ir.Function) -> bool:
