@@ -3,6 +3,7 @@
 """Name fix pass for ensuring unique names for all values and nodes."""
 
 from __future__ import annotations
+from typing import Callable
 
 __all__ = [
     "NameFixPass",
@@ -27,16 +28,31 @@ class NameFixPass(ir.passes.InPlacePass):
     The pass maintains global uniqueness across the entire model.
     """
 
+    def __init__(
+        self,
+        generate_node_name: Callable[[ir.Node], str] = lambda n: n.name or "node",
+        generate_value_name: Callable[[ir.Value], str] = lambda v: v.name or "v",
+    ) -> None:
+        """Initialize the NameFixPass with custom name generation functions.
+
+        Args:
+            generate_node_name: Function to generate a unique name for a node.
+            generate_value_name: Function to generate a unique name for a value.
+        """
+        super().__init__()
+        self._generate_node_name = generate_node_name
+        self._generate_value_name = generate_value_name
+
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         modified = False
 
         # Process the main graph
-        if _fix_graph_names(model.graph):
+        if self._fix_graph_names(model.graph):
             modified = True
 
         # Process functions
         for function in model.functions.values():
-            if _fix_graph_names(function):
+            if self._fix_graph_names(function):
                 modified = True
 
         if modified:
@@ -44,195 +60,194 @@ class NameFixPass(ir.passes.InPlacePass):
 
         return ir.passes.PassResult(model, modified=modified)
 
+    def _fix_graph_names(self, graph_like: ir.Graph | ir.Function) -> bool:
+        """Fix names in a graph and return whether modifications were made."""
+        modified = False
 
-def _fix_graph_names(graph_like: ir.Graph | ir.Function) -> bool:
-    """Fix names in a graph and return whether modifications were made."""
-    modified = False
+        # Dictionaries to track which values have been assigned names
+        value_to_name: dict[ir.Value, str] = {}
 
-    # Dictionaries to track which values have been assigned names
-    value_to_name: dict[ir.Value, str] = {}
+        # The first set is a dummy placeholder so that there is always a [-1] scope for access
+        # (even though we don't write to it)
+        scoped_seen_value_names: list[set[str]] = [set()]
+        scoped_seen_node_names: list[set[str]] = [set()]
 
-    # The first set is a dummy placeholder so that there is always a [-1] scope for access
-    # (even though we don't write to it)
-    scoped_seen_value_names: list[set[str]] = [set()]
-    scoped_seen_node_names: list[set[str]] = [set()]
+        # Counters for generating unique names (using list to pass by reference)
+        value_counter = [0]
+        node_counter = [0]
 
-    # Counters for generating unique names (using list to pass by reference)
-    value_counter = [0]
-    node_counter = [0]
+        def enter_graph(graph_like) -> None:
+            """Callback for entering a subgraph."""
+            # Initialize new scopes with all names from the parent scope
+            scoped_seen_value_names.append(set(scoped_seen_value_names[-1]))
+            scoped_seen_node_names.append(set())
 
-    def enter_graph(graph_like) -> None:
-        """Callback for entering a subgraph."""
-        # Initialize new scopes with all names from the parent scope
-        scoped_seen_value_names.append(set(scoped_seen_value_names[-1]))
-        scoped_seen_node_names.append(set())
+            nonlocal modified
 
-        nonlocal modified
-
-        # Step 1: Fix graph input names first (they have precedence)
-        for input_value in graph_like.inputs:
-            if _process_value(
-                input_value, scoped_seen_value_names[-1], value_to_name, value_counter
-            ):
-                modified = True
-
-        # Step 2: Fix graph output names (they have precedence)
-        for output_value in graph_like.outputs:
-            if _process_value(
-                output_value, scoped_seen_value_names[-1], value_to_name, value_counter
-            ):
-                modified = True
-
-        if isinstance(graph_like, ir.Graph):
-            # For graphs, also fix initializers
-            for initializer in graph_like.initializers.values():
-                if _process_value(
-                    initializer, scoped_seen_value_names[-1], value_to_name, value_counter
-                ):
-                    modified = True
-
-    def exit_graph(_) -> None:
-        """Callback for exiting a subgraph."""
-        # Pop the current scope
-        scoped_seen_value_names.pop()
-        scoped_seen_node_names.pop()
-
-    # Step 3: Process all nodes and their values
-    for node in ir.traversal.RecursiveGraphIterator(
-        graph_like, enter_graph=enter_graph, exit_graph=exit_graph
-    ):
-        # Fix node name
-        if not node.name:
-            if _assign_node_name(node, scoped_seen_node_names[-1], node_counter):
-                modified = True
-        else:
-            if _fix_duplicate_node_name(node, scoped_seen_node_names[-1]):
-                modified = True
-
-        # Fix input value names (only if not already processed)
-        for input_value in node.inputs:
-            if input_value is not None:
-                if _process_value(
+            # Step 1: Fix graph input names first (they have precedence)
+            for input_value in graph_like.inputs:
+                if self._process_value(
                     input_value, scoped_seen_value_names[-1], value_to_name, value_counter
                 ):
                     modified = True
 
-        # Fix output value names (only if not already processed)
-        for output_value in node.outputs:
-            if _process_value(
-                output_value, scoped_seen_value_names[-1], value_to_name, value_counter
-            ):
-                modified = True
+            # Step 2: Fix graph output names (they have precedence)
+            for output_value in graph_like.outputs:
+                if self._process_value(
+                    output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                ):
+                    modified = True
 
-    return modified
+            if isinstance(graph_like, ir.Graph):
+                # For graphs, also fix initializers
+                for initializer in graph_like.initializers.values():
+                    if self._process_value(
+                        initializer, scoped_seen_value_names[-1], value_to_name, value_counter
+                    ):
+                        modified = True
 
+        def exit_graph(_) -> None:
+            """Callback for exiting a subgraph."""
+            # Pop the current scope
+            scoped_seen_value_names.pop()
+            scoped_seen_node_names.pop()
 
-def _process_value(
-    value: ir.Value,
-    seen_value_names: set[str],
-    value_to_name: dict[ir.Value, str],
-    value_counter: list[int],
-) -> bool:
-    """Process a value only if it hasn't been processed before."""
-    if value in value_to_name:
-        return False
+        # Step 3: Process all nodes and their values
+        for node in ir.traversal.RecursiveGraphIterator(
+            graph_like, enter_graph=enter_graph, exit_graph=exit_graph
+        ):
+            # Fix node name
+            if not node.name:
+                if self._assign_node_name(node, scoped_seen_node_names[-1], node_counter):
+                    modified = True
+            else:
+                if self._fix_duplicate_node_name(node, scoped_seen_node_names[-1]):
+                    modified = True
 
-    modified = False
+            # Fix input value names (only if not already processed)
+            for input_value in node.inputs:
+                if input_value is not None:
+                    if self._process_value(
+                        input_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                    ):
+                        modified = True
 
-    if not value.name:
-        modified = _assign_value_name(value, seen_value_names, value_counter)
-    else:
-        old_name = value.name
-        modified = _fix_duplicate_value_name(value, seen_value_names)
-        if modified:
-            assert value.graph is not None
-            if value.is_initializer():
-                value.graph.initializers.pop(old_name)
-                # Add the initializer back with the new name
-                value.graph.initializers.add(value)
+            # Fix output value names (only if not already processed)
+            for output_value in node.outputs:
+                if self._process_value(
+                    output_value, scoped_seen_value_names[-1], value_to_name, value_counter
+                ):
+                    modified = True
 
-    # Record the final name for this value
-    assert value.name is not None
-    value_to_name[value] = value.name
-    return modified
-
-
-def _assign_value_name(value: ir.Value, seen_names: set[str], counter: list[int]) -> bool:
-    """Assign a name to an unnamed value. Returns True if modified."""
-    assert not value.name, (
-        "value should not have a name already if function is called correctly"
-    )
-
-    new_name = f"val_{counter[0]}"
-    while new_name in seen_names:
-        counter[0] += 1
-        new_name = f"val_{counter[0]}"
-
-    value.name = new_name
-    seen_names.add(new_name)
-    logger.debug("Assigned name %s to unnamed value", new_name)
-    return True
+        return modified
 
 
-def _assign_node_name(node: ir.Node, seen_names: set[str], counter: list[int]) -> bool:
-    """Assign a name to an unnamed node. Returns True if modified."""
-    assert not node.name, "node should not have a name already if function is called correctly"
+    def _process_value(
+        self,
+        value: ir.Value,
+        seen_value_names: set[str],
+        value_to_name: dict[ir.Value, str],
+        value_counter: list[int],
+    ) -> bool:
+        """Process a value only if it hasn't been processed before."""
+        if value in value_to_name:
+            return False
 
-    new_name = f"node_{counter[0]}"
+        modified = False
 
-    while new_name in seen_names:
-        counter[0] += 1
+        if not value.name:
+            modified = self._assign_value_name(value, seen_value_names, value_counter)
+        else:
+            old_name = value.name
+            modified = self._fix_duplicate_value_name(value, seen_value_names)
+            if modified:
+                assert value.graph is not None
+                if value.is_initializer():
+                    value.graph.initializers.pop(old_name)
+                    # Add the initializer back with the new name
+                    value.graph.initializers.add(value)
+
+        # Record the final name for this value
+        assert value.name is not None
+        value_to_name[value] = value.name
+        return modified
+
+
+    def _assign_value_name(self, value: ir.Value, seen_names: set[str], counter: list[int]) -> bool:
+        """Assign a name to an unnamed value. Returns True if modified."""
+        assert not value.name, (
+            "value should not have a name already if function is called correctly"
+        )
+
+        new_name = f"v_{counter[0]}"
+        while new_name in seen_names:
+            counter[0] += 1
+            new_name = f"v_{counter[0]}"
+
+        value.name = new_name
+        seen_names.add(new_name)
+        logger.debug("Assigned name %s to unnamed value", new_name)
+        return True
+
+    def _assign_node_name(self, node: ir.Node, seen_names: set[str], counter: list[int]) -> bool:
+        """Assign a name to an unnamed node. Returns True if modified."""
+        assert not node.name, "node should not have a name already if function is called correctly"
+
         new_name = f"node_{counter[0]}"
 
-    node.name = new_name
-    seen_names.add(new_name)
-    logger.debug("Assigned name %s to unnamed node", new_name)
-    return True
+        while new_name in seen_names:
+            counter[0] += 1
+            new_name = f"node_{counter[0]}"
+
+        node.name = new_name
+        seen_names.add(new_name)
+        logger.debug("Assigned name %s to unnamed node", new_name)
+        return True
 
 
-def _fix_duplicate_value_name(value: ir.Value, seen_names: set[str]) -> bool:
-    """Fix a value's name if it conflicts with existing names. Returns True if modified."""
-    original_name = value.name
+    def _fix_duplicate_value_name(self, value: ir.Value, seen_names: set[str]) -> bool:
+        """Fix a value's name if it conflicts with existing names. Returns True if modified."""
+        original_name = value.name
 
-    assert original_name, "value should have a name already if function is called correctly"
+        assert original_name, "value should have a name already if function is called correctly"
 
-    if original_name not in seen_names:
-        # Name is unique, just record it
-        seen_names.add(original_name)
-        return False
+        if original_name not in seen_names:
+            # Name is unique, just record it
+            seen_names.add(original_name)
+            return False
 
-    # If name is already seen, make it unique
-    base_name = original_name
-    suffix = 1
-    new_name = base_name
-    while new_name in seen_names:
-        new_name = f"{base_name}_{suffix}"
-        suffix += 1
-    value.name = new_name
-    seen_names.add(new_name)
-    logger.debug("Renamed value from %s to %s for uniqueness", original_name, new_name)
-    return True
+        # If name is already seen, make it unique
+        base_name = self._generate_value_name(value)
+        suffix = 1
+        new_name = base_name
+        while new_name in seen_names:
+            new_name = f"{base_name}_{suffix}"
+            suffix += 1
+        value.name = new_name
+        seen_names.add(new_name)
+        logger.debug("Renamed value from %s to %s for uniqueness", original_name, new_name)
+        return True
 
 
-def _fix_duplicate_node_name(node: ir.Node, seen_names: set[str]) -> bool:
-    """Fix a node's name if it conflicts with existing names. Returns True if modified."""
-    original_name = node.name
+    def _fix_duplicate_node_name(self, node: ir.Node, seen_names: set[str]) -> bool:
+        """Fix a node's name if it conflicts with existing names. Returns True if modified."""
+        original_name = node.name
 
-    assert original_name, "node should have a name already if function is called correctly"
+        assert original_name, "node should have a name already if function is called correctly"
 
-    if original_name not in seen_names:
-        # Name is unique, just record it
-        seen_names.add(original_name)
-        return False
+        if original_name not in seen_names:
+            # Name is unique, just record it
+            seen_names.add(original_name)
+            return False
 
-    # If name is already seen, make it unique
-    base_name = original_name
-    suffix = 1
-    new_name = base_name
-    while new_name in seen_names:
-        new_name = f"{base_name}_{suffix}"
-        suffix += 1
-    node.name = new_name
-    seen_names.add(new_name)
-    logger.debug("Renamed node from %s to %s for uniqueness", original_name, new_name)
-    return True
+        # If name is already seen, make it unique
+        base_name = self._generate_node_name(node)
+        suffix = 1
+        new_name = base_name
+        while new_name in seen_names:
+            new_name = f"{base_name}_{suffix}"
+            suffix += 1
+        node.name = new_name
+        seen_names.add(new_name)
+        logger.debug("Renamed node from %s to %s for uniqueness", original_name, new_name)
+        return True
