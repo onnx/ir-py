@@ -23,10 +23,27 @@ class NameFixPass(ir.passes.InPlacePass):
     This pass ensures that:
     1. Graph inputs and outputs have unique names (take precedence)
     2. All intermediate values have unique names (assign names to unnamed values)
-    3. All values in subgraphs have unique names
-    4. All nodes have unique names (assign names to unnamed nodes)
+    3. All values in subgraphs have unique names within their graph and parent graphs
+    4. All nodes have unique names within their graph
 
     The pass maintains global uniqueness across the entire model.
+
+    You can customize the name generation functions for nodes and values by passing
+    `generate_node_name` and `generate_value_name` parameters to the constructor.
+
+    For example, you can use a custom naming scheme like this::
+
+        def custom_node_name(node: ir.Node) -> str:
+            return f"custom_node_{node.op_type}"
+        def custom_value_name(value: ir.Value) -> str:
+            return f"custom_value_{value.type}"
+
+        name_fix_pass = NameFixPass(
+            generate_node_name=custom_node_name,
+            generate_value_name=custom_value_name
+        )
+
+    .. versionadded:: 0.1.5
     """
 
     def __init__(
