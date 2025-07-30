@@ -159,7 +159,6 @@ class NameFixPass(ir.passes.InPlacePass):
 
         return modified
 
-
     def _process_value(
         self,
         value: ir.Value,
@@ -190,45 +189,39 @@ class NameFixPass(ir.passes.InPlacePass):
         value_to_name[value] = value.name
         return modified
 
-
-    def _assign_value_name(self, value: ir.Value, seen_names: set[str], counter: list[int]) -> bool:
+    def _assign_value_name(
+        self, value: ir.Value, seen_names: set[str], counter: list[int]
+    ) -> bool:
         """Assign a name to an unnamed value. Returns True if modified."""
         assert not value.name, (
             "value should not have a name already if function is called correctly"
         )
 
-        new_name = self._generate_value_name(value)
-
-        while new_name in seen_names:
-            counter[0] += 1
-            new_name = f"v_{counter[0]}"
-
-        value.name = new_name
-        seen_names.add(new_name)
-        logger.debug("Assigned name %s to unnamed value", new_name)
+        preferred_name = self._generate_value_name(value)
+        value.name = _find_and_record_next_unique_name(preferred_name, seen_names, counter)
+        logger.debug("Assigned name %s to unnamed value", value.name)
         return True
 
-    def _assign_node_name(self, node: ir.Node, seen_names: set[str], counter: list[int]) -> bool:
+    def _assign_node_name(
+        self, node: ir.Node, seen_names: set[str], counter: list[int]
+    ) -> bool:
         """Assign a name to an unnamed node. Returns True if modified."""
-        assert not node.name, "node should not have a name already if function is called correctly"
+        assert not node.name, (
+            "node should not have a name already if function is called correctly"
+        )
 
-        new_name = self._generate_node_name(node)
-
-        while new_name in seen_names:
-            counter[0] += 1
-            new_name = f"node_{counter[0]}"
-
-        node.name = new_name
-        seen_names.add(new_name)
-        logger.debug("Assigned name %s to unnamed node", new_name)
+        preferred_name = self._generate_node_name(node)
+        node.name = _find_and_record_next_unique_name(preferred_name, seen_names, counter)
+        logger.debug("Assigned name %s to unnamed node", node.name)
         return True
-
 
     def _fix_duplicate_value_name(self, value: ir.Value, seen_names: set[str]) -> bool:
         """Fix a value's name if it conflicts with existing names. Returns True if modified."""
         original_name = value.name
 
-        assert original_name, "value should have a name already if function is called correctly"
+        assert original_name, (
+            "value should have a name already if function is called correctly"
+        )
 
         if original_name not in seen_names:
             # Name is unique, just record it
@@ -237,16 +230,9 @@ class NameFixPass(ir.passes.InPlacePass):
 
         # If name is already seen, make it unique
         base_name = self._generate_value_name(value)
-        suffix = 1
-        new_name = base_name
-        while new_name in seen_names:
-            new_name = f"{base_name}_{suffix}"
-            suffix += 1
-        value.name = new_name
-        seen_names.add(new_name)
-        logger.debug("Renamed value from %s to %s for uniqueness", original_name, new_name)
+        value.name = _find_and_record_next_unique_name(base_name, seen_names)
+        logger.debug("Renamed value from %s to %s for uniqueness", original_name, value.name)
         return True
-
 
     def _fix_duplicate_node_name(self, node: ir.Node, seen_names: set[str]) -> bool:
         """Fix a node's name if it conflicts with existing names. Returns True if modified."""
@@ -261,12 +247,20 @@ class NameFixPass(ir.passes.InPlacePass):
 
         # If name is already seen, make it unique
         base_name = self._generate_node_name(node)
-        suffix = 1
-        new_name = base_name
-        while new_name in seen_names:
-            new_name = f"{base_name}_{suffix}"
-            suffix += 1
-        node.name = new_name
-        seen_names.add(new_name)
-        logger.debug("Renamed node from %s to %s for uniqueness", original_name, new_name)
+        node.name = _find_and_record_next_unique_name(base_name, seen_names)
+        logger.debug("Renamed node from %s to %s for uniqueness", original_name, node.name)
         return True
+
+
+def _find_and_record_next_unique_name(
+    preferred_name: str, seen_names: set[str], counter: list[int] | None = None
+) -> str:
+    """Generate a unique name based on the preferred name and current counter."""
+    new_name = preferred_name
+    if counter is None:
+        counter = [0]
+    while new_name in seen_names:
+        counter[0] += 1
+        new_name = f"{preferred_name}_{counter[0]}"
+    seen_names.add(new_name)
+    return new_name
