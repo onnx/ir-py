@@ -4,10 +4,9 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
 __all__ = [
     "NameFixPass",
+    "NameGenerator",
 ]
 
 import logging
@@ -15,6 +14,18 @@ import logging
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
+
+
+class NameGenerator:
+    """Base class for name generation functions."""
+
+    def generate_node_name(self, node: ir.Node) -> str:
+        """Generate a preferred name for a node."""
+        return node.name or "node"
+
+    def generate_value_name(self, value: ir.Value) -> str:
+        """Generate a preferred name for a value."""
+        return value.name or "v"
 
 
 class NameFixPass(ir.passes.InPlacePass):
@@ -29,51 +40,44 @@ class NameFixPass(ir.passes.InPlacePass):
     The pass maintains global uniqueness across the entire model.
 
     You can customize the name generation functions for nodes and values by passing
-    `generate_node_name` and `generate_value_name` parameters to the constructor.
+    a subclass of :class:`NameGenerator`.
 
     For example, you can use a custom naming scheme like this::
 
-        def custom_node_name(node: ir.Node) -> str:
-            return f"custom_node_{node.op_type}"
-        def custom_value_name(value: ir.Value) -> str:
-            return f"custom_value_{value.type}"
+        class CustomNameGenerator:
+            def custom_node_name(node: ir.Node) -> str:
+                return f"custom_node_{node.op_type}"
 
-        name_fix_pass = NameFixPass(
-            generate_node_name=custom_node_name,
-            generate_value_name=custom_value_name
-        )
+            def custom_value_name(value: ir.Value) -> str:
+                return f"custom_value_{value.type}"
+
+        name_fix_pass = NameFixPass(nameGenerator=CustomNameGenerator())
 
     .. versionadded:: 0.1.5
     """
 
     def __init__(
         self,
-        generate_node_name: Callable[[ir.Node], str] = lambda n: n.name or "node",
-        generate_value_name: Callable[[ir.Value], str] = lambda v: v.name or "v",
+        name_generator: NameGenerator | None = None,
     ) -> None:
         """Initialize the NameFixPass with custom name generation functions.
 
         Args:
-            generate_node_name: Function to generate a preferred name for a node.
-                By default, it uses the node's existing name or "node".
-            generate_value_name: Function to generate a preferred name for a value.
-                By default, it uses the value's existing name or "v".
+            name_generator (NameGenerator, optional): An instance of a subclass of
+                :class:`NameGenerator` to customize name generation for nodes and values.
+                If not provided, defaults to a basic implementation that uses
+                the node's or value's existing name or a generic name like "node" or "v".
         """
         super().__init__()
-        self._generate_node_name = generate_node_name
-        self._generate_value_name = generate_value_name
+        self._name_generator = name_generator or NameGenerator()
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
-        modified = False
-
         # Process the main graph
-        if self._fix_graph_names(model.graph):
-            modified = True
+        modified = self._fix_graph_names(model.graph)
 
         # Process functions
         for function in model.functions.values():
-            if self._fix_graph_names(function):
-                modified = True
+            modified = self._fix_graph_names(function) or modified
 
         return ir.passes.PassResult(model, modified=modified)
 
@@ -196,7 +200,7 @@ class NameFixPass(ir.passes.InPlacePass):
             "value should not have a name already if function is called correctly"
         )
 
-        preferred_name = self._generate_value_name(value)
+        preferred_name = self._name_generator.generate_value_name(value)
         value.name = _find_and_record_next_unique_name(preferred_name, used_names, counter)
         logger.debug("Assigned name %s to unnamed value", value.name)
         return True
@@ -209,7 +213,7 @@ class NameFixPass(ir.passes.InPlacePass):
             "node should not have a name already if function is called correctly"
         )
 
-        preferred_name = self._generate_node_name(node)
+        preferred_name = self._name_generator.generate_node_name(node)
         node.name = _find_and_record_next_unique_name(preferred_name, used_names, counter)
         logger.debug("Assigned name %s to unnamed node", node.name)
         return True
@@ -228,7 +232,7 @@ class NameFixPass(ir.passes.InPlacePass):
             return False
 
         # If name is already used, make it unique
-        base_name = self._generate_value_name(value)
+        base_name = self._name_generator.generate_value_name(value)
         value.name = _find_and_record_next_unique_name(base_name, used_names)
         logger.debug("Renamed value from %s to %s for uniqueness", original_name, value.name)
         return True
@@ -245,7 +249,7 @@ class NameFixPass(ir.passes.InPlacePass):
             return False
 
         # If name is already used, make it unique
-        base_name = self._generate_node_name(node)
+        base_name = self._name_generator.generate_node_name(node)
         node.name = _find_and_record_next_unique_name(base_name, used_names)
         logger.debug("Renamed node from %s to %s for uniqueness", original_name, node.name)
         return True
