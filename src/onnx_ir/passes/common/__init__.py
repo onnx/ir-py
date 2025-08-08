@@ -11,6 +11,7 @@ __all__ = [
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
+    "NameFixPass",
     "RemoveInitializersFromInputsPass",
     "RemoveUnusedFunctionsPass",
     "RemoveUnusedNodesPass",
@@ -38,6 +39,7 @@ from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateInitializersPass,
 )
 from onnx_ir.passes.common.inliner import InlinePass
+from onnx_ir.passes.common.naming import NameFixPass
 from onnx_ir.passes.common.onnx_checker import CheckerPass
 from onnx_ir.passes.common.shape_inference import ShapeInferencePass
 from onnx_ir.passes.common.topological_sort import TopologicalSortPass
