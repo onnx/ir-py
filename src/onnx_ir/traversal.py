@@ -30,7 +30,7 @@ class RecursiveGraphIterator(Iterator[_core.Node], Reversible[_core.Node]):
     ):
         """Iterate over the nodes in the graph, recursively visiting subgraphs.
 
-        This iterator allows for traversing the nodes of a graph, including subgraphs,
+        This iterator allows for traversing the nodes of a graph and its subgraphs
         in a depth-first manner. It supports optional callbacks for entering and exiting
         subgraphs, as well as a callback `recursive` to determine whether to visit subgraphs
         contained within nodes.
