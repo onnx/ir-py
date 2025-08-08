@@ -10,6 +10,7 @@ __all__ = [
     "SimpleNameGenerator",
 ]
 
+import collections
 import logging
 from typing import Protocol
 
@@ -106,8 +107,8 @@ class NameFixPass(ir.passes.InPlacePass):
         scoped_used_node_names: list[set[str]] = [set()]
 
         # Counters for generating unique names (using list to pass by reference)
-        value_counter = [0]
-        node_counter = [0]
+        value_counter = collections.Counter()
+        node_counter = collections.Counter()
 
         def enter_graph(graph_like) -> None:
             """Callback for entering a subgraph."""
@@ -154,7 +155,9 @@ class NameFixPass(ir.passes.InPlacePass):
                 if self._assign_node_name(node, scoped_used_node_names[-1], node_counter):
                     modified = True
             else:
-                if self._fix_duplicate_node_name(node, scoped_used_node_names[-1]):
+                if self._fix_duplicate_node_name(
+                    node, scoped_used_node_names[-1], node_counter
+                ):
                     modified = True
 
             # Fix input value names (only if not already processed)
@@ -179,7 +182,7 @@ class NameFixPass(ir.passes.InPlacePass):
         value: ir.Value,
         used_value_names: set[str],
         seen_values: set[ir.Value],
-        value_counter: list[int],
+        value_counter: collections.Counter,
     ) -> bool:
         """Process a value only if it hasn't been processed before."""
         if value in seen_values:
@@ -191,7 +194,7 @@ class NameFixPass(ir.passes.InPlacePass):
             modified = self._assign_value_name(value, used_value_names, value_counter)
         else:
             old_name = value.name
-            modified = self._fix_duplicate_value_name(value, used_value_names)
+            modified = self._fix_duplicate_value_name(value, used_value_names, value_counter)
             if modified:
                 assert value.graph is not None
                 if value.is_initializer():
@@ -205,7 +208,7 @@ class NameFixPass(ir.passes.InPlacePass):
         return modified
 
     def _assign_value_name(
-        self, value: ir.Value, used_names: set[str], counter: list[int]
+        self, value: ir.Value, used_names: set[str], counter: collections.Counter
     ) -> bool:
         """Assign a name to an unnamed value. Returns True if modified."""
         assert not value.name, (
@@ -218,7 +221,7 @@ class NameFixPass(ir.passes.InPlacePass):
         return True
 
     def _assign_node_name(
-        self, node: ir.Node, used_names: set[str], counter: list[int]
+        self, node: ir.Node, used_names: set[str], counter: collections.Counter
     ) -> bool:
         """Assign a name to an unnamed node. Returns True if modified."""
         assert not node.name, (
@@ -230,7 +233,9 @@ class NameFixPass(ir.passes.InPlacePass):
         logger.debug("Assigned name %s to unnamed node", node.name)
         return True
 
-    def _fix_duplicate_value_name(self, value: ir.Value, used_names: set[str]) -> bool:
+    def _fix_duplicate_value_name(
+        self, value: ir.Value, used_names: set[str], counter: collections.Counter
+    ) -> bool:
         """Fix a value's name if it conflicts with existing names. Returns True if modified."""
         original_name = value.name
 
@@ -245,11 +250,13 @@ class NameFixPass(ir.passes.InPlacePass):
 
         # If name is already used, make it unique
         base_name = self._name_generator.generate_value_name(value)
-        value.name = _find_and_record_next_unique_name(base_name, used_names)
+        value.name = _find_and_record_next_unique_name(base_name, used_names, counter)
         logger.debug("Renamed value from %s to %s for uniqueness", original_name, value.name)
         return True
 
-    def _fix_duplicate_node_name(self, node: ir.Node, used_names: set[str]) -> bool:
+    def _fix_duplicate_node_name(
+        self, node: ir.Node, used_names: set[str], counter: collections.Counter
+    ) -> bool:
         """Fix a node's name if it conflicts with existing names. Returns True if modified."""
         original_name = node.name
 
@@ -262,20 +269,18 @@ class NameFixPass(ir.passes.InPlacePass):
 
         # If name is already used, make it unique
         base_name = self._name_generator.generate_node_name(node)
-        node.name = _find_and_record_next_unique_name(base_name, used_names)
+        node.name = _find_and_record_next_unique_name(base_name, used_names, counter)
         logger.debug("Renamed node from %s to %s for uniqueness", original_name, node.name)
         return True
 
 
 def _find_and_record_next_unique_name(
-    preferred_name: str, used_names: set[str], counter: list[int] | None = None
+    preferred_name: str, used_names: set[str], counter: collections.Counter
 ) -> str:
     """Generate a unique name based on the preferred name and current counter."""
     new_name = preferred_name
-    if counter is None:
-        counter = [0]
     while new_name in used_names:
-        counter[0] += 1
-        new_name = f"{preferred_name}_{counter[0]}"
+        counter[preferred_name] += 1
+        new_name = f"{preferred_name}_{counter[preferred_name]}"
     used_names.add(new_name)
     return new_name
