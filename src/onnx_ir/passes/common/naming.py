@@ -7,16 +7,28 @@ from __future__ import annotations
 __all__ = [
     "NameFixPass",
     "NameGenerator",
+    "SimpleNameGenerator",
 ]
 
 import logging
+from typing import Protocol
 
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
 
 
-class NameGenerator:
+class NameGenerator(Protocol):
+    def generate_node_name(self, node: ir.Node) -> str:
+        """Generate a preferred name for a node."""
+        ...
+
+    def generate_value_name(self, value: ir.Value) -> str:
+        """Generate a preferred name for a value."""
+        ...
+
+
+class SimpleNameGenerator(NameGenerator):
     """Base class for name generation functions."""
 
     def generate_node_name(self, node: ir.Node) -> str:
@@ -53,7 +65,7 @@ class NameFixPass(ir.passes.InPlacePass):
 
         name_fix_pass = NameFixPass(nameGenerator=CustomNameGenerator())
 
-    .. versionadded:: 0.1.5
+    .. versionadded:: 0.1.6
     """
 
     def __init__(
@@ -69,7 +81,7 @@ class NameFixPass(ir.passes.InPlacePass):
                 the node's or value's existing name or a generic name like "node" or "v".
         """
         super().__init__()
-        self._name_generator = name_generator or NameGenerator()
+        self._name_generator = name_generator or SimpleNameGenerator()
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         # Process the main graph
