@@ -68,7 +68,6 @@ def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
             torch.float8_e4m3fnuz: ir.DataType.FLOAT8E4M3FNUZ,
             torch.float8_e5m2: ir.DataType.FLOAT8E5M2,
             torch.float8_e5m2fnuz: ir.DataType.FLOAT8E5M2FNUZ,
-            torch.float8_e8m0fnu: ir.DataType.FLOAT8E8M0,
             torch.int16: ir.DataType.INT16,
             torch.int32: ir.DataType.INT32,
             torch.int64: ir.DataType.INT64,
@@ -78,6 +77,10 @@ def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
             torch.uint32: ir.DataType.UINT32,
             torch.uint64: ir.DataType.UINT64,
         }
+        if hasattr(torch, "float8_e8m0fnu"):
+            # torch.float8_e8m0fnu is available in PyTorch 2.7+
+            _TORCH_DTYPE_TO_ONNX[torch.float8_e8m0fnu] = ir.DataType.FLOAT8E8M0
+
     if dtype not in _TORCH_DTYPE_TO_ONNX:
         raise TypeError(
             f"Unsupported PyTorch dtype '{dtype}'. "
