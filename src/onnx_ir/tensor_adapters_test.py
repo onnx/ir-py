@@ -12,6 +12,7 @@ import numpy as np
 import parameterized
 import torch
 
+import onnx_ir as ir
 from onnx_ir import tensor_adapters
 
 
@@ -81,6 +82,22 @@ class TorchTensorTest(unittest.TestCase):
     def test_tobytes(self, dtype: torch.dtype):
         tensor = tensor_adapters.TorchTensor(torch.tensor([1], dtype=dtype))
         self.assertEqual(tensor.tobytes(), tensor.numpy().tobytes())
+
+
+class TorchDtypeConversionTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            (ir.DataType.BFLOAT16, torch.bfloat16),
+            (ir.DataType.BOOL, torch.bool),
+            (ir.DataType.COMPLEX128, torch.complex128),
+            (ir.DataType.COMPLEX64, torch.complex64),
+            (ir.DataType.FLOAT16, torch.float16),
+            (ir.DataType.FLOAT8E8M0, torch.float8_e8m0fnu),
+        ]
+    )
+    def test_to_torch_dtype(self, onnx_dtype: ir.DataType, expected_torch_dtype: torch.dtype):
+        actual = tensor_adapters.to_torch_dtype(onnx_dtype)
+        self.assertEqual(actual, expected_torch_dtype)
 
 
 if __name__ == "__main__":
