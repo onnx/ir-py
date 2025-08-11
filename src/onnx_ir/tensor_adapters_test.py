@@ -12,6 +12,7 @@ import numpy as np
 import parameterized
 import torch
 
+import onnx_ir as ir
 from onnx_ir import tensor_adapters
 
 
@@ -81,6 +82,66 @@ class TorchTensorTest(unittest.TestCase):
     def test_tobytes(self, dtype: torch.dtype):
         tensor = tensor_adapters.TorchTensor(torch.tensor([1], dtype=dtype))
         self.assertEqual(tensor.tobytes(), tensor.numpy().tobytes())
+
+
+class TorchDtypeConversionTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            (ir.DataType.BFLOAT16, torch.bfloat16),
+            (ir.DataType.BOOL, torch.bool),
+            (ir.DataType.COMPLEX128, torch.complex128),
+            (ir.DataType.COMPLEX64, torch.complex64),
+            (ir.DataType.FLOAT16, torch.float16),
+            (ir.DataType.FLOAT, torch.float32),
+            (ir.DataType.DOUBLE, torch.float64),
+            (ir.DataType.FLOAT8E4M3FN, torch.float8_e4m3fn),
+            (ir.DataType.FLOAT8E4M3FNUZ, torch.float8_e4m3fnuz),
+            (ir.DataType.FLOAT8E5M2, torch.float8_e5m2),
+            (ir.DataType.FLOAT8E5M2FNUZ, torch.float8_e5m2fnuz),
+            (ir.DataType.FLOAT8E8M0, torch.float8_e8m0fnu),  # Requires PyTorch 2.7+
+            (ir.DataType.INT16, torch.int16),
+            (ir.DataType.INT32, torch.int32),
+            (ir.DataType.INT64, torch.int64),
+            (ir.DataType.INT8, torch.int8),
+            (ir.DataType.UINT8, torch.uint8),
+            (ir.DataType.UINT16, torch.uint16),
+            (ir.DataType.UINT32, torch.uint32),
+            (ir.DataType.UINT64, torch.uint64),
+        ]
+    )
+    def test_to_torch_dtype(self, onnx_dtype: ir.DataType, expected_torch_dtype: torch.dtype):
+        actual = tensor_adapters.to_torch_dtype(onnx_dtype)
+        self.assertEqual(actual, expected_torch_dtype)
+
+    @parameterized.parameterized.expand(
+        [
+            (torch.bfloat16, ir.DataType.BFLOAT16),
+            (torch.bool, ir.DataType.BOOL),
+            (torch.complex128, ir.DataType.COMPLEX128),
+            (torch.complex64, ir.DataType.COMPLEX64),
+            (torch.float16, ir.DataType.FLOAT16),
+            (torch.float32, ir.DataType.FLOAT),
+            (torch.float64, ir.DataType.DOUBLE),
+            (torch.float8_e4m3fn, ir.DataType.FLOAT8E4M3FN),
+            (torch.float8_e4m3fnuz, ir.DataType.FLOAT8E4M3FNUZ),
+            (torch.float8_e5m2, ir.DataType.FLOAT8E5M2),
+            (torch.float8_e5m2fnuz, ir.DataType.FLOAT8E5M2FNUZ),
+            (torch.float8_e8m0fnu, ir.DataType.FLOAT8E8M0),  # Requires PyTorch 2.7+
+            (torch.int16, ir.DataType.INT16),
+            (torch.int32, ir.DataType.INT32),
+            (torch.int64, ir.DataType.INT64),
+            (torch.int8, ir.DataType.INT8),
+            (torch.uint8, ir.DataType.UINT8),
+            (torch.uint16, ir.DataType.UINT16),
+            (torch.uint32, ir.DataType.UINT32),
+            (torch.uint64, ir.DataType.UINT64),
+        ]
+    )
+    def test_from_torch_dtype(
+        self, torch_dtype: torch.dtype, expected_onnx_dtype: ir.DataType
+    ):
+        actual = tensor_adapters.from_torch_dtype(torch_dtype)
+        self.assertEqual(actual, expected_onnx_dtype)
 
 
 if __name__ == "__main__":
