@@ -105,7 +105,6 @@ def to_torch_dtype(dtype: ir.DataType) -> torch.dtype:
             ir.DataType.FLOAT8E4M3FNUZ: torch.float8_e4m3fnuz,
             ir.DataType.FLOAT8E5M2: torch.float8_e5m2,
             ir.DataType.FLOAT8E5M2FNUZ: torch.float8_e5m2fnuz,
-            ir.DataType.FLOAT8E8M0: torch.float8_e8m0fnu,
             ir.DataType.INT16: torch.int16,
             ir.DataType.INT32: torch.int32,
             ir.DataType.INT64: torch.int64,
@@ -115,7 +114,17 @@ def to_torch_dtype(dtype: ir.DataType) -> torch.dtype:
             ir.DataType.UINT32: torch.uint32,
             ir.DataType.UINT64: torch.uint64,
         }
+
+        if hasattr(torch, "float8_e8m0fnu"):
+            # torch.float8_e8m0fnu is available in PyTorch 2.7+
+            _ONNX_DTYPE_TO_TORCH[ir.DataType.FLOAT8E8M0] = torch.float8_e8m0fnu
+
     if dtype not in _ONNX_DTYPE_TO_TORCH:
+        if dtype == ir.DataType.FLOAT8E8M0:
+            raise ValueError(
+                "The requested DataType 'FLOAT8E8M0' is only supported in PyTorch 2.7+. "
+                "Please upgrade your PyTorch version to use this dtype."
+            )
         raise TypeError(
             f"Unsupported conversion from ONNX dtype '{dtype}' to torch. "
             "Please use a supported dtype from the list: "
