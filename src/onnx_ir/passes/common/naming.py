@@ -64,7 +64,7 @@ class NameFixPass(ir.passes.InPlacePass):
             def custom_value_name(value: ir.Value) -> str:
                 return f"custom_value_{value.type}"
 
-        name_fix_pass = NameFixPass(nameGenerator=CustomNameGenerator())
+        name_fix_pass = NameFixPass(name_generator=CustomNameGenerator())
 
     .. versionadded:: 0.1.6
     """
