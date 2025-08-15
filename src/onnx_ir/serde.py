@@ -1469,8 +1469,6 @@ def serialize_graph_into(
         serialize_value_into(graph_proto.input.add(), input_)
         if input_.name not in from_.initializers:
             # Annotations for initializers will be added below to avoid double adding
-            # TODO(justinchuby): We should add a method is_initializer() on Value when
-            # the initializer list is tracked
             _maybe_add_quantization_annotation(graph_proto, input_)
     input_names = {input_.name for input_ in from_.inputs}
     # TODO(justinchuby): Support sparse_initializer
@@ -1818,7 +1816,7 @@ def serialize_value(value: _protocols.ValueProtocol, *, name: str = "") -> onnx.
     return value_info_proto
 
 
-@_capture_errors(lambda value_info_proto, from_: repr(from_))
+@_capture_errors(lambda value_info_proto, from_, name="": repr(from_))
 def serialize_value_into(
     value_info_proto: onnx.ValueInfoProto,
     from_: _protocols.ValueProtocol,
