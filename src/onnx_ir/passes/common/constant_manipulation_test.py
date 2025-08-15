@@ -442,7 +442,6 @@ class TestLiftSubgraphInitializersToMainGraphPass(unittest.TestCase):
         self.assertIs(subgraph_output.graph, graph_node.attributes["subgraph"].as_graph())
 
 
-
 class TestRemoveInitializersFromInputsPass(unittest.TestCase):
     def test_remove_initializers_from_inputs(self):
         input_value = ir.Value(

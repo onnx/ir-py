@@ -70,7 +70,9 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.TYPE_PROTO
     if isinstance(attr, Sequence):
         if not attr:
-            raise ValueError("Cannot infer type of empty sequence. Please create an Attr with type explicitly.")
+            raise ValueError(
+                "Cannot infer type of empty sequence. Please create an Attr with type explicitly."
+            )
         if all(isinstance(x, int) for x in attr):
             return _enums.AttributeType.INTS
         if all(isinstance(x, float) for x in attr):
@@ -83,7 +85,8 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         ):
             return _enums.AttributeType.TENSORS
         if all(
-            isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)) for x in attr
+            isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol))
+            for x in attr
         ):
             return _enums.AttributeType.GRAPHS
         if all(
