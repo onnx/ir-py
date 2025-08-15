@@ -224,7 +224,7 @@ def convert_attributes(
         ...     "type_protos": [ir.TensorType(ir.DataType.FLOAT), ir.TensorType(ir.DataType.FLOAT)],
         ... }
         >>> convert_attributes(attrs)
-        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', INTS, Graph(
+        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', GRAPH, Graph(
             name='graph0',
             inputs=(
         <BLANKLINE>
@@ -258,6 +258,11 @@ def convert_attributes(
 
     Returns:
         A list of _core.Attr objects.
+
+    Raises:
+        ValueError: If an attribute is an empty sequence. It should be created with an
+            explicit type by initializing an Attr object with an attribute type.
+        TypeError: If an attribute type is not supported.
     """
     attributes: list[_core.Attr] = []
     for name, attr in attrs.items():
