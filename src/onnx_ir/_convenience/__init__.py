@@ -71,7 +71,7 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
     if isinstance(attr, Sequence):
         if not attr:
             raise ValueError(
-                "Cannot infer type of empty sequence. Please create an Attr with type explicitly."
+                "Cannot infer type of empty sequence. Please create an Attr with an explicit type."
             )
         if all(isinstance(x, int) for x in attr):
             return _enums.AttributeType.INTS
