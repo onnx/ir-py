@@ -145,9 +145,9 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
         count = 0
         registered_initializer_names: dict[str, int] = {}
         for graph in model.graphs():
-            if graph is model.graph:
                 continue
             for name in tuple(graph.initializers):
+                assert name is not None
                 initializer = graph.initializers[name]
                 if initializer.is_graph_input():
                     # Skip the ones that are also graph inputs
@@ -156,17 +156,24 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
                         initializer.name,
                     )
                     continue
+                if initializer.is_graph_output():
+                    logger.debug(
+                        "Initializer '%s' is used as output, so it can't be lifted",
+                        initializer.name,
+                    )
+                    continue
                 # Remove the initializer from the subgraph
                 graph.initializers.pop(name)
                 # To avoid name conflicts, we need to rename the initializer
                 # to a unique name in the main graph
-                if name in registered_initializer_names:
-                    name_count = registered_initializer_names[name]
-                    initializer.name = f"{name}_{name_count}"
-                    registered_initializer_names[name] = name_count + 1
-                else:
-                    assert initializer.name is not None
-                    registered_initializer_names[initializer.name] = 1
+                new_name = name
+                while new_name in model.graph.initializers:
+                    if name in registered_initializer_names:
+                        registered_initializer_names[name] += 1
+                    else:
+                        registered_initializer_names[name] = 1
+                    new_name = f"{name}_{registered_initializer_names[name]}"
+                initializer.name = new_name
                 model.graph.register_initializer(initializer)
                 count += 1
                 logger.debug(
