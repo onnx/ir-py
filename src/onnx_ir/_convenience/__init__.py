@@ -58,44 +58,47 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.STRING
     if isinstance(attr, _core.Attr):
         return attr.type
-    if isinstance(attr, Sequence) and all(isinstance(x, int) for x in attr):
-        return _enums.AttributeType.INTS
-    if isinstance(attr, Sequence) and all(isinstance(x, float) for x in attr):
-        return _enums.AttributeType.FLOATS
-    if isinstance(attr, Sequence) and all(isinstance(x, str) for x in attr):
-        return _enums.AttributeType.STRINGS
+    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
+        return _enums.AttributeType.GRAPH
     if isinstance(attr, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol)):
         # Be sure to check TensorProtocol last because isinstance checking on Protocols can be slower
         return _enums.AttributeType.TENSOR
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
-        for x in attr
-    ):
-        return _enums.AttributeType.TENSORS
-    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
-        return _enums.AttributeType.GRAPH
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)) for x in attr
-    ):
-        return _enums.AttributeType.GRAPHS
     if isinstance(
         attr,
         (_core.TensorType, _core.SequenceType, _core.OptionalType, _protocols.TypeProtocol),
     ):
         return _enums.AttributeType.TYPE_PROTO
-    if isinstance(attr, Sequence) and all(
-        isinstance(
-            x,
-            (
-                _core.TensorType,
-                _core.SequenceType,
-                _core.OptionalType,
-                _protocols.TypeProtocol,
-            ),
-        )
-        for x in attr
-    ):
-        return _enums.AttributeType.TYPE_PROTOS
+    if isinstance(attr, Sequence):
+        if not attr:
+            raise ValueError("Cannot infer type of empty sequence. Please create an Attr with type explicitly.")
+        if all(isinstance(x, int) for x in attr):
+            return _enums.AttributeType.INTS
+        if all(isinstance(x, float) for x in attr):
+            return _enums.AttributeType.FLOATS
+        if all(isinstance(x, str) for x in attr):
+            return _enums.AttributeType.STRINGS
+        if all(
+            isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
+            for x in attr
+        ):
+            return _enums.AttributeType.TENSORS
+        if all(
+            isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)) for x in attr
+        ):
+            return _enums.AttributeType.GRAPHS
+        if all(
+            isinstance(
+                x,
+                (
+                    _core.TensorType,
+                    _core.SequenceType,
+                    _core.OptionalType,
+                    _protocols.TypeProtocol,
+                ),
+            )
+            for x in attr
+        ):
+            return _enums.AttributeType.TYPE_PROTOS
     raise TypeError(f"Unsupported attribute type: '{type(attr)}'")
 
 
