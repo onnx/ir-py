@@ -30,25 +30,41 @@ class TestClearMetadataAndDocStringPass(unittest.TestCase):
         )
         mul_node = ir.node(
             "Mul",
-            inputs=[add_node.outputs[0], inputs[1]],
+            inputs=[add_node.o(), inputs[1]],
             num_outputs=1,
             metadata_props={"mul_key": "mul_value"},
             doc_string="This is a Mul node",
         )
-        func_inputs = [
-            ir.Value(
-                name="input_a", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((2, 3))
-            ),
-            ir.Value(
-                name="input_b", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((2, 3))
-            ),
-        ]
         function = ir.Function(
             graph=ir.Graph(
                 name="my_function",
-                inputs=func_inputs,
-                outputs=mul_node.outputs,
-                nodes=[add_node, mul_node],
+                inputs=[
+                    input_a := ir.Value(
+                        name="input_a",
+                        type=ir.TensorType(ir.DataType.FLOAT),
+                        shape=ir.Shape((2, 3)),
+                    ),
+                    input_b := ir.Value(
+                        name="input_b",
+                        type=ir.TensorType(ir.DataType.FLOAT),
+                        shape=ir.Shape((2, 3)),
+                    ),
+                ],
+                nodes=[
+                    add_node_func := ir.node(
+                        "Add",
+                        inputs=[input_a, input_b],
+                        metadata_props={"add_key": "add_value"},
+                        doc_string="This is an Add node",
+                    ),
+                    mul_node_func := ir.node(
+                        "Mul",
+                        inputs=[add_node_func.o(), input_b],
+                        metadata_props={"mul_key": "mul_value"},
+                        doc_string="This is a Mul node",
+                    ),
+                ],
+                outputs=mul_node_func.outputs,
                 opset_imports={"": 20},
                 doc_string="This is a function docstring",
                 metadata_props={"function_key": "function_value"},
@@ -57,6 +73,14 @@ class TestClearMetadataAndDocStringPass(unittest.TestCase):
             domain="my_domain",
             attributes=[],
         )
+        func_node = ir.node(
+            "my_function",
+            inputs=[inputs[0], mul_node.o()],
+            domain="my_domain",
+            metadata_props={"mul_key": "mul_value"},
+            doc_string="This is a Mul node",
+        )
+        # TODO(justinchuby): This graph is broken. The output of the function cannot be a input to a node
         # Create a model with the graph and function
         constant_tensor = ir.tensor(np.random.rand(2, 3).astype(ir.DataType.FLOAT.numpy()))
         const_node = ir.node(
@@ -69,7 +93,7 @@ class TestClearMetadataAndDocStringPass(unittest.TestCase):
         )
         sub_node = ir.node(
             "Sub",
-            inputs=[function.outputs[0], const_node.outputs[0]],
+            inputs=[func_node.o(), const_node.o()],
             num_outputs=1,
             metadata_props={"sub_key": "sub_value"},
             doc_string="This is a Sub node",
