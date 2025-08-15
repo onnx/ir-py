@@ -145,6 +145,7 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
         count = 0
         registered_initializer_names: dict[str, int] = {}
         for graph in model.graphs():
+            if graph is model.graph:
                 continue
             for name in tuple(graph.initializers):
                 assert name is not None
