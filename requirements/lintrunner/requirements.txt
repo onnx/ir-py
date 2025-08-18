@@ -6,4 +6,4 @@ ruff==0.12.8
 mypy==1.17.1
 types-PyYAML==6.0.12.20250516
 # EDITORCONFIG-CHECKER
-editorconfig-checker==3.2.1
+editorconfig-checker==3.4.0
