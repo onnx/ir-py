@@ -27,7 +27,10 @@ def _create_io_row(value: ir.Value) -> list[str]:
 
 
 def _format_attributes_text(node: ir.Node) -> str:
-    attr = [f"{k}={v.value!r}" if v.type != ir.AttributeType.GRAPH else f"{k}=GRAPH" for k, v in node.attributes.items()]
+    attr = [
+        f"{k}={v.value!r}" if v.type != ir.AttributeType.GRAPH else f"{k}=GRAPH"
+        for k, v in node.attributes.items()
+    ]
     return "{" + ", ".join(attr) + "}"
 
 
@@ -45,8 +48,7 @@ def _create_header_row() -> list[str]:
     return [
         "Op",
         "Outputs",
-        "Inputs"
-        "Attrs",
+        "InputsAttrs",
         "Name",
     ]
 
