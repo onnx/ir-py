@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+
 import tabulate
+
 import onnx_ir as ir
 
 
@@ -40,7 +42,6 @@ def _create_node_row(node: ir.Node) -> list[str]:
         "[" + ", ".join([v.name if v is not None else '""' for v in node.outputs]) + "]",
         "[" + ", ".join([v.name if v is not None else '""' for v in node.inputs]) + "] ",
         _format_attributes_text(node),
-        str(node.name) if node.name else "",
     ]
 
 
@@ -50,7 +51,6 @@ def _create_header_row() -> list[str]:
         "Outputs",
         "Inputs",
         "Attrs",
-        "Name",
     ]
 
 
@@ -78,7 +78,7 @@ def main(path):
         tabulate.tabulate(
             rows,
             headers=_create_header_row(),
-            maxcolwidths=[20, 40, 30, 30, 20],
+            maxcolwidths=[20, 20, 30, 25],
         )
     )
 
