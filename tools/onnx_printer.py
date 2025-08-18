@@ -48,7 +48,8 @@ def _create_header_row() -> list[str]:
     return [
         "Op",
         "Outputs",
-        "InputsAttrs",
+        "Inputs",
+        "Attrs",
         "Name",
     ]
 
