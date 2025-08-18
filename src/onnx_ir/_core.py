@@ -3349,7 +3349,7 @@ class Attr(
 ):
     """Base class for ONNX attributes or references."""
 
-    __slots__ = ("_name", "_ref_attr_name", "_type", "_value", "doc_string")
+    __slots__ = ("_metadata", "_name", "_ref_attr_name", "_type", "_value", "doc_string")
 
     def __init__(
         self,
@@ -3365,6 +3365,7 @@ class Attr(
         self._value = value
         self._ref_attr_name = ref_attr_name
         self.doc_string = doc_string
+        self._metadata: _metadata.MetadataStore | None = None
 
     @property
     def name(self) -> str:
@@ -3385,6 +3386,17 @@ class Attr(
     @property
     def ref_attr_name(self) -> str | None:
         return self._ref_attr_name
+
+    @property
+    def meta(self) -> _metadata.MetadataStore:
+        """The metadata store for intermediate analysis.
+
+        Write to the :attr:`metadata_props` if you would like the metadata to be serialized
+        to the ONNX proto.
+        """
+        if self._metadata is None:
+            self._metadata = _metadata.MetadataStore()
+        return self._metadata
 
     def is_ref(self) -> bool:
         """Check if this attribute is a reference attribute."""
