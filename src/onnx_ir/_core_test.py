@@ -2019,21 +2019,21 @@ class AttrTest(unittest.TestCase):
     def test_meta(self):
         """Test that the meta property returns a MetadataStore and works correctly."""
         attr = _core.Attr("test", ir.AttributeType.INT, 42)
-        
+
         # Test that meta property returns a MetadataStore
         meta = attr.meta
         self.assertIsInstance(meta, ir._metadata.MetadataStore)
-        
+
         # Test that the same instance is returned on subsequent calls
         meta2 = attr.meta
         self.assertIs(meta, meta2)
-        
+
         # Test that we can store and retrieve metadata
         attr.meta["source_line"] = 42
         attr.meta["source_file"] = "test.py"
         self.assertEqual(attr.meta["source_line"], 42)
         self.assertEqual(attr.meta["source_file"], "test.py")
-        
+
         # Test metadata validity features
         attr.meta.invalidate("source_line")
         self.assertFalse(attr.meta.is_valid("source_line"))

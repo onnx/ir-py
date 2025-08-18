@@ -3349,7 +3349,7 @@ class Attr(
 ):
     """Base class for ONNX attributes or references."""
 
-    __slots__ = ("_name", "_ref_attr_name", "_type", "_value", "doc_string", "_metadata")
+    __slots__ = ("_metadata", "_name", "_ref_attr_name", "_type", "_value", "doc_string")
 
     def __init__(
         self,
