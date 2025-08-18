@@ -20,22 +20,23 @@ def _create_io_row(value: ir.Value) -> list[str]:
 
     return [
         type,
-        input.name,
+        value.name,
         "",
         f"<{type_text},{shape_text}>",
     ]
 
 
-def _get_attributes_dict(node: ir.Node) -> dict[str, str]:
-    return {k: str(v.value) for k, v in node.attributes.items()}
+def _format_attributes_text(node: ir.Node) -> str:
+    attr = [f"{k}={v.value!r}" if v.type != ir.AttributeType.GRAPH else f"{k}=GRAPH" for k, v in node.attributes.items()]
+    return "{" + ", ".join(attr) + "}"
 
 
 def _create_node_row(node: ir.Node) -> list[str]:
     return [
         node.op_type if not node.domain else f"{node.domain}::{node.op_type}",
-        str(node.outputs),
-        str(node.inputs),
-        str(_get_attributes_dict(node)),
+        "[" + ", ".join([v.name if v is not None else '""' for v in node.outputs]) + "]",
+        "[" + ", ".join([v.name if v is not None else '""' for v in node.inputs]) + "] ",
+        _format_attributes_text(node),
         str(node.name) if node.name else "",
     ]
 
@@ -44,7 +45,8 @@ def _create_header_row() -> list[str]:
     return [
         "Op",
         "Outputs",
-        "InputsAttrs",
+        "Inputs"
+        "Attrs",
         "Name",
     ]
 
@@ -55,6 +57,11 @@ def main(path):
     print(f"Model Producer: {model.producer_name} {model.producer_version}")
     print(f"Domain: {model.domain}")
     print(f"Opsets: {model.opset_imports}")
+    print(f"Inputs: {len(model.graph.inputs)}")
+    print(f"Outputs: {len(model.graph.outputs)}")
+    print(f"Initializers: {len(model.graph.initializers)}")
+    print(f"Nodes: {len(model.graph)}")
+    print()
     rows = []
     for input in model.graph.inputs:
         rows.append(_create_io_row(input))
@@ -68,6 +75,7 @@ def main(path):
         tabulate.tabulate(
             rows,
             headers=_create_header_row(),
+            maxcolwidths=[20, 40, 30, 30, 20],
         )
     )
 
