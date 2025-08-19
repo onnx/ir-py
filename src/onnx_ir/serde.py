@@ -1246,7 +1246,7 @@ def _deserialize_node(
             # it can be fixed later.
             logger.warning(
                 "Input '%s' of node '%s(%s::%s:%s)' not found in any scope. "
-                "The model is invalid but we will still create a new input for the node (current depth: %s) .",
+                "The model is invalid but we will still create a new input for the node (current depth: %s)",
                 input_name,
                 proto.name,
                 proto.domain,
