@@ -49,7 +49,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 if const_val is None:
                     # Skip if initializer has no constant value
                     logger.warning(
-                        "Skipped deduplication of initializer '%s' as it has no constant value. This is not expected",
+                        "Skipped deduplication of initializer '%s' as it has no constant value. The model may contain invalid initializers",
                         initializer.name,
                     )
                     continue
