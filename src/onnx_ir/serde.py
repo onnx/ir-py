@@ -821,6 +821,15 @@ def _declare_node_outputs(
     This is necessary to handle the case where a node in a subgraph uses a value that is declared
     out of order in the outer graph. Declaring the values first allows us to find the values later
     when deserializing the nodes in subgraphs.
+
+    Args:
+        proto: The ONNX NodeProto to declare outputs for.
+        current_value_scope: The current scope of values, mapping value names to their corresponding Value objects.
+        value_info: A dictionary mapping value names to their corresponding ValueInfoProto.
+        quantization_annotations: A dictionary mapping tensor names to their corresponding TensorAnnotation.
+
+    Raises:
+        ValueError: If an output name is redeclared in the current graph scope.
     """
     for output_name in proto.output:
         if output_name == "":
