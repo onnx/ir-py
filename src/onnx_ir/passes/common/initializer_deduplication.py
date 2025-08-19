@@ -48,9 +48,19 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 const_val = initializer.const_value
                 if const_val is None:
                     # Skip if initializer has no constant value
+                    logger.warning(
+                        "Skipped deduplication of initializer '%s' as it has no constant value. This is not expected",
+                        initializer.name,
+                    )
                     continue
 
                 if const_val.size > self.size_limit:
+                    # Skip if the initializer is larger than the size limit
+                    logger.debug(
+                        "Skipped initializer '%s' as it exceeds the size limit of %d elements",
+                        initializer.name,
+                        self.size_limit,
+                    )
                     continue
 
                 key = (const_val.dtype, tuple(const_val.shape), const_val.tobytes())
