@@ -19,6 +19,8 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
     and replaces all duplicate references with a canonical one.
 
     .. versionadded:: 0.1.3
+    .. versionchanged:: 0.1.7
+        This pass now deduplicates initializers in subgraphs as well.
     """
 
     def __init__(self, size_limit: int = 1024):
