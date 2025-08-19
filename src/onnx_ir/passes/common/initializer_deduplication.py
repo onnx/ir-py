@@ -40,7 +40,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 if initializer.is_graph_input() or initializer.is_graph_output():
                     # Skip graph inputs and outputs
                     logger.warning(
-                        "Skipped deduplication of initializer '%s' as it is a graph input or output.",
+                        "Skipped deduplication of initializer '%s' as it is a graph input or output",
                         initializer.name,
                     )
                     continue
@@ -56,9 +56,15 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 key = (const_val.dtype, tuple(const_val.shape), const_val.tobytes())
                 if key in initializers:
                     modified = True
-                    ir.convenience.replace_all_uses_with(initializer, initializers[key])  # type: ignore[index]
+                    initializer_to_keep = initializers[key]  # type: ignore[index]
+                    ir.convenience.replace_all_uses_with(initializer, initializer_to_keep)
                     assert initializer.name is not None
                     graph.initializers.pop(initializer.name)
+                    logger.info(
+                        "Replaced initializer '%s' with existing initializer '%s'",
+                        initializer.name,
+                        initializer_to_keep.name,
+                    )
                 else:
                     initializers[key] = initializer  # type: ignore[index]
 
