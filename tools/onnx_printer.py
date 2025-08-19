@@ -42,7 +42,9 @@ def _create_io_row(value: ir.Value) -> list[str]:
 
 def _format_attributes_text(node: ir.Node) -> str:
     attr = [
-        f"{k}={v.value!r}" if v.type != ir.AttributeType.GRAPH else f"{k}=GRAPH('{v.value.name}')"
+        f"{k}={v.value!r}"
+        if v.type != ir.AttributeType.GRAPH
+        else f"{k}=GRAPH('{v.value.name}')"
         for k, v in node.attributes.items()
     ]
     return "{" + ", ".join(attr) + "}"
