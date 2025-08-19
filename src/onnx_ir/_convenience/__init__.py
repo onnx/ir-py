@@ -58,44 +58,50 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.STRING
     if isinstance(attr, _core.Attr):
         return attr.type
-    if isinstance(attr, Sequence) and all(isinstance(x, int) for x in attr):
-        return _enums.AttributeType.INTS
-    if isinstance(attr, Sequence) and all(isinstance(x, float) for x in attr):
-        return _enums.AttributeType.FLOATS
-    if isinstance(attr, Sequence) and all(isinstance(x, str) for x in attr):
-        return _enums.AttributeType.STRINGS
+    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
+        return _enums.AttributeType.GRAPH
     if isinstance(attr, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol)):
         # Be sure to check TensorProtocol last because isinstance checking on Protocols can be slower
         return _enums.AttributeType.TENSOR
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
-        for x in attr
-    ):
-        return _enums.AttributeType.TENSORS
-    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
-        return _enums.AttributeType.GRAPH
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)) for x in attr
-    ):
-        return _enums.AttributeType.GRAPHS
     if isinstance(
         attr,
         (_core.TensorType, _core.SequenceType, _core.OptionalType, _protocols.TypeProtocol),
     ):
         return _enums.AttributeType.TYPE_PROTO
-    if isinstance(attr, Sequence) and all(
-        isinstance(
-            x,
-            (
-                _core.TensorType,
-                _core.SequenceType,
-                _core.OptionalType,
-                _protocols.TypeProtocol,
-            ),
-        )
-        for x in attr
-    ):
-        return _enums.AttributeType.TYPE_PROTOS
+    if isinstance(attr, Sequence):
+        if not attr:
+            raise ValueError(
+                "Cannot infer type of empty sequence. Please create an Attr with an explicit type."
+            )
+        if all(isinstance(x, int) for x in attr):
+            return _enums.AttributeType.INTS
+        if all(isinstance(x, float) for x in attr):
+            return _enums.AttributeType.FLOATS
+        if all(isinstance(x, str) for x in attr):
+            return _enums.AttributeType.STRINGS
+        if all(
+            isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
+            for x in attr
+        ):
+            return _enums.AttributeType.TENSORS
+        if all(
+            isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol))
+            for x in attr
+        ):
+            return _enums.AttributeType.GRAPHS
+        if all(
+            isinstance(
+                x,
+                (
+                    _core.TensorType,
+                    _core.SequenceType,
+                    _core.OptionalType,
+                    _protocols.TypeProtocol,
+                ),
+            )
+            for x in attr
+        ):
+            return _enums.AttributeType.TYPE_PROTOS
     raise TypeError(f"Unsupported attribute type: '{type(attr)}'")
 
 
@@ -218,7 +224,7 @@ def convert_attributes(
         ...     "type_protos": [ir.TensorType(ir.DataType.FLOAT), ir.TensorType(ir.DataType.FLOAT)],
         ... }
         >>> convert_attributes(attrs)
-        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', INTS, Graph(
+        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', GRAPH, Graph(
             name='graph0',
             inputs=(
         <BLANKLINE>
@@ -252,6 +258,11 @@ def convert_attributes(
 
     Returns:
         A list of _core.Attr objects.
+
+    Raises:
+        ValueError: If an attribute is an empty sequence. It should be created with an
+            explicit type by initializing an Attr object with an attribute type.
+        TypeError: If an attribute type is not supported.
     """
     attributes: list[_core.Attr] = []
     for name, attr in attrs.items():
