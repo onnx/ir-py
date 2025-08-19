@@ -1231,7 +1231,8 @@ def _deserialize_node(
             if v.producer() is None and not v.is_graph_input() and not v.is_initializer():
                 # The value is not produced by any node (yet), which means the graph is unsorted
                 logger.warning(
-                    "Model is unsorted (invalid) because input '%s' to node '%s' ('%s') is not produced by any nodes or declared as graph input/initializer before its usage. "
+                    "Model is unsorted (invalid) because input '%s' to node '%s' ('%s') is not "
+                    "produced by any nodes or declared as graph input/initializer before its usage. "
                     "Call model.graph.sort() to keep nodes topologically sorted.",
                     input_name,
                     proto.name,
