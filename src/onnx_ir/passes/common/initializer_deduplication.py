@@ -69,6 +69,9 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     This pass detects initializers with identical shape, dtype, and hashed content,
     and replaces all duplicate references with a canonical one.
 
+    This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
+    as it does not store the full tensor data in memory, but instead uses a hash of the tensor data.
+
     .. versionadded:: 0.1.7
     """
 
