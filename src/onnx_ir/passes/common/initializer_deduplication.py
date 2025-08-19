@@ -9,7 +9,11 @@ __all__ = [
 ]
 
 
+import logging
+
 import onnx_ir as ir
+
+logger = logging.getLogger(__name__)
 
 
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
@@ -35,6 +39,10 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
             for initializer in tuple(graph.initializers.values()):
                 if initializer.is_graph_input() or initializer.is_graph_output():
                     # Skip graph inputs and outputs
+                    logger.warning(
+                        "Skipped deduplication of initializer '%s' as it is a graph input or output.",
+                        initializer.name,
+                    )
                     continue
 
                 const_val = initializer.const_value
