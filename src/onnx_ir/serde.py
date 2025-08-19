@@ -836,8 +836,10 @@ def _declare_node_outputs(
             continue
         if output_name in current_value_scope:
             raise ValueError(
-                f"Output '{output_name}' is redeclared in the current graph scope. Original declaration {scoped_values[-1][output_name]}. "
-                f"New declaration: by operator '{proto.op_type}' of node '{proto.name}'. The model is invalid"
+                f"Output '{output_name}' is redeclared in the current graph scope. "
+                f"Original declaration {current_value_scope[output_name]}. "
+                f"New declaration: by operator '{proto.op_type}' of node '{proto.name}'. "
+                "The model is invalid"
             )
 
         # 2. Common scenario: the graph is sorted and this is the first time we see the output.
@@ -1295,7 +1297,7 @@ def _deserialize_node(
         # a node to produce an output that is not in its own scope.
         current_scope = scoped_values[-1]
         assert output_name in current_scope, (
-            "Output '%s' not found in the current scope. This is unexpected"
+            f"Output '{output_name}' not found in the current scope. This is unexpected"
         )
         value = current_scope[output_name]
         node_outputs.append(value)
