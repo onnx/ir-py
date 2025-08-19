@@ -1226,6 +1226,18 @@ def _deserialize_node(
         for values in reversed(scoped_values):
             if input_name not in values:
                 continue
+
+            v = values[input_name]
+            if v.producer() is None and not v.is_graph_input() and not v.is_initializer():
+                # The value is not produced by any node (yet), which means the graph is unsorted
+                logger.warning(
+                    "Model is unsorted (invalid) because input '%s' to node '%s' ('%s') is not produced by any nodes or declared as graph input/initializer before use"
+                    "Call model.graph.sort() to keep nodes topologically sorted.",
+                    input_name,
+                    proto.name,
+                    proto.op_type,
+                )
+
             node_inputs.append(values[input_name])
             found = True
             del values  # Remove the reference so it is not used by mistake
