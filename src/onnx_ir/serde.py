@@ -842,7 +842,6 @@ def _declare_node_outputs(
                 "The model is invalid"
             )
 
-        # 2. Common scenario: the graph is sorted and this is the first time we see the output.
         # Create the value and add it to the current scope.
         value = _core.Value(name=output_name)
         current_value_scope[output_name] = value
