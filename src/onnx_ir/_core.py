@@ -3180,6 +3180,21 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     def attributes(self) -> _graph_containers.Attributes:
         return self._attributes
 
+    @property
+    def graph(self) -> Graph:
+        """The underlying Graph object that contains the nodes of this function.
+
+        Only use this graph for identity comparison::
+
+            if value.graph is function.graph:
+                # Do something with the value that belongs to this function
+
+        Otherwise use the Function object directly to access the nodes and other properties.
+
+        .. versionadded:: 0.1.7
+        """
+        return self._graph
+
     @typing.overload
     def __getitem__(self, index: int) -> Node: ...
     @typing.overload
