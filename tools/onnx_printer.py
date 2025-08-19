@@ -35,8 +35,8 @@ def _create_io_row(value: ir.Value) -> list[str]:
     return [
         type,
         value.name,
+        str(value.const_value) if value.const_value is not None else str(value),
         "",
-        f"<{type_text},{shape_text}>",
     ]
 
 
