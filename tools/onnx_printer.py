@@ -1,6 +1,15 @@
 #!/usr/bin/env python
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+"""This script prints information about an ONNX IR model in a tabular format.
+
+Usage:
+    python onnx_printer.py <path_to_model> [--inline] [--no_wrap]
+
+Example:
+    python onnx_printer.py model.onnx --no_wrap > model_info.txt
+"""
+
 from __future__ import annotations
 
 import argparse
