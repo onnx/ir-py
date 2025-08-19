@@ -21,8 +21,6 @@ import onnx_ir.passes.common
 
 
 def _create_io_row(value: ir.Value) -> list[str]:
-    shape_text = str(value.shape) if value.shape is not None else "?"
-    type_text = str(value.type) if value.type is not None else "?"
     if value.is_graph_input():
         type = "Input"
     elif value.is_graph_output():
