@@ -1205,7 +1205,7 @@ def deserialize_node(proto: onnx.NodeProto) -> _core.Node:
     Returns:
         An IR Node object representing the ONNX node.
     """
-    value_scope = {}
+    value_scope: dict[str, _core.Value] = {}
     _declare_node_outputs(
         proto,
         value_scope,
