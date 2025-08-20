@@ -17,10 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
-    """Remove duplicated initializer tensors from the graph.
+    """Remove duplicated initializer tensors from the main graph and all subgraphs.
 
     This pass detects initializers with identical shape, dtype, and content,
     and replaces all duplicate references with a canonical one.
+
+    Initializers are deduplicated within each graph. To deduplicate initializers
+    in the model globally (across graphs), use :class:`~onnx_ir.passes.common.LiftSubgraphInitializersToMainGraphPass`
+    to lift the initializers to the main graph first before running pass.
 
     .. versionadded:: 0.1.3
     .. versionchanged:: 0.1.7
@@ -60,6 +64,14 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                         "Skipped initializer '%s' as it exceeds the size limit of %d elements",
                         initializer.name,
                         self.size_limit,
+                    )
+                    continue
+
+                if const_val.dtype == ir.DataType.STRING:
+                    # Skip string initializers as they don't have a bytes representation
+                    logger.warning(
+                        "Skipped deduplication of string initializer '%s' (unsupported yet)",
+                        initializer.name,
                     )
                     continue
 
