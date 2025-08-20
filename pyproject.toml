@@ -11,7 +11,8 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Apache License v2.0"}
+license = "Apache-2.0"
+license-files = ["LICEN[CS]E*"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.9",
@@ -19,7 +20,6 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
-  "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = ["numpy", "onnx>=1.16", "typing_extensions>=4.10", "ml_dtypes"]
 
