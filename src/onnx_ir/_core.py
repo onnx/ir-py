@@ -2568,6 +2568,8 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         # Need to use the enter_graph callback so that empty subgraphs are collected
         def enter_subgraph(graph) -> None:
+            if graph is self:
+                return
             if graph not in seen_graphs:
                 seen_graphs[graph] = None
 
