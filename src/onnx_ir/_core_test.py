@@ -1371,9 +1371,7 @@ class GraphTest(unittest.TestCase):
         v0 = _core.Value(name="v0")
         v1 = _core.Value(name="v1")
         node0 = _core.Node("", "A", inputs=(v0,), num_outputs=1)
-        subgraph1 = _core.Graph(
-            inputs=(), outputs=(), nodes=(), name="subgraph1"
-        )
+        subgraph1 = _core.Graph(inputs=(), outputs=(), nodes=(), name="subgraph1")
         main_node = _core.Node(
             "",
             "SomeOp",
