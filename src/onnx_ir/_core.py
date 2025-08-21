@@ -2564,14 +2564,23 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         .. versionadded:: 0.1.2
         """
-        seen_graphs: set[Graph] = set()
-        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
-            graph = node.graph
+        # Use a dict to preserve order
+        seen_graphs: dict[Graph, None] = {}
+
+        # Need to use the enter_graph callback so that empty subgraphs are collected
+        def enter_subgraph(graph) -> None:
             if graph is self:
-                continue
-            if graph is not None and graph not in seen_graphs:
-                seen_graphs.add(graph)
-                yield graph
+                return
+            if not isinstance(graph, Graph):
+                raise TypeError(
+                    f"Expected a Graph, got {type(graph)}. The model may be invalid"
+                )
+            if graph not in seen_graphs:
+                seen_graphs[graph] = None
+
+        for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
+            pass
+        yield from seen_graphs.keys()
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -3255,14 +3264,22 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
         .. versionadded:: 0.1.2
         """
-        seen_graphs: set[Graph] = set()
-        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
-            graph = node.graph
-            if graph is self._graph:
-                continue
-            if graph is not None and graph not in seen_graphs:
-                seen_graphs.add(graph)
-                yield graph
+        seen_graphs: dict[Graph, None] = {}
+
+        # Need to use the enter_graph callback so that empty subgraphs are collected
+        def enter_subgraph(graph) -> None:
+            if graph is self:
+                return
+            if not isinstance(graph, Graph):
+                raise TypeError(
+                    f"Expected a Graph, got {type(graph)}. The model may be invalid"
+                )
+            if graph not in seen_graphs:
+                seen_graphs[graph] = None
+
+        for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
+            pass
+        yield from seen_graphs.keys()
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
