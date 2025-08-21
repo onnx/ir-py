@@ -2564,6 +2564,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         .. versionadded:: 0.1.2
         """
+        # Use a dict to preserve order
         seen_graphs: dict[Graph, None] = {}
 
         # Need to use the enter_graph callback so that empty subgraphs are collected
