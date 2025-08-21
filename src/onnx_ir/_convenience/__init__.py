@@ -70,9 +70,11 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.TYPE_PROTO
     if isinstance(attr, Sequence):
         if not attr:
-            raise ValueError(
-                "Cannot infer type of empty sequence. Please create an Attr with an explicit type."
+            logger.warning(
+                "Attribute type is ambiguous because it is an empty sequence. "
+                "Please create an Attr with an explicit type. Defaulted to INTS"
             )
+            return _enums.AttributeType.INTS
         if all(isinstance(x, int) for x in attr):
             return _enums.AttributeType.INTS
         if all(isinstance(x, float) for x in attr):
