@@ -486,6 +486,50 @@ class DeserializeGraphTest(unittest.TestCase):
         self.assertEqual(deserialized_graph.outputs[0].shape, None)
         self.assertEqual(deserialized_graph.outputs[0].dtype, None)
 
+    def test_deserialize_builds_correct_value_connections_for_subgraphs_that_reference_out_of_order_values_in_outer_graph(
+        self,
+    ):
+        model_text = """\
+            <
+            ir_version: 10,
+            opset_import: ["" : 42]
+            >
+            main_graph (float[2,3] a) => (float[4,5] c)
+            <float[3,4] b>
+            {
+            [node_with_subgraph] c = SubgraphOp () <subgraph: graph = subgraph () => ()
+                <float[3,4] b_out>
+            {
+                [subgraph_node] b_out = SomeOp (b)
+            }>
+            [b_producer] b = SomeOp (a)
+            }
+        """
+        deserialized_model = serde.from_onnx_text(model_text)
+        # Model is unsorted
+        self.assertEqual(
+            [n.name for n in deserialized_model.graph], ["node_with_subgraph", "b_producer"]
+        )
+        # Value b in subgraph is the name value defined in the outer graph
+        subgraph_node = (
+            deserialized_model.graph.node(0).attributes["subgraph"].as_graph().node(0)
+        )
+        subgraph_value = subgraph_node.inputs[0]
+        main_graph_value = deserialized_model.graph.node(1).outputs[0]
+        self.assertIs(subgraph_value, main_graph_value)
+        self.assertEqual(len(main_graph_value.uses()), 1)
+        self.assertEqual(list(main_graph_value.consumers()), [subgraph_node])
+        with self.assertRaisesRegex(
+            Exception, "Nodes in a graph must be topologically sorted"
+        ):
+            onnx.checker.check_model(serde.serialize_model(deserialized_model))
+
+        # Graph can be sorted correctly
+        deserialized_model.graph.sort()
+        self.assertEqual(
+            [n.name for n in deserialized_model.graph], ["b_producer", "node_with_subgraph"]
+        )
+
 
 class QuantizationAnnotationTest(unittest.TestCase):
     """Test that quantization annotations are correctly serialized and deserialized."""
