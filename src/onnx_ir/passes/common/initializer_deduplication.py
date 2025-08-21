@@ -15,6 +15,44 @@ import onnx_ir as ir
 logger = logging.getLogger(__name__)
 
 
+def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
+    """Check if the initializer should be skipped for deduplication."""
+    if initializer.is_graph_input() or initializer.is_graph_output():
+        # Skip graph inputs and outputs
+        logger.warning(
+            "Skipped deduplication of initializer '%s' as it is a graph input or output",
+            initializer.name,
+        )
+        return True
+
+    const_val = initializer.const_value
+    if const_val is None:
+        # Skip if initializer has no constant value
+        logger.warning(
+            "Skipped deduplication of initializer '%s' as it has no constant value. The model may contain invalid initializers",
+            initializer.name,
+        )
+        return True
+
+    if const_val.size > size_limit:
+        # Skip if the initializer is larger than the size limit
+        logger.debug(
+            "Skipped initializer '%s' as it exceeds the size limit of %d elements",
+            initializer.name,
+            size_limit,
+        )
+        return True
+
+    if const_val.dtype == ir.DataType.STRING:
+        # Skip string initializers as they don't have a bytes representation
+        logger.warning(
+            "Skipped deduplication of string initializer '%s' (unsupported yet)",
+            initializer.name,
+        )
+        return True
+    return False
+
+
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
     """Remove duplicated initializer tensors from the main graph and all subgraphs.
 
@@ -40,39 +78,11 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
         for graph in model.graphs():
             initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
             for initializer in tuple(graph.initializers.values()):
-                if initializer.is_graph_input() or initializer.is_graph_output():
-                    # Skip graph inputs and outputs
-                    logger.warning(
-                        "Skipped deduplication of initializer '%s' as it is a graph input or output",
-                        initializer.name,
-                    )
+                if _should_skip_initializer(initializer, self.size_limit):
                     continue
 
                 const_val = initializer.const_value
-                if const_val is None:
-                    # Skip if initializer has no constant value
-                    logger.warning(
-                        "Skipped deduplication of initializer '%s' as it has no constant value. The model may contain invalid initializers",
-                        initializer.name,
-                    )
-                    continue
-
-                if const_val.size > self.size_limit:
-                    # Skip if the initializer is larger than the size limit
-                    logger.debug(
-                        "Skipped initializer '%s' as it exceeds the size limit of %d elements",
-                        initializer.name,
-                        self.size_limit,
-                    )
-                    continue
-
-                if const_val.dtype == ir.DataType.STRING:
-                    # Skip string initializers as they don't have a bytes representation
-                    logger.warning(
-                        "Skipped deduplication of string initializer '%s' (unsupported yet)",
-                        initializer.name,
-                    )
-                    continue
+                assert const_val is not None
 
                 key = (const_val.dtype, tuple(const_val.shape), const_val.tobytes())
                 if key in initializers:
@@ -116,17 +126,11 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
             initializers: dict[tuple[ir.DataType, tuple[int, ...], str], ir.Value] = {}
 
             for initializer in tuple(graph.initializers.values()):
+                if _should_skip_initializer(initializer, self.size_limit):
+                    continue
+
                 const_val = initializer.const_value
-                if const_val is None:
-                    # Skip if initializer has no constant value
-                    continue
-
-                if const_val.size > self.size_limit:
-                    continue
-
-                if const_val.dtype == ir.DataType.STRING:
-                    # Skip string initializers as they don't have a bytes representation
-                    continue
+                assert const_val is not None
 
                 # Hash tensor data to avoid storing large amounts of data in memory
                 hashed = hashlib.sha512()
@@ -148,9 +152,15 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                         )
                         continue
                     modified = True
-                    ir.convenience.replace_all_uses_with(initializer, initializers[key])  # type: ignore[index]
+                    initializer_to_keep = initializers[key]  # type: ignore[index]
+                    ir.convenience.replace_all_uses_with(initializer, initializer_to_keep)
                     assert initializer.name is not None
                     graph.initializers.pop(initializer.name)
+                    logger.info(
+                        "Replaced initializer '%s' with existing initializer '%s'",
+                        initializer.name,
+                        initializer_to_keep.name,
+                    )
                 else:
                     initializers[key] = initializer  # type: ignore[index]
 
