@@ -682,8 +682,8 @@ def deserialize_graph(proto: onnx.GraphProto) -> _core.Graph:
     Returns:
         IR Graph.
 
-    .. versionadded:: 0.3
-        Support for *quantization_annotation* is added.
+    .. versionadded:: 0.1.3
+        Support for `quantization_annotation` is added.
     """
     return _deserialize_graph(proto, [])
 
@@ -760,6 +760,18 @@ def _deserialize_graph(
     # Build the value info dictionary to allow for quick lookup for this graph scope
     value_info = {info.name: info for info in proto.value_info}
 
+    # Declare values for all node outputs from this graph scope. This is necessary
+    # to handle the case where a node in a subgraph uses a value that is declared out
+    # of order in the outer graph. Declaring the values first allows us to find the
+    # values later when deserializing the nodes in subgraphs.
+    for node in proto.node:
+        _declare_node_outputs(
+            node,
+            values,
+            value_info=value_info,
+            quantization_annotations=quantization_annotations,
+        )
+
     # Deserialize nodes with all known values
     nodes = [
         _deserialize_node(node, scoped_values, value_info, quantization_annotations)
@@ -798,6 +810,55 @@ def _deserialize_graph(
     )
 
 
+def _declare_node_outputs(
+    proto: onnx.NodeProto,
+    current_value_scope: dict[str, _core.Value],
+    value_info: dict[str, onnx.ValueInfoProto],
+    quantization_annotations: dict[str, onnx.TensorAnnotation],
+) -> None:
+    """Declare outputs for a node in the current graph scope.
+
+    This is necessary to handle the case where a node in a subgraph uses a value that is declared
+    out of order in the outer graph. Declaring the values first allows us to find the values later
+    when deserializing the nodes in subgraphs.
+
+    Args:
+        proto: The ONNX NodeProto to declare outputs for.
+        current_value_scope: The current scope of values, mapping value names to their corresponding Value objects.
+        value_info: A dictionary mapping value names to their corresponding ValueInfoProto.
+        quantization_annotations: A dictionary mapping tensor names to their corresponding TensorAnnotation.
+
+    Raises:
+        ValueError: If an output name is redeclared in the current graph scope.
+    """
+    for output_name in proto.output:
+        if output_name == "":
+            continue
+        if output_name in current_value_scope:
+            raise ValueError(
+                f"Output '{output_name}' is redeclared in the current graph scope. "
+                f"Original declaration {current_value_scope[output_name]}. "
+                f"New declaration: by operator '{proto.op_type}' of node '{proto.name}'. "
+                "The model is invalid"
+            )
+
+        # Create the value and add it to the current scope.
+        value = _core.Value(name=output_name)
+        current_value_scope[output_name] = value
+        # Fill in shape/type information if they exist
+        if output_name in value_info:
+            deserialize_value_info_proto(value_info[output_name], value)
+        else:
+            logger.debug(
+                "ValueInfoProto not found for output '%s' in node '%s' of type '%s'",
+                output_name,
+                proto.name,
+                proto.op_type,
+            )
+        if output_name in quantization_annotations:
+            _deserialize_quantization_annotation(quantization_annotations[output_name], value)
+
+
 @_capture_errors(lambda proto: proto.name)
 def deserialize_function(proto: onnx.FunctionProto) -> _core.Function:
     """Deserialize an ONNX FunctionProto into an IR Function.
@@ -812,7 +873,14 @@ def deserialize_function(proto: onnx.FunctionProto) -> _core.Function:
     values: dict[str, _core.Value] = {v.name: v for v in inputs}  # type: ignore[misc]
     value_info = {info.name: info for info in getattr(proto, "value_info", [])}
 
-    # TODO(justinchuby): Handle unsorted nodes
+    for node in proto.node:
+        _declare_node_outputs(
+            node,
+            values,
+            value_info=value_info,
+            quantization_annotations={},
+        )
+
     nodes = [
         _deserialize_node(node, [values], value_info=value_info, quantization_annotations={})
         for node in proto.node
@@ -1137,8 +1205,15 @@ def deserialize_node(proto: onnx.NodeProto) -> _core.Node:
     Returns:
         An IR Node object representing the ONNX node.
     """
+    value_scope: dict[str, _core.Value] = {}
+    _declare_node_outputs(
+        proto,
+        value_scope,
+        value_info={},
+        quantization_annotations={},
+    )
     return _deserialize_node(
-        proto, scoped_values=[{}], value_info={}, quantization_annotations={}
+        proto, scoped_values=[value_scope], value_info={}, quantization_annotations={}
     )
 
 
@@ -1161,18 +1236,18 @@ def _deserialize_node(
         for values in reversed(scoped_values):
             if input_name not in values:
                 continue
+
             node_inputs.append(values[input_name])
             found = True
             del values  # Remove the reference so it is not used by mistake
             break
         if not found:
-            # If the input is not found, we know the graph may be unsorted and
-            # the input may be a supposed-to-be initializer or an output of a node that comes later.
-            # Here we create the value with the name and add it to the current scope.
-            # Nodes need to check the value pool for potentially initialized outputs
+            # If the input is not found, we know the graph is invalid because the value
+            # is not declared. We will still create a new input for the node so that
+            # it can be fixed later.
             logger.warning(
-                "Input '%s' of node '%s(%s::%s:%s)' not found in any scope. "
-                "The graph may be unsorted. Creating a new input (current depth: %s) .",
+                "Input '%s' of node '%s' (%s::%s:%s) cannot be found in any scope. "
+                "The model is invalid but we will still create a new input for the node (current depth: %s)",
                 input_name,
                 proto.name,
                 proto.domain,
@@ -1208,35 +1283,22 @@ def _deserialize_node(
             node_outputs.append(_core.Value(name=""))
             continue
 
-        # 1. When the graph is unsorted, we may be able to find the output already created
+        # The outputs should already be declared in the current scope by _declare_node_outputs.
+        #
+        # When the graph is unsorted, we may be able to find the output already created
         # as an input to some other nodes in the current scope.
         # Note that a value is always owned by the producing node. Even though a value
         # can be created when parsing inputs of other nodes, the new node created here
         # that produces the value will assume ownership. It is then impossible to transfer
         # the ownership to any other node.
-
+        #
         # The output can only be found in the current scope. It is impossible for
         # a node to produce an output that is not in its own scope.
         current_scope = scoped_values[-1]
-        if output_name in current_scope:
-            value = current_scope[output_name]
-        else:
-            # 2. Common scenario: the graph is sorted and this is the first time we see the output.
-            # Create the value and add it to the current scope.
-            value = _core.Value(name=output_name)
-            current_scope[output_name] = value
-        # Fill in shape/type information if they exist
-        if output_name in value_info:
-            deserialize_value_info_proto(value_info[output_name], value)
-        else:
-            logger.debug(
-                "ValueInfoProto not found for output '%s' in node '%s' of type '%s'",
-                output_name,
-                proto.name,
-                proto.op_type,
-            )
-        if output_name in quantization_annotations:
-            _deserialize_quantization_annotation(quantization_annotations[output_name], value)
+        assert output_name in current_scope, (
+            f"Output '{output_name}' not found in the current scope. This is unexpected"
+        )
+        value = current_scope[output_name]
         node_outputs.append(value)
     return _core.Node(
         proto.domain,
