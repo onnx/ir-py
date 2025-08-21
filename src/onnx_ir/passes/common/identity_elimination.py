@@ -19,6 +19,7 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
     """Pass for eliminating redundant Identity nodes.
 
     This pass removes Identity nodes according to the following rules:
+
     1. For any node of the form `y = Identity(x)`, where `y` is not an output
        of any graph, replace all uses of `y` with a use of `x`, and remove the node.
     2. If `y` is an output of a graph, and `x` is not an input of any graph,

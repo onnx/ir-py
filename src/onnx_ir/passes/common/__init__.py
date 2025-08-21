@@ -6,6 +6,7 @@ __all__ = [
     "CheckerPass",
     "ClearMetadataAndDocStringPass",
     "CommonSubexpressionEliminationPass",
+    "DeduplicateHashedInitializersPass",
     "DeduplicateInitializersPass",
     "IdentityEliminationPass",
     "InlinePass",
@@ -36,6 +37,7 @@ from onnx_ir.passes.common.identity_elimination import (
     IdentityEliminationPass,
 )
 from onnx_ir.passes.common.initializer_deduplication import (
+    DeduplicateHashedInitializersPass,
     DeduplicateInitializersPass,
 )
 from onnx_ir.passes.common.inliner import InlinePass
