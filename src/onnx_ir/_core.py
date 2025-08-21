@@ -2564,14 +2564,16 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         .. versionadded:: 0.1.2
         """
-        seen_graphs: set[Graph] = set()
-        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
-            graph = node.graph
-            if graph is self:
-                continue
-            if graph is not None and graph not in seen_graphs:
-                seen_graphs.add(graph)
-                yield graph
+        seen_graphs: dict[Graph, None] = {}
+
+        # Need to use the enter_graph callback so that empty subgraphs are collected
+        def enter_subgraph(graph) -> None:
+            if graph not in seen_graphs:
+                seen_graphs[graph] = None
+
+        for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
+            pass
+        yield from seen_graphs.keys()
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
