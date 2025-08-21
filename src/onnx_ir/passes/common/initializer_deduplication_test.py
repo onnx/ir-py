@@ -4,6 +4,8 @@
 
 import unittest
 
+import numpy as np
+
 import onnx_ir as ir
 from onnx_ir.passes.common import initializer_deduplication
 
@@ -94,6 +96,63 @@ class DeduplicateInitializersTest(unittest.TestCase):
         )
         new_model = self.apply_pass(model)
         self.assertEqual(len(new_model.graph.initializers), 2)
+
+    def test_deduplication_in_subgraphs(self):
+        a = ir.Value(
+            name="a",
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(1),
+        )
+        b = ir.Value(
+            name="b",
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(1),
+        )
+        c = ir.Value(
+            name="c",
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(()),
+            const_value=ir.tensor(1),
+        )
+
+        node_with_subgraph = ir.node(
+            name="node_with_subgraph",
+            op_type="SubgraphOp",
+            inputs=[],
+            outputs=[c],
+            attributes={
+                "subgraph": ir.Graph(
+                    inputs=[],
+                    outputs=[],
+                    nodes=[],
+                    initializers=[b, c],
+                    name="subgraph",
+                )
+            },
+        )
+
+        main_graph = ir.Graph(
+            inputs=[],
+            outputs=[],
+            nodes=[node_with_subgraph],
+            initializers=[a],
+            name="main_graph",
+        )
+        model = ir.Model(main_graph, ir_version=10)
+        self.apply_pass(model)
+        self.assertEqual(len(model.graph.initializers), 1)
+        np.testing.assert_equal(
+            model.graph.initializers["a"].const_value.numpy(), np.array(1, dtype=np.int64)
+        )
+        subgraph_initializers = (
+            node_with_subgraph.attributes["subgraph"].as_graph().initializers
+        )
+        self.assertEqual(len(subgraph_initializers), 1)
+        np.testing.assert_equal(
+            subgraph_initializers["b"].const_value.numpy(), np.array(1, dtype=np.int64)
+        )
 
 
 if __name__ == "__main__":

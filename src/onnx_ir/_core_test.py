@@ -1367,6 +1367,29 @@ class GraphTest(unittest.TestCase):
         self.assertIn(subgraph2, subgraphs)
         self.assertEqual(len(subgraphs), 2)
 
+    def test_subgraphs_returns_empty_subgraphs(self):
+        v0 = _core.Value(name="v0")
+        v1 = _core.Value(name="v1")
+        node0 = _core.Node("", "A", inputs=(v0,), num_outputs=1)
+        subgraph1 = _core.Graph(inputs=(), outputs=(), nodes=(), name="subgraph1")
+        main_node = _core.Node(
+            "",
+            "SomeOp",
+            inputs=(node0.outputs[0],),
+            attributes=[
+                ir.AttrGraph("subgraph", subgraph1),
+            ],
+        )
+        graph = _core.Graph(
+            inputs=(v0, v1),
+            outputs=(main_node.outputs[0],),
+            nodes=(node0, main_node),
+            name="main_graph",
+        )
+        subgraphs = list(graph.subgraphs())
+        self.assertIn(subgraph1, subgraphs)
+        self.assertEqual(len(subgraphs), 1)
+
 
 class GraphContainersTest(unittest.TestCase):
     """Test containers for input, output and initializers of a graph."""
