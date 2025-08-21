@@ -70,9 +70,11 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.TYPE_PROTO
     if isinstance(attr, Sequence):
         if not attr:
-            raise ValueError(
-                "Cannot infer type of empty sequence. Please create an Attr with an explicit type."
+            logger.warning(
+                "Attribute type is ambiguous because it is an empty sequence. "
+                "Please create an Attr with an explicit type. Defaulted to INTS"
             )
+            return _enums.AttributeType.INTS
         if all(isinstance(x, int) for x in attr):
             return _enums.AttributeType.INTS
         if all(isinstance(x, float) for x in attr):
@@ -253,15 +255,19 @@ def convert_attributes(
             len()=0
         )]), Attr('type_proto', TYPE_PROTO, Tensor(FLOAT)), Attr('type_protos', TYPE_PROTOS, [Tensor(FLOAT), Tensor(FLOAT)])]
 
+    .. important::
+        An empty sequence should be created with an explicit type by initializing
+        an Attr object with an attribute type to avoid type ambiguity. For example::
+
+            ir.Attr("empty", [], type=ir.AttributeType.INTS)
+
     Args:
         attrs: A dictionary of {<attribute name>: <python objects>} to convert.
 
     Returns:
-        A list of _core.Attr objects.
+        A list of :class:`_core.Attr` objects.
 
     Raises:
-        ValueError: If an attribute is an empty sequence. It should be created with an
-            explicit type by initializing an Attr object with an attribute type.
         TypeError: If an attribute type is not supported.
     """
     attributes: list[_core.Attr] = []
