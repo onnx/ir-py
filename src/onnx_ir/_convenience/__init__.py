@@ -256,8 +256,10 @@ def convert_attributes(
         )]), Attr('type_proto', TYPE_PROTO, Tensor(FLOAT)), Attr('type_protos', TYPE_PROTOS, [Tensor(FLOAT), Tensor(FLOAT)])]
 
     .. important::
-        An empty sequence should be created with an
-        explicit type by initializing an Attr object with an attribute type.
+        An empty sequence should be created with an explicit type by initializing
+        an Attr object with an attribute type to avoid type ambiguity. For example::
+
+            ir.Attr("empty", [], type=ir.AttributeType.INTS)
 
     Args:
         attrs: A dictionary of {<attribute name>: <python objects>} to convert.
