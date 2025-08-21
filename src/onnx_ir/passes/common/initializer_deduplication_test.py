@@ -5,14 +5,30 @@
 import unittest
 
 import numpy as np
+import parameterized
 
 import onnx_ir as ir
 from onnx_ir.passes.common import initializer_deduplication
 
 
+@parameterized.parameterized_class(
+    [
+        {
+            "name": "DeduplicateInitializersPass",
+            "pass_class": initializer_deduplication.DeduplicateInitializersPass,
+        },
+        {
+            "name": "DeduplicateHashedInitializersPass",
+            "pass_class": initializer_deduplication.DeduplicateHashedInitializersPass,
+        },
+    ]
+)
 class DeduplicateInitializersTest(unittest.TestCase):
+    name: str
+    pass_class: type[ir.passes.InPlacePass]
+
     def apply_pass(self, model: ir.Model) -> ir.Model:
-        result = initializer_deduplication.DeduplicateInitializersPass()(model)
+        result = self.pass_class()(model)
         return result.model
 
     def test_deduplicates_identical_initializers(self):
