@@ -1,4 +1,4 @@
-# <img src="docs/_static/logo-light.png" alt="ONNX IR" width="300"/>
+# <img src="docs/_static/logo-light.png" alt="ONNX IR" width="250"/>
 
 [![PyPI - Version](https://img.shields.io/pypi/v/onnx-ir.svg)](https://pypi.org/project/onnx-ir)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/onnx-ir.svg)](https://pypi.org/project/onnx-ir)
