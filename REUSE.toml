@@ -11,6 +11,7 @@ path = [
     ".editorconfig",
     ".gitignore",
     "**/*.css",
+    "**/*.excalidraw",
     "**/*.ipynb",
     "**/*.md",
     "**/*.png",
@@ -20,9 +21,9 @@ path = [
     "**/*.yml",
     "CODEOWNERS",
     "MANIFEST.in",
-    "src/onnx_ir/py.typed",
     "requirements*.txt",
     "requirements/**/*.txt",
+    "src/onnx_ir/py.typed",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) ONNX Project Contributors"
