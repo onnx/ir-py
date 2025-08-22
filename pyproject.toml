@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=70"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,7 +11,8 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Apache License v2.0"}
+license = "Apache-2.0"
+license-files = ["LICEN[CS]E*"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3.9",
@@ -19,7 +20,6 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
-  "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = ["numpy", "onnx>=1.16", "typing_extensions>=4.10", "ml_dtypes"]
 
@@ -107,11 +107,16 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "pathlib".msg = "Using pathlib can impact performance. Use os.path instead"
+"onnx.helper".msg = "onnx helpers tend to be protobuf-y and slow. Consider using ir.tensor, ir.DataType and related methods instead"
+"onnx.numpy_helper".msg = "onnx numpy helpers tend to be slow. Consider using ir.tensor, ir.DataType and related methods instead"
+"onnx".msg = "Use onnx_ir methods and classes instead, or create an exception with `# noqa: TID251` if you need to use onnx directly"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["TID252"] # Allow relative imports in init files
 "setup.py" = ["TID251"] # pathlib is allowed in supporting code
 "**/*_test.py" = ["TID251"] # pathlib is allowed in tests
+"tools/**/*.py" = ["TID251"] # OK to use in tools
+"src/onnx_ir/testing.py" = ["TID251"] # OK to use in tools
 
 [tool.ruff.lint.flake8-tidy-imports]
 # Disallow all relative imports.

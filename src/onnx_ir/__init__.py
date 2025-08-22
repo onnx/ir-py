@@ -14,6 +14,7 @@ __all__ = [
     "ExternalTensor",
     "StringTensor",
     "LazyTensor",
+    "PackedTensor",
     "SymbolicDim",
     "Shape",
     "TensorType",
@@ -73,6 +74,7 @@ __all__ = [
     "from_proto",
     "from_onnx_text",
     "to_proto",
+    "to_onnx_text",
     # Convenience constructors
     "tensor",
     "node",
@@ -114,6 +116,7 @@ from onnx_ir._core import (
     Model,
     Node,
     OptionalType,
+    PackedTensor,
     RefAttr,
     SequenceType,
     Shape,
@@ -149,7 +152,7 @@ from onnx_ir._protocols import (
     TypeProtocol,
     ValueProtocol,
 )
-from onnx_ir.serde import TensorProtoTensor, from_onnx_text, from_proto, to_proto
+from onnx_ir.serde import TensorProtoTensor, from_onnx_text, from_proto, to_onnx_text, to_proto
 
 DEBUG = False
 
@@ -164,4 +167,4 @@ def __set_module() -> None:
 
 
 __set_module()
-__version__ = "0.1.2"
+__version__ = "0.1.8"

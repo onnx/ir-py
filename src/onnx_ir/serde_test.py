@@ -1,5 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+import itertools
 import unittest
 
 import google.protobuf.text_format
@@ -53,6 +54,92 @@ class ConvenienceFunctionsTest(unittest.TestCase):
     )
     def test_to_proto(self, _: str, ir_object):
         serde.to_proto(ir_object)
+
+    def test_from_to_onnx_text(self):
+        model_text = """\
+<
+   ir_version: 10,
+   opset_import: ["" : 17]
+>
+agraph (float[1,4,512,512] input_x, float[1,4,512,64] input_y) => (float[4,512,512] reshape_x) {
+   [node_name] shape_a = Constant <value: tensor = int64[3] {4,512,512}> ()
+   reshape_x = Reshape (input_x, shape_a)
+}"""
+        self.maxDiff = None
+        model = serde.from_onnx_text(model_text)
+        self.assertIsInstance(model, ir.Model)
+        self.assertEqual(model.ir_version, 10)
+        self.assertEqual(len(model.graph.inputs), 2)
+        self.assertEqual(len(model.graph.outputs), 1)
+        onnx_text_roundtrip = serde.to_onnx_text(model)
+        self.assertEqual(model_text.strip(), onnx_text_roundtrip.strip())
+
+    def test_from_to_onnx_text_with_initializers(self):
+        model_text = """\
+<
+   ir_version: 10,
+   opset_import: ["" : 17]
+>
+agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
+   [node_1] add = Add (input_x, input_y)
+   [node_2] result = Add (add, initializer_z)
+}"""
+        self.maxDiff = None
+        array = np.array([1.0, 2.0], dtype=np.float32)
+        init_array = np.array([3.0, 4.0], dtype=np.float32)
+        model = serde.from_onnx_text(
+            model_text,
+            initializers=[
+                ir.tensor(init_array, name="initializer_z"),
+                ir.tensor(array, name="input_y"),
+            ],
+        )
+        np.testing.assert_array_equal(model.graph.inputs[1].const_value.numpy(), array)
+        np.testing.assert_array_equal(
+            model.graph.initializers["initializer_z"].const_value.numpy(), init_array
+        )
+        expected_text = """\
+<
+   ir_version: 10,
+   opset_import: ["" : 17]
+>
+agraph (float[1] input_x, float[2] input_y) => (float[2] result)
+   <float[2] initializer_z =  {3,4}, float[2] input_y =  {1,2}>
+{
+   [node_1] add = Add (input_x, input_y)
+   [node_2] result = Add (add, initializer_z)
+}"""
+        onnx_text_roundtrip = serde.to_onnx_text(model)
+        stripped_lines = [line.rstrip() for line in onnx_text_roundtrip.splitlines()]
+        result = "\n".join(stripped_lines)
+        self.assertEqual(result, expected_text)
+
+    def test_to_onnx_text_excluding_initializers(self):
+        model_text = """\
+<
+   ir_version: 10,
+   opset_import: ["" : 17]
+>
+agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
+   [node_name] result = Add (input_x, input_y)
+}"""
+        self.maxDiff = None
+        array = np.array([1.0, 2.0], dtype=np.float32)
+        model = serde.from_onnx_text(
+            model_text, initializers=[ir.tensor(array, name="input_y")]
+        )
+        onnx_text_without_initializers = serde.to_onnx_text(model, exclude_initializers=True)
+        expected_text_without_initializers = """\
+<
+   ir_version: 10,
+   opset_import: ["" : 17]
+>
+agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
+   [node_name] result = Add (input_x, input_y)
+}"""
+        self.assertEqual(
+            onnx_text_without_initializers.strip(), expected_text_without_initializers
+        )
 
 
 class TensorProtoTensorTest(unittest.TestCase):
@@ -137,11 +224,34 @@ class TensorProtoTensorTest(unittest.TestCase):
                 onnx.TensorProto.FLOAT8E5M2FNUZ,
                 ml_dtypes.float8_e5m2fnuz,
             ),
+            (
+                "FLOAT8E8M0",
+                24,  # FLOAT8E8M0 value from the enum
+                ml_dtypes.float8_e8m0fnu,
+            ),
         ]
     )
     def test_tensor_proto_tensor_float8(self, _: str, dtype: int, np_dtype):
-        expected_array = np.array([[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]])
-        tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 9], expected_array)
+        # FLOAT8E8M0 has different precision characteristics (8 exponent bits, 0 mantissa bits)
+        # It can only represent powers of 2 and special values
+        if dtype == 24:  # FLOAT8E8M0
+            expected_array = np.array([[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]])
+        else:
+            expected_array = np.array([[-3.0, -1.0, -0.5, -0.0, +0.0, 0.5, 1.0, 40.0, 2.0]])
+
+        # Handle the case where ONNX doesn't support FLOAT8E8M0 yet (value 24)
+        if dtype == 24:  # FLOAT8E8M0
+            # Create tensor proto manually since ONNX helper might not support this type yet
+            tensor_proto = onnx.TensorProto()
+            tensor_proto.name = "test_tensor"
+            tensor_proto.data_type = dtype
+            tensor_proto.dims[:] = [1, 9]
+            tensor_proto.raw_data = expected_array.astype(np_dtype).tobytes()
+        else:
+            tensor_proto = onnx.helper.make_tensor(
+                "test_tensor", dtype, [1, 9], expected_array
+            )
+
         tensor = serde.TensorProtoTensor(tensor_proto)
         np.testing.assert_array_equal(
             tensor.numpy().view(np_dtype).astype(np.float32), expected_array
@@ -260,6 +370,76 @@ class TensorProtoTensorTest(unittest.TestCase):
         # Test dlpack
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
+    @parameterized.parameterized.expand(
+        [
+            (name, dtype, array)
+            for (name, dtype), array in itertools.product(
+                [
+                    ("FLOAT", ir.DataType.FLOAT),
+                    ("UINT8", ir.DataType.UINT8),
+                    ("INT8", ir.DataType.INT8),
+                    ("UINT16", ir.DataType.UINT16),
+                    ("INT16", ir.DataType.INT16),
+                    ("INT32", ir.DataType.INT32),
+                    ("INT64", ir.DataType.INT64),
+                    ("BOOL", ir.DataType.BOOL),
+                    ("FLOAT16", ir.DataType.FLOAT16),
+                    ("DOUBLE", ir.DataType.DOUBLE),
+                    ("UINT32", ir.DataType.UINT32),
+                    ("UINT64", ir.DataType.UINT64),
+                    ("COMPLEX64", ir.DataType.COMPLEX64),
+                    ("COMPLEX128", ir.DataType.COMPLEX128),
+                    ("BFLOAT16", ir.DataType.BFLOAT16),
+                    ("FLOAT8E4M3FN", ir.DataType.FLOAT8E4M3FN),
+                    ("FLOAT8E4M3FNUZ", ir.DataType.FLOAT8E4M3FNUZ),
+                    ("FLOAT8E5M2", ir.DataType.FLOAT8E5M2),
+                    ("FLOAT8E5M2FNUZ", ir.DataType.FLOAT8E5M2FNUZ),
+                    ("FLOAT8E8M0", ir.DataType.FLOAT8E8M0),
+                    ("UINT4", ir.DataType.UINT4),
+                    ("INT4", ir.DataType.INT4),
+                    ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
+                ],
+                [
+                    np.array(
+                        [
+                            [-1000, -6, -1, -0.0, +0.0],
+                            [0.1, 0.25, 1, float("inf"), -float("inf")],
+                            [float("NaN"), -float("NaN"), 1000, 6.0, 0.001],
+                        ],
+                    ),
+                    np.array(42),
+                    np.array([]),
+                    np.array([[[], [], []]]),
+                ],
+            )
+        ]
+    )
+    def test_round_trip_numpy_conversion_from_raw_data(
+        self, _: str, onnx_dtype: ir.DataType, original_array: np.ndarray
+    ):
+        original_array = original_array.astype(onnx_dtype.numpy())
+        ir_tensor = ir.Tensor(original_array, name="test_tensor")
+        proto = serde.to_proto(ir_tensor)
+        if original_array.size > 0:
+            self.assertGreater(len(proto.raw_data), 0)
+        # tensor_proto_tensor from raw_data
+        tensor_proto_tensor = serde.from_proto(proto)
+        roundtrip_array = tensor_proto_tensor.numpy()
+        if onnx_dtype in {
+            ir.DataType.FLOAT8E5M2FNUZ,
+            ir.DataType.FLOAT8E5M2,
+            ir.DataType.FLOAT8E4M3FN,
+            ir.DataType.BFLOAT16,
+            ir.DataType.FLOAT8E8M0,
+        }:
+            # There is a bug in ml_dtypes that causes equality checks to fail for these dtypes
+            # See https://github.com/jax-ml/ml_dtypes/issues/301
+            self.assertEqual(roundtrip_array.shape, original_array.shape)
+            self.assertEqual(roundtrip_array.dtype, original_array.dtype)
+            self.assertEqual(roundtrip_array.tobytes(), original_array.tobytes())
+        else:
+            np.testing.assert_equal(roundtrip_array, original_array, strict=True)
+
 
 class DeserializeGraphTest(unittest.TestCase):
     def test_deserialize_graph_handles_unsorted_graph(self):
@@ -305,6 +485,50 @@ class DeserializeGraphTest(unittest.TestCase):
         self.assertEqual(deserialized_graph.outputs[0].type, None)
         self.assertEqual(deserialized_graph.outputs[0].shape, None)
         self.assertEqual(deserialized_graph.outputs[0].dtype, None)
+
+    def test_deserialize_builds_correct_value_connections_for_subgraphs_that_reference_out_of_order_values_in_outer_graph(
+        self,
+    ):
+        model_text = """\
+            <
+            ir_version: 10,
+            opset_import: ["" : 42]
+            >
+            main_graph (float[2,3] a) => (float[4,5] c)
+            <float[3,4] b>
+            {
+            [node_with_subgraph] c = SubgraphOp () <subgraph: graph = subgraph () => ()
+                <float[3,4] b_out>
+            {
+                [subgraph_node] b_out = SomeOp (b)
+            }>
+            [b_producer] b = SomeOp (a)
+            }
+        """
+        deserialized_model = serde.from_onnx_text(model_text)
+        # Model is unsorted
+        self.assertEqual(
+            [n.name for n in deserialized_model.graph], ["node_with_subgraph", "b_producer"]
+        )
+        # Value b in subgraph is the name value defined in the outer graph
+        subgraph_node = (
+            deserialized_model.graph.node(0).attributes["subgraph"].as_graph().node(0)
+        )
+        subgraph_value = subgraph_node.inputs[0]
+        main_graph_value = deserialized_model.graph.node(1).outputs[0]
+        self.assertIs(subgraph_value, main_graph_value)
+        self.assertEqual(len(main_graph_value.uses()), 1)
+        self.assertEqual(list(main_graph_value.consumers()), [subgraph_node])
+        with self.assertRaisesRegex(
+            Exception, "Nodes in a graph must be topologically sorted"
+        ):
+            onnx.checker.check_model(serde.serialize_model(deserialized_model))
+
+        # Graph can be sorted correctly
+        deserialized_model.graph.sort()
+        self.assertEqual(
+            [n.name for n in deserialized_model.graph], ["b_producer", "node_with_subgraph"]
+        )
 
 
 class QuantizationAnnotationTest(unittest.TestCase):

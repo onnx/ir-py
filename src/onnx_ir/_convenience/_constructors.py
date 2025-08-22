@@ -13,7 +13,7 @@ import typing
 from collections.abc import Mapping, Sequence
 
 import numpy as np
-import onnx
+import onnx  # noqa: TID251
 
 from onnx_ir import _convenience, _core, _enums, _protocols, serde, tensor_adapters
 
@@ -36,6 +36,10 @@ def tensor(
     it is converted to a numpy array with the given dtype.
 
     ``value`` can be a numpy array, a plain Python object, or a TensorProto.
+
+    .. warning::
+        For 4bit dtypes, the value must be unpacked. Use :class:`~onnx_ir.PackedTensor`
+        to create a tensor with packed data.
 
     Example::
 

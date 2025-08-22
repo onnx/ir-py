@@ -14,14 +14,17 @@ __all__ = [
     "replace_all_uses_with",
     "create_value_mapping",
     "replace_nodes_and_values",
+    "get_const_tensor",
 ]
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Union
 
-import onnx
+import numpy as np
+import onnx  # noqa: TID251
 
-from onnx_ir import _core, _enums, _protocols, serde
+from onnx_ir import _core, _enums, _protocols, serde, traversal
 
 SupportedAttrTypes = Union[
     str,
@@ -42,6 +45,9 @@ SupportedAttrTypes = Union[
 ]
 
 
+logger = logging.getLogger(__name__)
+
+
 def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
     """Infer the attribute type based on the type of the Python object."""
     if isinstance(attr, int):
@@ -52,44 +58,52 @@ def _infer_attribute_type(attr: SupportedAttrTypes) -> _enums.AttributeType:
         return _enums.AttributeType.STRING
     if isinstance(attr, _core.Attr):
         return attr.type
-    if isinstance(attr, Sequence) and all(isinstance(x, int) for x in attr):
-        return _enums.AttributeType.INTS
-    if isinstance(attr, Sequence) and all(isinstance(x, float) for x in attr):
-        return _enums.AttributeType.FLOATS
-    if isinstance(attr, Sequence) and all(isinstance(x, str) for x in attr):
-        return _enums.AttributeType.STRINGS
+    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
+        return _enums.AttributeType.GRAPH
     if isinstance(attr, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol)):
         # Be sure to check TensorProtocol last because isinstance checking on Protocols can be slower
         return _enums.AttributeType.TENSOR
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
-        for x in attr
-    ):
-        return _enums.AttributeType.TENSORS
-    if isinstance(attr, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)):
-        return _enums.AttributeType.GRAPH
-    if isinstance(attr, Sequence) and all(
-        isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol)) for x in attr
-    ):
-        return _enums.AttributeType.GRAPHS
     if isinstance(
         attr,
         (_core.TensorType, _core.SequenceType, _core.OptionalType, _protocols.TypeProtocol),
     ):
         return _enums.AttributeType.TYPE_PROTO
-    if isinstance(attr, Sequence) and all(
-        isinstance(
-            x,
-            (
-                _core.TensorType,
-                _core.SequenceType,
-                _core.OptionalType,
-                _protocols.TypeProtocol,
-            ),
-        )
-        for x in attr
-    ):
-        return _enums.AttributeType.TYPE_PROTOS
+    if isinstance(attr, Sequence):
+        if not attr:
+            logger.warning(
+                "Attribute type is ambiguous because it is an empty sequence. "
+                "Please create an Attr with an explicit type. Defaulted to INTS"
+            )
+            return _enums.AttributeType.INTS
+        if all(isinstance(x, int) for x in attr):
+            return _enums.AttributeType.INTS
+        if all(isinstance(x, float) for x in attr):
+            return _enums.AttributeType.FLOATS
+        if all(isinstance(x, str) for x in attr):
+            return _enums.AttributeType.STRINGS
+        if all(
+            isinstance(x, (_core.TensorBase, onnx.TensorProto, _protocols.TensorProtocol))
+            for x in attr
+        ):
+            return _enums.AttributeType.TENSORS
+        if all(
+            isinstance(x, (_core.Graph, onnx.GraphProto, _protocols.GraphProtocol))
+            for x in attr
+        ):
+            return _enums.AttributeType.GRAPHS
+        if all(
+            isinstance(
+                x,
+                (
+                    _core.TensorType,
+                    _core.SequenceType,
+                    _core.OptionalType,
+                    _protocols.TypeProtocol,
+                ),
+            )
+            for x in attr
+        ):
+            return _enums.AttributeType.TYPE_PROTOS
     raise TypeError(f"Unsupported attribute type: '{type(attr)}'")
 
 
@@ -212,7 +226,7 @@ def convert_attributes(
         ...     "type_protos": [ir.TensorType(ir.DataType.FLOAT), ir.TensorType(ir.DataType.FLOAT)],
         ... }
         >>> convert_attributes(attrs)
-        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', INTS, Graph(
+        [Attr('int', INT, 1), Attr('float', FLOAT, 1.0), Attr('str', STRING, 'hello'), Attr('ints', INTS, [1, 2, 3]), Attr('floats', FLOATS, [1.0, 2.0, 3.0]), Attr('strings', STRINGS, ['hello', 'world']), Attr('tensor', TENSOR, Tensor<DOUBLE,[3]>(array([1., 2., 3.]), name=None)), Attr('tensor_proto', TENSOR, TensorProtoTensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='proto')), Attr('graph', GRAPH, Graph(
             name='graph0',
             inputs=(
         <BLANKLINE>
@@ -241,11 +255,20 @@ def convert_attributes(
             len()=0
         )]), Attr('type_proto', TYPE_PROTO, Tensor(FLOAT)), Attr('type_protos', TYPE_PROTOS, [Tensor(FLOAT), Tensor(FLOAT)])]
 
+    .. important::
+        An empty sequence should be created with an explicit type by initializing
+        an Attr object with an attribute type to avoid type ambiguity. For example::
+
+            ir.Attr("empty", [], type=ir.AttributeType.INTS)
+
     Args:
         attrs: A dictionary of {<attribute name>: <python objects>} to convert.
 
     Returns:
-        A list of _core.Attr objects.
+        A list of :class:`_core.Attr` objects.
+
+    Raises:
+        TypeError: If an attribute type is not supported.
     """
     attributes: list[_core.Attr] = []
     for name, attr in attrs.items():
@@ -313,7 +336,12 @@ def replace_all_uses_with(
 def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
     """Return a dictionary mapping names to values in the graph.
 
-    The mapping does not include values from subgraphs.
+    The mapping includes values from subgraphs. Duplicated names are omitted,
+    and the first value with that name is returned. Values with empty names
+    are excluded from the mapping.
+
+    .. versionchanged:: 0.1.2
+        Values from subgraphs are now included in the mapping.
 
     Args:
         graph: The graph to extract the mapping from.
@@ -327,10 +355,22 @@ def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
     for input in graph.inputs:
         if not input.name:
             continue
+        if input.name in values:
+            continue
         values[input.name] = input
-    for node in graph:
+    for node in traversal.RecursiveGraphIterator(graph):
+        for value in node.inputs:
+            if not value:
+                continue
+            if not value.name:
+                continue
+            if value.name in values:
+                continue
+            values[value.name] = value
         for value in node.outputs:
             if not value.name:
+                continue
+            if value.name in values:
                 continue
             values[value.name] = value
     return values
@@ -375,3 +415,106 @@ def replace_nodes_and_values(
     # insert new nodes after the index node
     graph_or_function.insert_after(insertion_point, new_nodes)
     graph_or_function.remove(old_nodes, safe=True)
+
+
+def get_const_tensor(
+    value: _core.Value, propagate_shape_type: bool = False
+) -> _protocols.TensorProtocol | None:
+    """Get the constant tensor from a value, if it exists.
+
+    A constant tensor can be obtained if the value has a ``const_value`` set
+    (as in the case of an initializer) or if the value is produced by a
+    Constant node.
+
+    This function will not alter the ``const_value`` of the value, but
+    it will propagate the shape and type of the constant tensor to the value
+    if `propagate_shape_type` is set to True.
+
+    .. versionadded:: 0.1.2
+
+    Args:
+        value: The value to get the constant tensor from.
+        propagate_shape_type: If True, the shape and type of the value will be
+            propagated to the Value.
+
+    Returns:
+        The constant tensor if it exists, otherwise None.
+
+    Raises:
+        ValueError: If the Constant node does not have exactly one output or
+            one attribute.
+    """
+    tensor = None
+    if value.const_value is not None:
+        tensor = value.const_value
+    else:
+        node = value.producer()
+        if node is None:
+            # Potentially a graph input
+            return None
+        if node.op_type != "Constant" or node.domain != "":
+            # Not a Constant node or not in the ONNX domain
+            return None
+        if len(node.outputs) != 1:
+            raise ValueError(
+                f"Constant node '{node.name}' must have exactly one output, "
+                f"but has {len(node.outputs)} outputs."
+            )
+        if len(node.attributes) != 1:
+            raise ValueError(
+                f"Constant node '{node.name}' must have exactly one attribute, "
+                f"but has {len(node.attributes)} attributes."
+            )
+
+        attr_name, attr_value = next(iter(node.attributes.items()))
+
+        if attr_value.is_ref():
+            # TODO: Make it easier to resolve a reference attribute.
+            # For now we just return None
+            return None
+
+        ir_value = node.outputs[0]
+        if attr_name in {"value_float", "value_floats"}:
+            tensor = _core.Tensor(
+                np.array(attr_value.value, dtype=np.float32), name=ir_value.name
+            )
+        elif attr_name in {"value_int", "value_ints"}:
+            tensor = _core.Tensor(
+                np.array(attr_value.value, dtype=np.int64), name=ir_value.name
+            )
+        elif attr_name in {"value_string", "value_strings"}:
+            tensor = _core.StringTensor(
+                np.array(attr_value.value, dtype=np.bytes_), name=ir_value.name
+            )
+        elif attr_name == "value":
+            tensor = attr_value.as_tensor()
+        else:
+            raise ValueError(
+                f"Unsupported attribute '{attr_name}' in Constant node '{node.name}'. "
+                "Expected one of 'value_float', 'value_floats', 'value_int', "
+                "'value_ints', 'value_string', 'value_strings', or 'value'."
+            )
+        # Assign the name of the constant value to the tensor
+        tensor.name = value.name
+    if tensor is not None and propagate_shape_type:
+        # Propagate the shape and type of the tensor to the value
+        if value.shape is not None and value.shape != tensor.shape:
+            logger.warning(
+                "Value '%s' has a shape %s that differs from "
+                "the constant tensor's shape %s. The value's shape will be updated.",
+                value,
+                value.shape,
+                tensor.shape,
+            )
+        value.shape = tensor.shape  # type: ignore[assignment]
+        new_value_type = _core.TensorType(tensor.dtype)
+        if value.type is not None and value.type != new_value_type:
+            logger.warning(
+                "Value '%s' has a type '%s' that differs from "
+                "the constant tensor's type '%s'. The value's type will be updated.",
+                value,
+                value.type,
+                new_value_type,
+            )
+        value.type = new_value_type
+    return tensor

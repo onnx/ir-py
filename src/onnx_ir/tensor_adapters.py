@@ -29,6 +29,8 @@ Example::
 from __future__ import annotations
 
 __all__ = [
+    "from_torch_dtype",
+    "to_torch_dtype",
     "TorchTensor",
 ]
 
@@ -44,14 +46,17 @@ if TYPE_CHECKING:
     import torch
 
 
-class TorchTensor(_core.Tensor):
-    def __init__(
-        self, tensor: torch.Tensor, name: str | None = None, doc_string: str | None = None
-    ):
-        # Pass the tensor as the raw data to ir.Tensor's constructor
+_TORCH_DTYPE_TO_ONNX: dict[torch.dtype, ir.DataType] | None = None
+_ONNX_DTYPE_TO_TORCH: dict[ir.DataType, torch.dtype] | None = None
+
+
+def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
+    """Convert a PyTorch dtype to an ONNX IR DataType."""
+    global _TORCH_DTYPE_TO_ONNX
+    if _TORCH_DTYPE_TO_ONNX is None:
         import torch
 
-        _TORCH_DTYPE_TO_ONNX: dict[torch.dtype, ir.DataType] = {
+        _TORCH_DTYPE_TO_ONNX = {
             torch.bfloat16: ir.DataType.BFLOAT16,
             torch.bool: ir.DataType.BOOL,
             torch.complex128: ir.DataType.COMPLEX128,
@@ -72,8 +77,72 @@ class TorchTensor(_core.Tensor):
             torch.uint32: ir.DataType.UINT32,
             torch.uint64: ir.DataType.UINT64,
         }
+        if hasattr(torch, "float8_e8m0fnu"):
+            # torch.float8_e8m0fnu is available in PyTorch 2.7+
+            _TORCH_DTYPE_TO_ONNX[torch.float8_e8m0fnu] = ir.DataType.FLOAT8E8M0
+
+    if dtype not in _TORCH_DTYPE_TO_ONNX:
+        raise TypeError(
+            f"Unsupported PyTorch dtype '{dtype}'. "
+            "Please use a supported dtype from the list: "
+            f"{list(_TORCH_DTYPE_TO_ONNX.keys())}"
+        )
+    return _TORCH_DTYPE_TO_ONNX[dtype]
+
+
+def to_torch_dtype(dtype: ir.DataType) -> torch.dtype:
+    """Convert an ONNX IR DataType to a PyTorch dtype."""
+    global _ONNX_DTYPE_TO_TORCH
+    if _ONNX_DTYPE_TO_TORCH is None:
+        import torch
+
+        _ONNX_DTYPE_TO_TORCH = {
+            ir.DataType.BFLOAT16: torch.bfloat16,
+            ir.DataType.BOOL: torch.bool,
+            ir.DataType.COMPLEX128: torch.complex128,
+            ir.DataType.COMPLEX64: torch.complex64,
+            ir.DataType.FLOAT16: torch.float16,
+            ir.DataType.FLOAT: torch.float32,
+            ir.DataType.DOUBLE: torch.float64,
+            ir.DataType.FLOAT8E4M3FN: torch.float8_e4m3fn,
+            ir.DataType.FLOAT8E4M3FNUZ: torch.float8_e4m3fnuz,
+            ir.DataType.FLOAT8E5M2: torch.float8_e5m2,
+            ir.DataType.FLOAT8E5M2FNUZ: torch.float8_e5m2fnuz,
+            ir.DataType.INT16: torch.int16,
+            ir.DataType.INT32: torch.int32,
+            ir.DataType.INT64: torch.int64,
+            ir.DataType.INT8: torch.int8,
+            ir.DataType.UINT8: torch.uint8,
+            ir.DataType.UINT16: torch.uint16,
+            ir.DataType.UINT32: torch.uint32,
+            ir.DataType.UINT64: torch.uint64,
+        }
+
+        if hasattr(torch, "float8_e8m0fnu"):
+            # torch.float8_e8m0fnu is available in PyTorch 2.7+
+            _ONNX_DTYPE_TO_TORCH[ir.DataType.FLOAT8E8M0] = torch.float8_e8m0fnu
+
+    if dtype not in _ONNX_DTYPE_TO_TORCH:
+        if dtype == ir.DataType.FLOAT8E8M0:
+            raise ValueError(
+                "The requested DataType 'FLOAT8E8M0' is only supported in PyTorch 2.7+. "
+                "Please upgrade your PyTorch version to use this dtype."
+            )
+        raise TypeError(
+            f"Unsupported conversion from ONNX dtype '{dtype}' to torch. "
+            "Please use a supported dtype from the list: "
+            f"{list(_ONNX_DTYPE_TO_TORCH.keys())}"
+        )
+    return _ONNX_DTYPE_TO_TORCH[dtype]
+
+
+class TorchTensor(_core.Tensor):
+    def __init__(
+        self, tensor: torch.Tensor, name: str | None = None, doc_string: str | None = None
+    ):
+        # Pass the tensor as the raw data to ir.Tensor's constructor
         super().__init__(
-            tensor, dtype=_TORCH_DTYPE_TO_ONNX[tensor.dtype], name=name, doc_string=doc_string
+            tensor, dtype=from_torch_dtype(tensor.dtype), name=name, doc_string=doc_string
         )
 
     def numpy(self) -> npt.NDArray:
@@ -87,6 +156,7 @@ class TorchTensor(_core.Tensor):
             ir.DataType.FLOAT8E4M3FNUZ,
             ir.DataType.FLOAT8E5M2,
             ir.DataType.FLOAT8E5M2FNUZ,
+            ir.DataType.FLOAT8E8M0,
         }:
             return self.raw.view(torch.uint8).numpy(force=True).view(self.dtype.numpy())
 

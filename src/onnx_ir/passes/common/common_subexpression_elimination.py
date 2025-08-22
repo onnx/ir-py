@@ -17,93 +17,122 @@ logger = logging.getLogger(__name__)
 
 
 class CommonSubexpressionEliminationPass(ir.passes.InPlacePass):
-    """Eliminate common subexpression in ONNX graphs."""
+    """Eliminate common subexpression in ONNX graphs.
+
+    .. versionadded:: 0.1.1
+
+    .. versionchanged:: 0.1.3
+        Constant nodes with values smaller than ``size_limit`` will be CSE'd.
+
+    Attributes:
+        size_limit: The maximum size of the tensor to be csed. If the tensor contains
+            number of elements larger than size_limit, it will not be cse'd. Default is 10.
+
+    """
+
+    def __init__(self, size_limit: int = 10):
+        """Initialize the CommonSubexpressionEliminationPass."""
+        super().__init__()
+        self.size_limit = size_limit
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         """Return the same ir.Model but with CSE applied to the graph."""
-        modified = False
         graph = model.graph
-
-        modified = _eliminate_common_subexpression(graph, modified)
+        modified = self._eliminate_common_subexpression(graph)
 
         return ir.passes.PassResult(
             model,
             modified=modified,
         )
 
+    def _eliminate_common_subexpression(self, graph: ir.Graph) -> bool:
+        """Eliminate common subexpression in ONNX graphs."""
+        modified: bool = False
+        # node to node identifier, length of outputs, inputs, and attributes
+        existing_node_info_to_the_node: dict[
+            tuple[
+                ir.OperatorIdentifier,
+                int,  # len(outputs)
+                tuple[int, ...],  # input ids
+                tuple[tuple[str, object], ...],  # attributes
+            ],
+            ir.Node,
+        ] = {}
 
-def _eliminate_common_subexpression(graph: ir.Graph, modified: bool) -> bool:
-    """Eliminate common subexpression in ONNX graphs."""
-    # node to node identifier, length of outputs, inputs, and attributes
-    existing_node_info_to_the_node: dict[
-        tuple[
-            ir.OperatorIdentifier,
-            int,  # len(outputs)
-            tuple[int, ...],  # input ids
-            tuple[tuple[str, object], ...],  # attributes
-        ],
-        ir.Node,
-    ] = {}
+        for node in graph:
+            # Skip control flow ops like Loop and If.
+            control_flow_op: bool = False
+            # Skip large tensors to avoid cse weights and bias.
+            large_tensor: bool = False
+            # Use equality to check if the node is a common subexpression.
+            attributes = {}
+            for k, v in node.attributes.items():
+                # TODO(exporter team): CSE subgraphs.
+                # NOTE: control flow ops like Loop and If won't be CSEd
+                # because attribute: graph won't match.
+                if v.type in (ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS):
+                    control_flow_op = True
+                    break
+                # The attribute value could be directly taken from the original
+                # protobuf, so we need to make a copy of it.
+                value = v.value
+                if v.type in (
+                    ir.AttributeType.INTS,
+                    ir.AttributeType.FLOATS,
+                    ir.AttributeType.STRINGS,
+                ):
+                    # For INT, FLOAT and STRING attributes, we convert them to tuples
+                    # to ensure they are hashable.
+                    value = tuple(value)
+                elif v.type is ir.AttributeType.TENSOR:
+                    if value.size > self.size_limit:
+                        # If the tensor is larger than the size limit, we skip it.
+                        large_tensor = True
+                        break
+                    np_value = value.numpy()
 
-    for node in graph:
-        # Skip control flow ops like Loop and If.
-        control_flow_op: bool = False
-        # Use equality to check if the node is a common subexpression.
-        attributes = {}
-        for k, v in node.attributes.items():
-            # TODO(exporter team): CSE subgraphs.
-            # NOTE: control flow ops like Loop and If won't be CSEd
-            # because attribute: graph won't match.
-            if v.type in (ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS):
-                control_flow_op = True
+                    value = (np_value.shape, str(np_value.dtype), np_value.tobytes())
+                attributes[k] = value
+
+            if control_flow_op:
+                # If the node is a control flow op, we skip it.
                 logger.debug("Skipping control flow op %s", node)
-            # The attribute value could be directly taken from the original
-            # protobuf, so we need to make a copy of it.
-            value = v.value
-            if v.type in (
-                ir.AttributeType.INTS,
-                ir.AttributeType.FLOATS,
-                ir.AttributeType.STRINGS,
-            ):
-                # For INT, FLOAT and STRING attributes, we convert them to tuples
-                # to ensure they are hashable.
-                value = tuple(value)
-            attributes[k] = value
+                continue
 
-        if control_flow_op:
-            # If the node is a control flow op, we skip it.
-            logger.debug("Skipping control flow op %s", node)
-            continue
+            if large_tensor:
+                # If the node has a large tensor, we skip it.
+                logger.debug("Skipping large tensor in node %s", node)
+                continue
 
-        if _is_non_deterministic_op(node):
-            # If the node is a non-deterministic op, we skip it.
-            logger.debug("Skipping non-deterministic op %s", node)
-            continue
+            if _is_non_deterministic_op(node):
+                # If the node is a non-deterministic op, we skip it.
+                logger.debug("Skipping non-deterministic op %s", node)
+                continue
 
-        node_info = (
-            node.op_identifier(),
-            len(node.outputs),
-            tuple(id(input) for input in node.inputs),
-            tuple(sorted(attributes.items())),
-        )
-        # Check if the node is a common subexpression.
-        if node_info in existing_node_info_to_the_node:
-            # If it is, this node has an existing node with the same
-            # operator, number of outputs, inputs, and attributes.
-            # We replace the node with the existing node.
-            modified = True
-            existing_node = existing_node_info_to_the_node[node_info]
-            _remove_node_and_replace_values(
-                graph,
-                remove_node=node,
-                remove_values=node.outputs,
-                new_values=existing_node.outputs,
+            node_info = (
+                node.op_identifier(),
+                len(node.outputs),
+                tuple(id(input) for input in node.inputs),
+                tuple(sorted(attributes.items())),
             )
-            logger.debug("Reusing node %s", existing_node)
-        else:
-            # If it is not, add to the mapping.
-            existing_node_info_to_the_node[node_info] = node
-    return modified
+            # Check if the node is a common subexpression.
+            if node_info in existing_node_info_to_the_node:
+                # If it is, this node has an existing node with the same
+                # operator, number of outputs, inputs, and attributes.
+                # We replace the node with the existing node.
+                modified = True
+                existing_node = existing_node_info_to_the_node[node_info]
+                _remove_node_and_replace_values(
+                    graph,
+                    remove_node=node,
+                    remove_values=node.outputs,
+                    new_values=existing_node.outputs,
+                )
+                logger.debug("Reusing node %s", existing_node)
+            else:
+                # If it is not, add to the mapping.
+                existing_node_info_to_the_node[node_info] = node
+        return modified
 
 
 def _remove_node_and_replace_values(

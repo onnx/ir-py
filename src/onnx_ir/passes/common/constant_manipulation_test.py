@@ -399,6 +399,48 @@ class TestLiftSubgraphInitializersToMainGraphPass(unittest.TestCase):
         for value, tensor in zip(main_graph.initializers.values(), [else_initializer_tensor]):
             self.assertIs(value.const_value, tensor)
 
+    def test_pass_does_not_lift_initialized_outputs_in_subgraph(self):
+        input = ir.Value(
+            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 2))
+        )
+        output = ir.Value(
+            name="output", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 2))
+        )
+
+        subgraph_output = ir.Value(
+            name="subgraph_output",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 2)),
+            const_value=ir.tensor(np.random.rand(1, 2).astype(np.float32)),
+        )
+
+        graph_node = ir.node(
+            "OpWithSubgraph",
+            inputs=[input],
+            attributes={
+                "subgraph": ir.Graph(
+                    inputs=[],
+                    outputs=[subgraph_output],
+                    nodes=[],
+                    initializers=[subgraph_output],
+                )
+            },
+            outputs=[output],
+        )
+        model = ir.Model(
+            graph=ir.Graph(
+                inputs=[input],
+                outputs=[output],
+                nodes=[graph_node],
+                opset_imports={"": 20},
+            ),
+            ir_version=10,
+        )
+
+        result = constant_manipulation.LiftSubgraphInitializersToMainGraphPass()(model)
+        self.assertFalse(result.modified)
+        self.assertIs(subgraph_output.graph, graph_node.attributes["subgraph"].as_graph())
+
 
 class TestRemoveInitializersFromInputsPass(unittest.TestCase):
     def test_remove_initializers_from_inputs(self):

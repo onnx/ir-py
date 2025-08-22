@@ -6,9 +6,13 @@ __all__ = [
     "CheckerPass",
     "ClearMetadataAndDocStringPass",
     "CommonSubexpressionEliminationPass",
+    "DeduplicateHashedInitializersPass",
+    "DeduplicateInitializersPass",
+    "IdentityEliminationPass",
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
+    "NameFixPass",
     "RemoveInitializersFromInputsPass",
     "RemoveUnusedFunctionsPass",
     "RemoveUnusedNodesPass",
@@ -29,7 +33,15 @@ from onnx_ir.passes.common.constant_manipulation import (
     LiftSubgraphInitializersToMainGraphPass,
     RemoveInitializersFromInputsPass,
 )
+from onnx_ir.passes.common.identity_elimination import (
+    IdentityEliminationPass,
+)
+from onnx_ir.passes.common.initializer_deduplication import (
+    DeduplicateHashedInitializersPass,
+    DeduplicateInitializersPass,
+)
 from onnx_ir.passes.common.inliner import InlinePass
+from onnx_ir.passes.common.naming import NameFixPass
 from onnx_ir.passes.common.onnx_checker import CheckerPass
 from onnx_ir.passes.common.shape_inference import ShapeInferencePass
 from onnx_ir.passes.common.topological_sort import TopologicalSortPass

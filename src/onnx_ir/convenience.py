@@ -7,15 +7,17 @@ from __future__ import annotations
 __all__ = [
     "convert_attribute",
     "convert_attributes",
+    "create_value_mapping",
+    "get_const_tensor",
     "replace_all_uses_with",
     "replace_nodes_and_values",
-    "create_value_mapping",
 ]
 
 from onnx_ir._convenience import (
     convert_attribute,
     convert_attributes,
     create_value_mapping,
+    get_const_tensor,
     replace_all_uses_with,
     replace_nodes_and_values,
 )

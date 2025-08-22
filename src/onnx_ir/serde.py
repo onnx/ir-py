@@ -37,6 +37,7 @@ __all__ = [
     "deserialize_value_info_proto",
     # Serialization
     "to_proto",
+    "to_onnx_text",
     "serialize_attribute_into",
     "serialize_attribute",
     "serialize_dimension_into",
@@ -62,18 +63,17 @@ __all__ = [
 import collections
 import logging
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Callable
 
 import numpy as np
-import onnx
-import onnx.external_data_helper
+import onnx  # noqa: TID251
+import onnx.external_data_helper  # noqa: TID251
 
-from onnx_ir import _core, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _enums, _protocols, _type_casting
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
-    import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -114,13 +114,6 @@ def _little_endian_dtype(dtype) -> np.dtype:
     endian platforms, we still need to interpret the raw_data in small endian.
     """
     return np.dtype(dtype).newbyteorder("<")
-
-
-def _unflatten_complex(
-    array: npt.NDArray[np.float32 | np.float64],
-) -> npt.NDArray[np.complex64 | np.complex128]:
-    """Convert the real representation of a complex dtype to the complex dtype."""
-    return array[::2] + 1j * array[1::2]
 
 
 @typing.overload
@@ -190,13 +183,69 @@ def from_proto(proto: object) -> object:
     )
 
 
-def from_onnx_text(model_text: str, /) -> _core.Model:
+def from_onnx_text(
+    model_text: str,
+    /,
+    initializers: Iterable[_protocols.TensorProtocol] | None = None,
+) -> _core.Model:
     """Convert the ONNX textual representation to an IR model.
 
     Read more about the textual representation at: https://onnx.ai/onnx/repo-docs/Syntax.html
+
+    .. versionchanged:: 0.1.2
+        Added the ``initializers`` argument.
+
+    Args:
+        model_text: The ONNX textual representation of the model.
+        initializers: Tensors to be added as initializers. If provided, these tensors
+            will be added to the model as initializers. If a name does not exist in the model,
+            a ValueError will be raised.
+
+    Returns:
+        The IR model corresponding to the ONNX textual representation.
+
+    Raises:
+        ValueError: If a tensor name in `initializers` does not match any value in the model.
     """
     proto = onnx.parser.parse_model(model_text)
-    return deserialize_model(proto)
+    model = deserialize_model(proto)
+    values = _convenience.create_value_mapping(model.graph)
+    if initializers:
+        # Add initializers to the model
+        for tensor in initializers:
+            name = tensor.name
+            if not name:
+                raise ValueError(
+                    "Initializer tensor must have a name. "
+                    f"Please provide a name for the initializer: {tensor}"
+                )
+            if name not in values:
+                raise ValueError(f"Value '{name}' does not exist in model.")
+            initializer = values[name]
+            initializer.const_value = tensor
+            model.graph.register_initializer(initializer)
+    return model
+
+
+def to_onnx_text(
+    model: _protocols.ModelProtocol, /, exclude_initializers: bool = False
+) -> str:
+    """Convert the IR model to the ONNX textual representation.
+
+    .. versionadded:: 0.1.2
+
+    Args:
+        model: The IR model to convert.
+        exclude_initializers: If True, the initializers will not be included in the output.
+
+    Returns:
+        The ONNX textual representation of the model.
+    """
+    proto = serialize_model(model)
+    if exclude_initializers:
+        del proto.graph.initializer[:]
+    text = onnx.printer.to_text(proto)
+    return text
 
 
 @typing.overload
@@ -334,54 +383,89 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 "Cannot convert external tensor to numpy array. Use ir.ExternalTensor instead."
             )
 
+        shape = self._proto.dims
+
         if self._proto.HasField("raw_data"):
-            array = np.frombuffer(self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<"))
-            # Cannot return now, because we may need to unpack 4bit tensors
-        elif dtype == _enums.DataType.STRING:
-            return np.array(self._proto.string_data).reshape(self._proto.dims)
-        elif self._proto.int32_data:
-            array = np.array(self._proto.int32_data, dtype=_little_endian_dtype(np.int32))
-            if dtype in {_enums.DataType.FLOAT16, _enums.DataType.BFLOAT16}:
-                # Reinterpret the int32 as float16 or bfloat16
-                array = array.astype(np.uint16).view(dtype.numpy())
-            elif dtype in {
+            if dtype.bitwidth == 4:
+                return _type_casting.unpack_4bitx2(
+                    np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
+                ).view(dtype.numpy())
+            return np.frombuffer(
+                self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
+            ).reshape(shape)
+        if dtype == _enums.DataType.STRING:
+            return np.array(self._proto.string_data).reshape(shape)
+        if self._proto.int32_data:
+            assert dtype in {
+                _enums.DataType.BFLOAT16,
+                _enums.DataType.BOOL,
+                _enums.DataType.FLOAT16,
+                _enums.DataType.FLOAT4E2M1,
                 _enums.DataType.FLOAT8E4M3FN,
                 _enums.DataType.FLOAT8E4M3FNUZ,
                 _enums.DataType.FLOAT8E5M2,
                 _enums.DataType.FLOAT8E5M2FNUZ,
-            }:
-                array = array.astype(np.uint8).view(dtype.numpy())
-        elif self._proto.int64_data:
-            array = np.array(self._proto.int64_data, dtype=_little_endian_dtype(np.int64))
-        elif self._proto.uint64_data:
+                _enums.DataType.FLOAT8E8M0,
+                _enums.DataType.INT16,
+                _enums.DataType.INT32,
+                _enums.DataType.INT4,
+                _enums.DataType.INT8,
+                _enums.DataType.UINT16,
+                _enums.DataType.UINT4,
+                _enums.DataType.UINT8,
+            }, f"Unsupported dtype {dtype} for int32_data"
+            array = np.array(self._proto.int32_data, dtype=_little_endian_dtype(np.int32))
+            if dtype.bitwidth == 32:
+                return array.reshape(shape)
+            if dtype.bitwidth == 16:
+                # Reinterpret the int32 as float16 or bfloat16
+                return array.astype(np.uint16).view(dtype.numpy()).reshape(shape)
+            if dtype.bitwidth == 8:
+                return array.astype(np.uint8).view(dtype.numpy()).reshape(shape)
+            if dtype.bitwidth == 4:
+                return _type_casting.unpack_4bitx2(array.astype(np.uint8), shape).view(
+                    dtype.numpy()
+                )
+            raise ValueError(
+                f"Unsupported dtype {dtype} for int32_data with bitwidth {dtype.bitwidth}"
+            )
+        if self._proto.int64_data:
+            assert dtype in {
+                _enums.DataType.INT64,
+            }, f"Unsupported dtype {dtype} for int64_data"
+            return np.array(
+                self._proto.int64_data, dtype=_little_endian_dtype(np.int64)
+            ).reshape(shape)
+        if self._proto.uint64_data:
+            assert dtype in {
+                _enums.DataType.UINT64,
+                _enums.DataType.UINT32,
+            }, f"Unsupported dtype {dtype} for uint64_data"
             array = np.array(self._proto.uint64_data, dtype=_little_endian_dtype(np.uint64))
-        elif self._proto.float_data:
+            if dtype == _enums.DataType.UINT32:
+                return array.astype(np.uint32).reshape(shape)
+            return array.reshape(shape)
+        if self._proto.float_data:
+            assert dtype in {
+                _enums.DataType.FLOAT,
+                _enums.DataType.COMPLEX64,
+            }, f"Unsupported dtype {dtype} for float_data"
             array = np.array(self._proto.float_data, dtype=_little_endian_dtype(np.float32))
             if dtype == _enums.DataType.COMPLEX64:
-                array = _unflatten_complex(array)
-        elif self._proto.double_data:
+                return array.view(np.complex64).reshape(shape)
+            return array.reshape(shape)
+        if self._proto.double_data:
+            assert dtype in {
+                _enums.DataType.DOUBLE,
+                _enums.DataType.COMPLEX128,
+            }, f"Unsupported dtype {dtype} for double_data"
             array = np.array(self._proto.double_data, dtype=_little_endian_dtype(np.float64))
             if dtype == _enums.DataType.COMPLEX128:
-                array = _unflatten_complex(array)
-        else:
-            # Empty tensor
-            if not self._proto.dims:
-                # When dims not precent and there is no data, we return an empty array
-                return np.array([], dtype=dtype.numpy())
-            else:
-                # Otherwise we return a size 0 array with the correct shape
-                return np.zeros(self._proto.dims, dtype=dtype.numpy())
+                return array.view(np.complex128).reshape(shape)
+            return array.reshape(shape)
 
-        if dtype == _enums.DataType.INT4:
-            return _type_casting.unpack_int4(array.astype(np.uint8), self._proto.dims)
-        elif dtype == _enums.DataType.UINT4:
-            return _type_casting.unpack_uint4(array.astype(np.uint8), self._proto.dims)
-        elif dtype == _enums.DataType.FLOAT4E2M1:
-            return _type_casting.unpack_float4e2m1(array.astype(np.uint8), self._proto.dims)
-        else:
-            # Otherwise convert to the correct dtype and reshape
-            # Note we cannot use view() here because the storage dtype may not be the same size as the target
-            return array.astype(dtype.numpy()).reshape(self._proto.dims)
+        # Empty tensor. We return a size 0 array with the correct shape
+        return np.zeros(shape, dtype=dtype.numpy())
 
     def tobytes(self) -> bytes:
         """Return the tensor as a byte string conformed to the ONNX specification, in little endian.
@@ -422,6 +506,7 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 _enums.DataType.FLOAT8E4M3FNUZ,
                 _enums.DataType.FLOAT8E5M2,
                 _enums.DataType.FLOAT8E5M2FNUZ,
+                _enums.DataType.FLOAT8E8M0,
                 _enums.DataType.INT4,
                 _enums.DataType.UINT4,
                 _enums.DataType.FLOAT4E2M1,
@@ -462,6 +547,14 @@ def _get_field(proto: Any, field: str) -> Any:
 def deserialize_opset_import(
     protos: Sequence[onnx.OperatorSetIdProto],
 ) -> dict[str, int]:
+    """Deserialize a sequence of OperatorSetIdProto to opset imports mapping.
+
+    Args:
+        protos: The sequence of ONNX OperatorSetIdProto objects.
+
+    Returns:
+        A dictionary mapping domain strings to version integers.
+    """
     return {opset.domain: opset.version for opset in protos}
 
 
@@ -495,6 +588,14 @@ def _parse_experimental_function_value_info_name(
 
 
 def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
+    """Deserialize an ONNX ModelProto into an IR Model.
+
+    Args:
+        proto: The ONNX ModelProto to deserialize.
+
+    Returns:
+        An IR Model object representing the ONNX model.
+    """
     graph = _deserialize_graph(proto.graph, [])
     graph.opset_imports.update(deserialize_opset_import(proto.opset_import))
 
@@ -581,8 +682,8 @@ def deserialize_graph(proto: onnx.GraphProto) -> _core.Graph:
     Returns:
         IR Graph.
 
-    .. versionadded:: 0.3
-        Support for *quantization_annotation* is added.
+    .. versionadded:: 0.1.3
+        Support for `quantization_annotation` is added.
     """
     return _deserialize_graph(proto, [])
 
@@ -659,6 +760,18 @@ def _deserialize_graph(
     # Build the value info dictionary to allow for quick lookup for this graph scope
     value_info = {info.name: info for info in proto.value_info}
 
+    # Declare values for all node outputs from this graph scope. This is necessary
+    # to handle the case where a node in a subgraph uses a value that is declared out
+    # of order in the outer graph. Declaring the values first allows us to find the
+    # values later when deserializing the nodes in subgraphs.
+    for node in proto.node:
+        _declare_node_outputs(
+            node,
+            values,
+            value_info=value_info,
+            quantization_annotations=quantization_annotations,
+        )
+
     # Deserialize nodes with all known values
     nodes = [
         _deserialize_node(node, scoped_values, value_info, quantization_annotations)
@@ -697,13 +810,77 @@ def _deserialize_graph(
     )
 
 
+def _declare_node_outputs(
+    proto: onnx.NodeProto,
+    current_value_scope: dict[str, _core.Value],
+    value_info: dict[str, onnx.ValueInfoProto],
+    quantization_annotations: dict[str, onnx.TensorAnnotation],
+) -> None:
+    """Declare outputs for a node in the current graph scope.
+
+    This is necessary to handle the case where a node in a subgraph uses a value that is declared
+    out of order in the outer graph. Declaring the values first allows us to find the values later
+    when deserializing the nodes in subgraphs.
+
+    Args:
+        proto: The ONNX NodeProto to declare outputs for.
+        current_value_scope: The current scope of values, mapping value names to their corresponding Value objects.
+        value_info: A dictionary mapping value names to their corresponding ValueInfoProto.
+        quantization_annotations: A dictionary mapping tensor names to their corresponding TensorAnnotation.
+
+    Raises:
+        ValueError: If an output name is redeclared in the current graph scope.
+    """
+    for output_name in proto.output:
+        if output_name == "":
+            continue
+        if output_name in current_value_scope:
+            raise ValueError(
+                f"Output '{output_name}' is redeclared in the current graph scope. "
+                f"Original declaration {current_value_scope[output_name]}. "
+                f"New declaration: by operator '{proto.op_type}' of node '{proto.name}'. "
+                "The model is invalid"
+            )
+
+        # Create the value and add it to the current scope.
+        value = _core.Value(name=output_name)
+        current_value_scope[output_name] = value
+        # Fill in shape/type information if they exist
+        if output_name in value_info:
+            deserialize_value_info_proto(value_info[output_name], value)
+        else:
+            logger.debug(
+                "ValueInfoProto not found for output '%s' in node '%s' of type '%s'",
+                output_name,
+                proto.name,
+                proto.op_type,
+            )
+        if output_name in quantization_annotations:
+            _deserialize_quantization_annotation(quantization_annotations[output_name], value)
+
+
 @_capture_errors(lambda proto: proto.name)
 def deserialize_function(proto: onnx.FunctionProto) -> _core.Function:
+    """Deserialize an ONNX FunctionProto into an IR Function.
+
+    Args:
+        proto: The ONNX FunctionProto to deserialize.
+
+    Returns:
+        An IR Function object representing the ONNX function.
+    """
     inputs = [_core.Input(name) for name in proto.input]
     values: dict[str, _core.Value] = {v.name: v for v in inputs}  # type: ignore[misc]
     value_info = {info.name: info for info in getattr(proto, "value_info", [])}
 
-    # TODO(justinchuby): Handle unsorted nodes
+    for node in proto.node:
+        _declare_node_outputs(
+            node,
+            values,
+            value_info=value_info,
+            quantization_annotations={},
+        )
+
     nodes = [
         _deserialize_node(node, [values], value_info=value_info, quantization_annotations={})
         for node in proto.node
@@ -741,6 +918,15 @@ def deserialize_function(proto: onnx.FunctionProto) -> _core.Function:
 def deserialize_value_info_proto(
     proto: onnx.ValueInfoProto, value: _core.Value | None
 ) -> _core.Value:
+    """Deserialize an ONNX ValueInfoProto into an IR Value.
+
+    Args:
+        proto: The ONNX ValueInfoProto to deserialize.
+        value: An existing Value to update, or None to create a new one.
+
+    Returns:
+        An IR Value object with type and shape information populated from the proto.
+    """
     if value is None:
         value = _core.Value(name=proto.name)
     value.shape = deserialize_type_proto_for_shape(proto.type)
@@ -767,6 +953,14 @@ def _deserialize_quantization_annotation(
 
 @_capture_errors(str)
 def deserialize_tensor_shape(proto: onnx.TensorShapeProto) -> _core.Shape:
+    """Deserialize an ONNX TensorShapeProto into an IR Shape.
+
+    Args:
+        proto: The ONNX TensorShapeProto to deserialize.
+
+    Returns:
+        An IR Shape object representing the tensor shape.
+    """
     # This logic handles when the shape is [] as well
     dim_protos = proto.dim
     deserialized_dim_denotations = [
@@ -779,6 +973,14 @@ def deserialize_tensor_shape(proto: onnx.TensorShapeProto) -> _core.Shape:
 
 @_capture_errors(str)
 def deserialize_type_proto_for_shape(proto: onnx.TypeProto) -> _core.Shape | None:
+    """Extract and deserialize shape information from an ONNX TypeProto.
+
+    Args:
+        proto: The ONNX TypeProto to extract shape from.
+
+    Returns:
+        An IR Shape object if shape information is present, None otherwise.
+    """
     if proto.HasField("tensor_type"):
         if (shape_proto := _get_field(proto.tensor_type, "shape")) is None:
             return None
@@ -806,6 +1008,14 @@ def deserialize_type_proto_for_shape(proto: onnx.TypeProto) -> _core.Shape | Non
 def deserialize_type_proto_for_type(
     proto: onnx.TypeProto,
 ) -> _protocols.TypeProtocol | None:
+    """Extract and deserialize type information from an ONNX TypeProto.
+
+    Args:
+        proto: The ONNX TypeProto to extract type from.
+
+    Returns:
+        An IR type object (TensorType, SequenceType, etc.) if type information is present, None otherwise.
+    """
     denotation = _get_field(proto, "denotation")
     if proto.HasField("tensor_type"):
         if (elem_type := _get_field(proto.tensor_type, "elem_type")) is None:
@@ -906,6 +1116,14 @@ _deserialize_string_string_maps = deserialize_metadata_props
 
 
 def deserialize_attribute(proto: onnx.AttributeProto) -> _core.Attr:
+    """Deserialize an ONNX AttributeProto into an IR Attribute.
+
+    Args:
+        proto: The ONNX AttributeProto to deserialize.
+
+    Returns:
+        An IR Attribute object representing the ONNX attribute.
+    """
     return _deserialize_attribute(proto, [])
 
 
@@ -979,8 +1197,23 @@ def _deserialize_attribute(
 
 
 def deserialize_node(proto: onnx.NodeProto) -> _core.Node:
+    """Deserialize an ONNX NodeProto into an IR Node.
+
+    Args:
+        proto: The ONNX NodeProto to deserialize.
+
+    Returns:
+        An IR Node object representing the ONNX node.
+    """
+    value_scope: dict[str, _core.Value] = {}
+    _declare_node_outputs(
+        proto,
+        value_scope,
+        value_info={},
+        quantization_annotations={},
+    )
     return _deserialize_node(
-        proto, scoped_values=[{}], value_info={}, quantization_annotations={}
+        proto, scoped_values=[value_scope], value_info={}, quantization_annotations={}
     )
 
 
@@ -1003,18 +1236,18 @@ def _deserialize_node(
         for values in reversed(scoped_values):
             if input_name not in values:
                 continue
+
             node_inputs.append(values[input_name])
             found = True
             del values  # Remove the reference so it is not used by mistake
             break
         if not found:
-            # If the input is not found, we know the graph may be unsorted and
-            # the input may be a supposed-to-be initializer or an output of a node that comes later.
-            # Here we create the value with the name and add it to the current scope.
-            # Nodes need to check the value pool for potentially initialized outputs
+            # If the input is not found, we know the graph is invalid because the value
+            # is not declared. We will still create a new input for the node so that
+            # it can be fixed later.
             logger.warning(
-                "Input '%s' of node '%s(%s::%s:%s)' not found in any scope. "
-                "The graph may be unsorted. Creating a new input (current depth: %s) .",
+                "Input '%s' of node '%s' (%s::%s:%s) cannot be found in any scope. "
+                "The model is invalid but we will still create a new input for the node (current depth: %s)",
                 input_name,
                 proto.name,
                 proto.domain,
@@ -1050,35 +1283,22 @@ def _deserialize_node(
             node_outputs.append(_core.Value(name=""))
             continue
 
-        # 1. When the graph is unsorted, we may be able to find the output already created
+        # The outputs should already be declared in the current scope by _declare_node_outputs.
+        #
+        # When the graph is unsorted, we may be able to find the output already created
         # as an input to some other nodes in the current scope.
         # Note that a value is always owned by the producing node. Even though a value
         # can be created when parsing inputs of other nodes, the new node created here
         # that produces the value will assume ownership. It is then impossible to transfer
         # the ownership to any other node.
-
+        #
         # The output can only be found in the current scope. It is impossible for
         # a node to produce an output that is not in its own scope.
         current_scope = scoped_values[-1]
-        if output_name in current_scope:
-            value = current_scope[output_name]
-        else:
-            # 2. Common scenario: the graph is sorted and this is the first time we see the output.
-            # Create the value and add it to the current scope.
-            value = _core.Value(name=output_name)
-            current_scope[output_name] = value
-        # Fill in shape/type information if they exist
-        if output_name in value_info:
-            deserialize_value_info_proto(value_info[output_name], value)
-        else:
-            logger.debug(
-                "ValueInfoProto not found for output '%s' in node '%s' of type '%s'",
-                output_name,
-                proto.name,
-                proto.op_type,
-            )
-        if output_name in quantization_annotations:
-            _deserialize_quantization_annotation(quantization_annotations[output_name], value)
+        assert output_name in current_scope, (
+            f"Output '{output_name}' not found in the current scope. This is unexpected"
+        )
+        value = current_scope[output_name]
         node_outputs.append(value)
     return _core.Node(
         proto.domain,
@@ -1097,6 +1317,14 @@ def _deserialize_node(
 
 
 def serialize_model(model: _protocols.ModelProtocol) -> onnx.ModelProto:
+    """Serialize an IR Model to an ONNX ModelProto.
+
+    Args:
+        model: The IR Model to serialize.
+
+    Returns:
+        The serialized ONNX ModelProto object.
+    """
     return serialize_model_into(onnx.ModelProto(), from_=model)
 
 
@@ -1303,8 +1531,6 @@ def serialize_graph_into(
         serialize_value_into(graph_proto.input.add(), input_)
         if input_.name not in from_.initializers:
             # Annotations for initializers will be added below to avoid double adding
-            # TODO(justinchuby): We should add a method is_initializer() on Value when
-            # the initializer list is tracked
             _maybe_add_quantization_annotation(graph_proto, input_)
     input_names = {input_.name for input_ in from_.inputs}
     # TODO(justinchuby): Support sparse_initializer
@@ -1418,6 +1644,14 @@ def serialize_function_into(
 
 
 def serialize_node(node: _protocols.NodeProtocol) -> onnx.NodeProto:
+    """Serialize an IR Node to an ONNX NodeProto.
+
+    Args:
+        node: The IR Node to serialize.
+
+    Returns:
+        The serialized ONNX NodeProto object.
+    """
     node_proto = onnx.NodeProto()
     serialize_node_into(node_proto, from_=node)
     return node_proto
@@ -1472,6 +1706,14 @@ def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtoc
 
 
 def serialize_tensor(tensor: _protocols.TensorProtocol) -> onnx.TensorProto:
+    """Serialize an IR Tensor to an ONNX TensorProto.
+
+    Args:
+        tensor: The IR Tensor to serialize.
+
+    Returns:
+        The serialized ONNX TensorProto object.
+    """
     tensor_proto = onnx.TensorProto()
     serialize_tensor_into(tensor_proto, from_=tensor)
     return tensor_proto
@@ -1514,6 +1756,14 @@ def serialize_tensor_into(
 
 
 def serialize_attribute(attribute: _protocols.AttributeProtocol) -> onnx.AttributeProto:
+    """Serialize an IR Attribute to an ONNX AttributeProto.
+
+    Args:
+        attribute: The IR Attribute to serialize.
+
+    Returns:
+        The serialized ONNX AttributeProto object.
+    """
     attribute_proto = onnx.AttributeProto()
     serialize_attribute_into(attribute_proto, from_=attribute)
     return attribute_proto
@@ -1628,7 +1878,7 @@ def serialize_value(value: _protocols.ValueProtocol, *, name: str = "") -> onnx.
     return value_info_proto
 
 
-@_capture_errors(lambda value_info_proto, from_: repr(from_))
+@_capture_errors(lambda value_info_proto, from_, name="": repr(from_))
 def serialize_value_into(
     value_info_proto: onnx.ValueInfoProto,
     from_: _protocols.ValueProtocol,
@@ -1678,6 +1928,14 @@ def serialize_type_into(type_proto: onnx.TypeProto, from_: _protocols.TypeProtoc
 
 
 def serialize_type(type_protocol: _protocols.TypeProtocol) -> onnx.TypeProto:
+    """Serialize an IR Type to an ONNX TypeProto.
+
+    Args:
+        type_protocol: The IR Type to serialize.
+
+    Returns:
+        The serialized ONNX TypeProto object.
+    """
     type_proto = onnx.TypeProto()
     serialize_type_into(type_proto, from_=type_protocol)
     return type_proto

@@ -17,6 +17,12 @@ class DisplayTest(unittest.TestCase):
         with contextlib.redirect_stdout(None):
             tensor.display()
 
+    def test_display_graph(self):
+        graph = ir.Graph([], [], nodes=[ir.node("TestOp", inputs=[])], name="test_graph")
+
+        with contextlib.redirect_stdout(None):
+            graph.display()
+
 
 if __name__ == "__main__":
     unittest.main()

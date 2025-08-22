@@ -10,7 +10,7 @@ __all__ = [
 
 import logging
 
-import onnx
+import onnx  # noqa: TID251
 
 import onnx_ir as ir
 
