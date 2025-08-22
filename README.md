@@ -1,4 +1,4 @@
-# ONNX IR
+# <img src="docs/_static/logo-light.png" alt="ONNX IR" width="250"/>
 
 [![PyPI - Version](https://img.shields.io/pypi/v/onnx-ir.svg)](https://pypi.org/project/onnx-ir)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/onnx-ir.svg)](https://pypi.org/project/onnx-ir)
@@ -35,6 +35,10 @@ pip install git+https://github.com/onnx/ir-py.git
 - Speed: Performant graph manipulation, serialization/deserialization to Protobuf.
 - Pythonic and familiar APIs: Classes define Pythonic apis and still map to ONNX protobuf concepts in an intuitive way.
 - No protobuf dependency: The IR does not require protobuf once the model is converted to the IR representation, decoupling from the serialization format.
+
+## Concepts Diagram
+
+![Concepts Diagram](docs/resource/onnx-ir-entities.svg)
 
 ## Code Organization 🗺️
 
