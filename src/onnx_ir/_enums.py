@@ -77,7 +77,7 @@ class DataType(enum.IntEnum):
         if dtype in _NP_TYPE_TO_DATA_TYPE:
             return cls(_NP_TYPE_TO_DATA_TYPE[dtype])
 
-        if np.issubdtype(dtype, np.str_):
+        if np.issubdtype(dtype, np.str_) or np.issubdtype(dtype, np.bytes_):
             return DataType.STRING
 
         # Special cases for handling custom dtypes defined in ONNX (as of onnx 1.18)
