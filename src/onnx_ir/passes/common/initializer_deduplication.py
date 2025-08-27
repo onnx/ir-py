@@ -55,6 +55,14 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
     return False
 
 
+def _tobytes(val: ir.TensorProtocol):
+    # StringTensor does not support tobytes. Use 'string_data'
+    # instead.
+    if val.dtype.is_string():
+        return np.array(val.string_data()).tobytes()
+    return val.tobytes()
+
+
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
     """Remove duplicated initializer tensors from the main graph and all subgraphs.
 
@@ -86,14 +94,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 const_val = initializer.const_value
                 assert const_val is not None
 
-                # StringTensor does not support tobytes. Use 'string_data'
-                # instead.
-                if const_val.dtype.is_string():
-                    _bytes = np.array(const_val.string_data()).tobytes()
-                else:
-                    _bytes = const_val.tobytes()
-
-                key = (const_val.dtype, tuple(const_val.shape), _bytes)
+                key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
                 if key in initializers:
                     modified = True
                     initializer_to_keep = initializers[key]  # type: ignore[index]
@@ -152,7 +153,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                 key = (const_val.dtype, tensor_dims, tensor_digest)
 
                 if key in initializers:
-                    if initializers[key].const_value.tobytes() != const_val.tobytes():
+                    if _tobytes(initializers[key].const_value) != _tobytes(const_val):
                         logger.warning(
                             "Initializer deduplication failed: "
                             "hashes match but values differ with values %s and %s",
