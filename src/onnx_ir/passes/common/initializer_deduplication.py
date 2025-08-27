@@ -10,6 +10,8 @@ __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 import hashlib
 import logging
 
+import numpy as np
+
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
@@ -84,7 +86,14 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 const_val = initializer.const_value
                 assert const_val is not None
 
-                key = (const_val.dtype, tuple(const_val.shape), const_val.tobytes())
+                # StringTensor does not support tobytes. Use 'string_data'
+                # instead.
+                if const_val.dtype.is_string():
+                    _bytes = np.array(const_val.string_data()).tobytes()
+                else:
+                    _bytes = const_val.tobytes()
+
+                key = (const_val.dtype, tuple(const_val.shape), _bytes)
                 if key in initializers:
                     modified = True
                     initializer_to_keep = initializers[key]  # type: ignore[index]

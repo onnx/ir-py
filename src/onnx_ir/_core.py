@@ -837,6 +837,16 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
         return self._shape
 
     @property
+    def size(self) -> int:
+        """The number of elements in the tensor."""
+        return sum((len(string) for string in self.string_data()))
+
+    @property
+    def nbytes(self) -> int:
+        """The number of bytes in the tensor."""
+        return self.size
+
+    @property
     def raw(self) -> Sequence[bytes] | npt.NDArray[np.bytes_]:
         """Backing data of the tensor. Immutable."""
         return self._raw  # type: ignore[return-value]
