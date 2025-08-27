@@ -839,7 +839,7 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
     @property
     def size(self) -> int:
         """The number of elements in the tensor."""
-        return sum((len(string) for string in self.string_data()))
+        return sum(len(string) for string in self.string_data())
 
     @property
     def nbytes(self) -> int:
