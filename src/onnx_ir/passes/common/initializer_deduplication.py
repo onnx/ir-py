@@ -44,14 +44,6 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
             size_limit,
         )
         return True
-
-    if const_val.dtype == ir.DataType.STRING:
-        # Skip string initializers as they don't have a bytes representation
-        logger.warning(
-            "Skipped deduplication of string initializer '%s' (unsupported yet)",
-            initializer.name,
-        )
-        return True
     return False
 
 
