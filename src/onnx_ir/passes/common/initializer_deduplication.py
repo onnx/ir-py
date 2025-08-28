@@ -48,8 +48,18 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
 
 
 def _tobytes(val: ir.TensorProtocol):
-    # StringTensor does not support tobytes. Use 'string_data'
-    # instead.
+    """StringTensor does not support tobytes. Use 'string_data' instead.
+    However, 'string_data' yields a list of bytes which cannot be hashed, i.e.,
+    cannot be used to index into a dict. To generate keys for identifying
+    tensors in initializer deduplication the following converts the list of
+    bytes to an array of fixed-length strings which can be flattened into a
+    bytes-string. This, together with the tensor shape, is sufficient for
+    identifying tensors for deduplication, but it differs from the
+    representation used for serializing tensors (that is string_data) by adding
+    padding bytes so that each string occupies the same number of consecutive
+    bytes in the flattened .tobytes representation.
+    """
+
     if val.dtype.is_string():
         return np.array(val.string_data()).tobytes()
     return val.tobytes()
