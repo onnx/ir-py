@@ -131,6 +131,51 @@ class DataType(enum.IntEnum):
             raise TypeError(f"Bitwidth not available for ONNX data type: {self}")
         return _BITWIDTH_MAP[self]
 
+    @property
+    def min(self):
+        """Returns the minimum representable value for the ONNX data type.
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return ml_dtypes.iinfo(self.numpy()).min
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).min
+
+        raise TypeError(f"Minimum not available for ONNX data type: {self}")
+
+    @property
+    def max(self):
+        """Returns the maximum representable value for the ONNX data type.
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return ml_dtypes.iinfo(self.numpy()).max
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).max
+
+        raise TypeError(f"Maximum not available for ONNX data type: {self}")
+
+    @property
+    def resolution(self):
+        """Returns the representable resolution for the ONNX data type.
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return 1
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).resolution
+
+        raise TypeError(f"Resolution not available for ONNX data type: {self}")
+
     def numpy(self) -> np.dtype:
         """Returns the numpy dtype for the ONNX data type.
 
