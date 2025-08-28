@@ -86,6 +86,19 @@ class DeduplicateInitializersTest(unittest.TestCase):
         self.assertEqual(len(new_model.graph.initializers), 2)
 
 
+    def test_string_initializers_with_same_bytes_but_different_grouping_not_deduplicated(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"AB", "C"}, string[2] s2 = {"A", "BC"}> {
+            }
+            """
+        )
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 2)
+
+
     def test_initializers_with_different_dtypes_not_deduplicated(self):
         model = ir.from_onnx_text(
             """
