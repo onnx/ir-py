@@ -2506,5 +2506,6 @@ class StringTensorTest(unittest.TestCase):
         tensor = _core.StringTensor(data)
         self.assertEqual(tensor.nbytes, 3)
 
+
 if __name__ == "__main__":
     unittest.main()
