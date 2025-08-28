@@ -10,6 +10,8 @@ __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 import hashlib
 import logging
 
+import numpy as np
+
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
@@ -42,15 +44,25 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
             size_limit,
         )
         return True
-
-    if const_val.dtype == ir.DataType.STRING:
-        # Skip string initializers as they don't have a bytes representation
-        logger.warning(
-            "Skipped deduplication of string initializer '%s' (unsupported yet)",
-            initializer.name,
-        )
-        return True
     return False
+
+
+def _tobytes(val):
+    """StringTensor does not support tobytes. Use 'string_data' instead.
+
+    However, 'string_data' yields a list of bytes which cannot be hashed, i.e.,
+    cannot be used to index into a dict. To generate keys for identifying
+    tensors in initializer deduplication the following converts the list of
+    bytes to an array of fixed-length strings which can be flattened into a
+    bytes-string. This, together with the tensor shape, is sufficient for
+    identifying tensors for deduplication, but it differs from the
+    representation used for serializing tensors (that is string_data) by adding
+    padding bytes so that each string occupies the same number of consecutive
+    bytes in the flattened .tobytes representation.
+    """
+    if val.dtype.is_string():
+        return np.array(val.string_data()).tobytes()
+    return val.tobytes()
 
 
 class DeduplicateInitializersPass(ir.passes.InPlacePass):
@@ -84,7 +96,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 const_val = initializer.const_value
                 assert const_val is not None
 
-                key = (const_val.dtype, tuple(const_val.shape), const_val.tobytes())
+                key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
                 if key in initializers:
                     modified = True
                     initializer_to_keep = initializers[key]  # type: ignore[index]
@@ -143,7 +155,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                 key = (const_val.dtype, tensor_dims, tensor_digest)
 
                 if key in initializers:
-                    if initializers[key].const_value.tobytes() != const_val.tobytes():
+                    if _tobytes(initializers[key].const_value) != _tobytes(const_val):
                         logger.warning(
                             "Initializer deduplication failed: "
                             "hashes match but values differ with values %s and %s",

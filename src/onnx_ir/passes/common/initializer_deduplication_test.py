@@ -47,6 +47,19 @@ class DeduplicateInitializersTest(unittest.TestCase):
         add_node = new_model.graph[0]
         self.assertEqual(add_node.inputs[0], add_node.inputs[1])
 
+    def test_deduplicates_identical_string_initializers(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"A", "B"}, string[2] s2 = {"A", "B"}> {
+            }
+            """
+        )
+        self.assertEqual(len(model.graph.initializers), 2)
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 1)
+
     def test_initializers_with_different_shapes_not_deduplicated(self):
         model = ir.from_onnx_text(
             """
@@ -54,6 +67,30 @@ class DeduplicateInitializersTest(unittest.TestCase):
             agraph () => ()
             <float[2] w1 = {1.0, 2.0}, float[1,2] w2 = {1.0, 2.0}> {
                 sum = Add(w1, w2)
+            }
+            """
+        )
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 2)
+
+    def test_string_initializers_with_different_shapes_not_deduplicated(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"A", "B"}, string[1,2] s2 = {"A", "B"}> {
+            }
+            """
+        )
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 2)
+
+    def test_string_initializers_with_same_bytes_but_different_grouping_not_deduplicated(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"AB", "C"}, string[2] s2 = {"A", "BC"}> {
             }
             """
         )

@@ -2485,5 +2485,27 @@ class PackedTensorTest(unittest.TestCase):
         self.assertEqual(result.sum(), 10)  # 1+2+3+4 = 10
 
 
+class StringTensorTest(unittest.TestCase):
+    def test_nbytes(self):
+        data = np.array([b"A", b"BC", b"D"])
+        tensor = _core.StringTensor(data)
+        self.assertEqual(tensor.nbytes, 4)
+
+    def test_nbytes_2d(self):
+        data = np.array([[b"A", b"BC", b"D"], [b"EFG", b"H", b"I"]])
+        tensor = _core.StringTensor(data)
+        self.assertEqual(tensor.nbytes, 9)
+
+    def test_nbytes_empty(self):
+        data = np.array([])
+        tensor = _core.StringTensor(data)
+        self.assertEqual(tensor.nbytes, 0)
+
+    def test_nbytes_single(self):
+        data = np.array([b"ABC"])
+        tensor = _core.StringTensor(data)
+        self.assertEqual(tensor.nbytes, 3)
+
+
 if __name__ == "__main__":
     unittest.main()
