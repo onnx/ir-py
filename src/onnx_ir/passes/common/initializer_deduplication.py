@@ -47,8 +47,9 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
     return False
 
 
-def _tobytes(val: ir.TensorProtocol):
+def _tobytes(val):
     """StringTensor does not support tobytes. Use 'string_data' instead.
+
     However, 'string_data' yields a list of bytes which cannot be hashed, i.e.,
     cannot be used to index into a dict. To generate keys for identifying
     tensors in initializer deduplication the following converts the list of
@@ -59,7 +60,6 @@ def _tobytes(val: ir.TensorProtocol):
     padding bytes so that each string occupies the same number of consecutive
     bytes in the flattened .tobytes representation.
     """
-
     if val.dtype.is_string():
         return np.array(val.string_data()).tobytes()
     return val.tobytes()
