@@ -90,12 +90,13 @@ is_formatter = true
 
 [[linter]]
 code = 'EDITORCONFIG-CHECKER'
-include_patterns = ['**']
-exclude_patterns = [
-    '**/*.ipynb',
-    '**/*.onnx',
-    '**/*.pb'
+include_patterns = [
+    '**/*.md',
+    '**/*.txt',
+    '**/*.yml',
+    '**/*.rst',
 ]
+exclude_patterns = []
 command = [
     'python',
     '-m',
