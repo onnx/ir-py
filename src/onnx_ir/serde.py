@@ -1784,6 +1784,7 @@ def _fill_in_value_for_attribute(
 ) -> None:
     if type_ == _enums.AttributeType.INT:
         # value: int
+        # Cast bool to int, for example
         attribute_proto.i = int(value)
         attribute_proto.type = onnx.AttributeProto.INT
     elif type_ == _enums.AttributeType.FLOAT:
