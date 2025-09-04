@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import enum
+from typing import Any
 
 import ml_dtypes
 import numpy as np
@@ -130,6 +131,146 @@ class DataType(enum.IntEnum):
         if self not in _BITWIDTH_MAP:
             raise TypeError(f"Bitwidth not available for ONNX data type: {self}")
         return _BITWIDTH_MAP[self]
+
+    @property
+    def exponent_bitwidth(self) -> int:
+        """Returns the bit width of the exponent for floating-point types.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not supported.
+        """
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).nexp
+
+        raise TypeError(f"Exponent not available for ONNX data type: {self}")
+
+    @property
+    def mantissa_bitwidth(self) -> int:
+        """Returns the bit width of the mantissa for floating-point types.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not supported.
+        """
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).nmant
+
+        raise TypeError(f"Mantissa not available for ONNX data type: {self}")
+
+    @property
+    def eps(self) -> int | np.floating[Any]:
+        """Returns the difference between 1.0 and the next smallest representable float larger than 1.0 for the ONNX data type.
+
+        Returns 1 for integers.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return 1
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).eps
+
+        raise TypeError(f"Eps not available for ONNX data type: {self}")
+
+    @property
+    def tiny(self) -> int | np.floating[Any]:
+        """Returns the smallest positive non-zero value for the ONNX data type.
+
+        Returns 1 for integers.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return 1
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).tiny
+
+        raise TypeError(f"Tiny not available for ONNX data type: {self}")
+
+    @property
+    def min(self) -> int | np.floating[Any]:
+        """Returns the minimum representable value for the ONNX data type.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return ml_dtypes.iinfo(self.numpy()).min
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).min
+
+        raise TypeError(f"Minimum not available for ONNX data type: {self}")
+
+    @property
+    def max(self) -> int | np.floating[Any]:
+        """Returns the maximum representable value for the ONNX data type.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return ml_dtypes.iinfo(self.numpy()).max
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).max
+
+        raise TypeError(f"Maximum not available for ONNX data type: {self}")
+
+    @property
+    def precision(self) -> int:
+        """Returns the precision for the ONNX dtype if supported.
+
+        For floats returns the approximate number of decimal digits to which
+        this kind of float is precise. Returns 0 for integers.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return 0
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).precision
+
+        raise TypeError(f"Precision not available for ONNX data type: {self}")
+
+    @property
+    def resolution(self) -> int | np.floating[Any]:
+        """Returns the resolution for the ONNX dtype if supported.
+
+        Returns the approximate decimal resolution of this type, i.e.,
+         10**-precision. Returns 1 for integers.
+
+        .. versionadded:: 0.1.8
+
+        Raises:
+            TypeError: If the data type is not a numeric data type.
+        """
+        if self.is_integer():
+            return 1
+
+        if self.is_floating_point():
+            return ml_dtypes.finfo(self.numpy()).resolution
+
+        raise TypeError(f"Resolution not available for ONNX data type: {self}")
 
     def numpy(self) -> np.dtype:
         """Returns the numpy dtype for the ONNX data type.
