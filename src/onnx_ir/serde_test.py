@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import itertools
 import unittest
+import warnings
 
 import google.protobuf.text_format
 import ml_dtypes
@@ -529,6 +530,33 @@ class DeserializeGraphTest(unittest.TestCase):
         self.assertEqual(
             [n.name for n in deserialized_model.graph], ["b_producer", "node_with_subgraph"]
         )
+
+
+class SerializationTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("float", ir.AttributeType.FLOAT, 1.5, 1.5),
+            ("int_as_float", ir.AttributeType.FLOAT, 1, 1.0),
+            ("int", ir.AttributeType.INT, 42, 42),
+            ("bool", ir.AttributeType.INT, True, 1),
+            ("ints", ir.AttributeType.INTS, [1, 2, 3], [1, 2, 3]),
+            ("floats", ir.AttributeType.FLOATS, [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]),
+            ("string", ir.AttributeType.STRING, "test_string", "test_string"),
+        ]
+    )
+    def test_serialize_attribute(self, _: str, typ: ir.AttributeType, value, expected):
+        attr = ir.Attr("test_attr", typ, value)
+        with warnings.catch_warnings(record=True) as w:
+            # Ensure all warnings are caught, not just the default ones
+            warnings.simplefilter("always")
+            attr_proto = serde.serialize_attribute(attr)
+            self.assertEqual(
+                len(w), 0, f"Unexpected warnings: {[str(warn.message) for warn in w]}"
+            )
+        deserialized_attr = serde.deserialize_attribute(attr_proto)
+        self.assertEqual(deserialized_attr.name, attr.name)
+        self.assertEqual(deserialized_attr.type, attr.type)
+        self.assertEqual(deserialized_attr.value, expected)
 
 
 class QuantizationAnnotationTest(unittest.TestCase):
