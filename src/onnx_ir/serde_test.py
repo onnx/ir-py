@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import itertools
 import unittest
+import warnings
 
 import google.protobuf.text_format
 import ml_dtypes
@@ -545,7 +546,13 @@ class SerializationTest(unittest.TestCase):
     )
     def test_serialize_attribute(self, _: str, typ: ir.AttributeType, value, expected):
         attr = ir.Attr("test_attr", typ, value)
-        attr_proto = serde.serialize_attribute(attr)
+        with warnings.catch_warnings(record=True) as w:
+            # Ensure all warnings are caught, not just the default ones
+            warnings.simplefilter("always")
+            attr_proto = serde.serialize_attribute(attr)
+            self.assertEqual(
+                len(w), 0, f"Unexpected warnings: {[str(warn.message) for warn in w]}"
+            )
         deserialized_attr = serde.deserialize_attribute(attr_proto)
         self.assertEqual(deserialized_attr.name, attr.name)
         self.assertEqual(deserialized_attr.type, attr.type)
