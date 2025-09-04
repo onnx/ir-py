@@ -134,7 +134,7 @@ class DataType(enum.IntEnum):
 
     @property
     def exponent_bitwidth(self) -> int:
-        """Returns the bit width of the exponent for floating-point types
+        """Returns the bit width of the exponent for floating-point types.
 
         Raises:
             TypeError: If the data type is not supported.
@@ -146,7 +146,7 @@ class DataType(enum.IntEnum):
 
     @property
     def mantissa_bitwidth(self) -> int:
-        """Returns the bit width of the mantissa for floating-point types
+        """Returns the bit width of the mantissa for floating-point types.
 
         Raises:
             TypeError: If the data type is not supported.
@@ -158,10 +158,9 @@ class DataType(enum.IntEnum):
 
     @property
     def eps(self) -> int | np.floating[Any]:
-        """Returns the difference between 1.0 and the next smallest
-         representable float larger than 1.0 for the ONNX data type.
+        """Returns the difference between 1.0 and the next smallest representable float larger than 1.0 for the ONNX data type.
 
-         Returns 1 for integers.
+        Returns 1 for integers.
 
         Raises:
             TypeError: If the data type is not a numeric data type.
@@ -223,10 +222,10 @@ class DataType(enum.IntEnum):
 
     @property
     def precision(self) -> int:
-        """The approximate number of decimal digits to which this kind of float
-         is precise for the ONNX data type.
+        """Returns the precision for the ONNX dtype if supported.
 
-        Returns 0 for integers.
+        For floats returns the approximate number of decimal digits to which
+        this kind of float is precise. Returns 0 for integers.
 
         Raises:
             TypeError: If the data type is not a numeric data type.
@@ -241,10 +240,10 @@ class DataType(enum.IntEnum):
 
     @property
     def resolution(self) -> int | np.floating[Any]:
-        """Returns the approximate decimal resolution of this type, i.e.,
-         10**-precision, for the ONNX data type.
+        """Returns the resolution for the ONNX dtype if supported.
 
-        Returns 1 for integers.
+        Returns the approximate decimal resolution of this type, i.e.,
+         10**-precision. Returns 1 for integers.
 
         Raises:
             TypeError: If the data type is not a numeric data type.
