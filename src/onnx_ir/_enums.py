@@ -136,6 +136,8 @@ class DataType(enum.IntEnum):
     def exponent_bitwidth(self) -> int:
         """Returns the bit width of the exponent for floating-point types.
 
+        .. versionadded:: 0.1.8
+
         Raises:
             TypeError: If the data type is not supported.
         """
@@ -147,6 +149,8 @@ class DataType(enum.IntEnum):
     @property
     def mantissa_bitwidth(self) -> int:
         """Returns the bit width of the mantissa for floating-point types.
+
+        .. versionadded:: 0.1.8
 
         Raises:
             TypeError: If the data type is not supported.
@@ -161,6 +165,8 @@ class DataType(enum.IntEnum):
         """Returns the difference between 1.0 and the next smallest representable float larger than 1.0 for the ONNX data type.
 
         Returns 1 for integers.
+
+        .. versionadded:: 0.1.8
 
         Raises:
             TypeError: If the data type is not a numeric data type.
@@ -179,6 +185,8 @@ class DataType(enum.IntEnum):
 
         Returns 1 for integers.
 
+        .. versionadded:: 0.1.8
+
         Raises:
             TypeError: If the data type is not a numeric data type.
         """
@@ -194,6 +202,8 @@ class DataType(enum.IntEnum):
     def min(self) -> int | np.floating[Any]:
         """Returns the minimum representable value for the ONNX data type.
 
+        .. versionadded:: 0.1.8
+
         Raises:
             TypeError: If the data type is not a numeric data type.
         """
@@ -208,6 +218,8 @@ class DataType(enum.IntEnum):
     @property
     def max(self) -> int | np.floating[Any]:
         """Returns the maximum representable value for the ONNX data type.
+
+        .. versionadded:: 0.1.8
 
         Raises:
             TypeError: If the data type is not a numeric data type.
@@ -227,6 +239,8 @@ class DataType(enum.IntEnum):
         For floats returns the approximate number of decimal digits to which
         this kind of float is precise. Returns 0 for integers.
 
+        .. versionadded:: 0.1.8
+
         Raises:
             TypeError: If the data type is not a numeric data type.
         """
@@ -244,6 +258,8 @@ class DataType(enum.IntEnum):
 
         Returns the approximate decimal resolution of this type, i.e.,
          10**-precision. Returns 1 for integers.
+
+        .. versionadded:: 0.1.8
 
         Raises:
             TypeError: If the data type is not a numeric data type.
