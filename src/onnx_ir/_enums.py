@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import enum
+from typing import Any
 
 import ml_dtypes
 import numpy as np
@@ -132,7 +133,7 @@ class DataType(enum.IntEnum):
         return _BITWIDTH_MAP[self]
 
     @property
-    def min(self):
+    def min(self) -> int | np.floating[Any]:
         """Returns the minimum representable value for the ONNX data type.
 
         Raises:
@@ -147,7 +148,7 @@ class DataType(enum.IntEnum):
         raise TypeError(f"Minimum not available for ONNX data type: {self}")
 
     @property
-    def max(self):
+    def max(self) -> int | np.floating[Any]:
         """Returns the maximum representable value for the ONNX data type.
 
         Raises:
@@ -162,7 +163,7 @@ class DataType(enum.IntEnum):
         raise TypeError(f"Maximum not available for ONNX data type: {self}")
 
     @property
-    def resolution(self):
+    def resolution(self) -> int | np.floating[Any]:
         """Returns the representable resolution for the ONNX data type.
 
         Raises:
