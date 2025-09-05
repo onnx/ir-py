@@ -45,6 +45,8 @@ from typing import (
 
 import ml_dtypes
 import numpy as np
+import sympy
+import sympy.utilities.misc
 from typing_extensions import TypeIs
 
 import onnx_ir
@@ -1116,13 +1118,14 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
     It is immutable and can be compared or hashed.
     """
 
-    __slots__ = ("_value",)
+    __slots__ = ("_expr", "_value")
 
-    def __init__(self, value: str | None) -> None:
+    def __init__(self, value: str | None, /, expr: sympy.Expr | None = None) -> None:
         """Initialize a symbolic dimension.
 
         Args:
             value: The value of the dimension. It should not be an int.
+            expr: An optional sympy expression representing the dimension.
 
         Raises:
             TypeError: If value is an int.
@@ -1133,6 +1136,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
                 "If you are creating a Shape, use int directly instead of SymbolicDim."
             )
         self._value = value
+        self._expr: sympy.Expr | None = expr
 
     def __eq__(self, other: object) -> bool:
         """Check equality with another SymbolicDim or string/None."""
@@ -1149,11 +1153,24 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         """The value of the symbolic dimension (string or None)."""
         return self._value
 
+    @property
+    def expr(self) -> sympy.Expr | None:
+        """The sympy expression representing the symbolic dimension."""
+        return self._expr
+
     def __str__(self) -> str:
-        return f"{self._value}"
+        if self._value is not None:
+            return str(self._value)
+        if self._expr is not None:
+            return str(self._expr)
+        return "?"
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self._value})"
+        if self._expr is not None:
+            expr_text = f", expr={self._expr!r}"
+        else:
+            expr_text = ""
+        return f"{self.__class__.__name__}({self._value}{expr_text})"
 
 
 def _is_int_compatible(value: object) -> TypeIs[SupportsInt]:
@@ -1191,10 +1208,16 @@ def _maybe_convert_to_symbolic_dim(
         return SymbolicDim(dim)
     if _is_int_compatible(dim):
         return int(dim)
+    if isinstance(dim, sympy.Expr):
+        # If the dimension is a sympy expression, we create a SymbolicDim with it
+        expr = sympy.sympify(dim)
+        if expr.is_integer:
+            return sympy.utilities.misc.as_int(expr)
+        return SymbolicDim(str(expr), expr=sympy.sympify(expr))
     if isinstance(dim, SymbolicDim):
         return dim
     raise TypeError(
-        f"Expected int, str, None or SymbolicDim, but value {dim!r} has type '{type(dim)}'"
+        f"Expected int, str, sympy.Expr, None or SymbolicDim, but value {dim!r} has type '{type(dim)}'"
     )
 
 
@@ -1335,7 +1358,9 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
     def __getitem__(self, index):
         return tuple(self._dims)[index]
 
-    def __setitem__(self, index: int, value: int | SymbolicDim | str | None) -> None:
+    def __setitem__(
+        self, index: int, value: int | SymbolicDim | str | sympy.Expr | None
+    ) -> None:
         """Set the dimension at the index.
 
         Args:
