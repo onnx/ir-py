@@ -357,7 +357,10 @@ class DataType(enum.IntEnum):
         }
 
     def is_string(self) -> bool:
-        """Returns True if the data type is a string type."""
+        """Returns True if the data type is a string type.
+
+        .. versionadded:: 0.1.8
+        """
         return self == DataType.STRING
 
     def __repr__(self) -> str:
