@@ -269,7 +269,7 @@ def value(
         return _core.Value(
             name=name,
             type=const_tensor_type,
-            shape=_core.Shape(const_value.shape),
+            shape=_core.Shape(const_value.shape),  # type: ignore
             const_value=const_value,
         )
 
