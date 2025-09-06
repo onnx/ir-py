@@ -3402,7 +3402,11 @@ class Attr(
         # This also allows errors to be raised at the time of construction instead of later
         # during serialization.
         # TODO(justinchuby): Use case matching when we drop support for Python 3.9
-        if type == _enums.AttributeType.INT:
+        if value is None:
+            # Value can be None for reference attributes or when it is used as a
+            # placeholder for schemas
+            pass
+        elif type == _enums.AttributeType.INT:
             value = int(value)
         elif type == _enums.AttributeType.FLOAT:
             value = float(value)
