@@ -215,3 +215,30 @@ def node(
         doc_string=doc_string,
         metadata_props=metadata_props,
     )
+
+
+def value(
+    name: str,
+    type: ir.Type,
+    doc_string: str | None = None,
+) -> ir.Value:
+    """Create a Value with the given name and type.
+
+    Example::
+
+        >>> import onnx_ir as ir
+        >>> t = ir.value("X", ir.TensorType(ir.DataType.FLOAT, shape=ir.Shape([1, 2, 3])))
+        >>> t.name
+        'X'
+        >>> t.type
+        TensorType<FLOAT,[1, 2, 3]>
+
+    Args:
+        name: The name of the value.
+        type: The type of the value.
+        doc_string: The documentation string of the value.
+
+    Returns:
+        A value with the given name and type.
+    """
+    return _core.Value(name=name, type=type, doc_string=doc_string)
