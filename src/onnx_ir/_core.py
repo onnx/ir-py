@@ -3403,6 +3403,10 @@ class Attr(
             value = int(value)
         elif type == _enums.AttributeType.FLOAT:
             value = float(value)
+        elif type == _enums.AttributeType.INTS:
+            value = tuple(int(v) for v in value)
+        elif type == _enums.AttributeType.FLOATS:
+            value = tuple(float(v) for v in value)
 
         self._name = name
         self._type = type
@@ -3479,8 +3483,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type FLOAT. Actual type: {self.type}"
             )
-        # Do not use isinstance check because it may prevent np.float32 etc. from being used
-        return float(self.value)
+        # value is guaranteed to be a float in the constructor
+        return self.value
 
     def as_int(self) -> int:
         """Get the attribute value as an int."""
@@ -3488,8 +3492,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type INT. Actual type: {self.type}"
             )
-        # Do not use isinstance check because it may prevent np.int32 etc. from being used
-        return int(self.value)
+        # value is guaranteed to be an int in the constructor
+        return self.value
 
     def as_string(self) -> str:
         """Get the attribute value as a string."""
@@ -3529,9 +3533,8 @@ class Attr(
             )
         if not isinstance(self.value, Sequence):
             raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
-        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
-        # Create a copy of the list to prevent mutation
-        return [float(v) for v in self.value]
+        # value is guaranteed to be a sequence of float in the constructor
+        return self.value
 
     def as_ints(self) -> Sequence[int]:
         """Get the attribute value as a sequence of ints."""
@@ -3541,9 +3544,8 @@ class Attr(
             )
         if not isinstance(self.value, Sequence):
             raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
-        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
-        # Create a copy of the list to prevent mutation
-        return list(self.value)
+        # value is guaranteed to be a sequence of int in the constructor
+        return self.value
 
     def as_strings(self) -> Sequence[str]:
         """Get the attribute value as a sequence of strings."""
