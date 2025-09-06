@@ -223,7 +223,7 @@ def value(
     shape: ir.Shape | Sequence[int | str | None] | None = None,
     *,
     type: ir.TypeProtocol | None = None,
-    const_value: ir.Tensor | None = None,
+    const_value: ir.TensorProtocol | None = None,
 ) -> ir.Value:
     """Create a Value with the given name and type.
 
