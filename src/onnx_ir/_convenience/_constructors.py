@@ -25,7 +25,7 @@ if typing.TYPE_CHECKING:
 
 def tensor(
     value: npt.ArrayLike | onnx.TensorProto | ir.DLPackCompatible | ir.ArrayCompatible,
-    dtype: _enums.DataType | None = None,
+    dtype: ir.DataType | None = None,
     name: str | None = None,
     doc_string: str | None = None,
 ) -> _protocols.TensorProtocol:
@@ -219,26 +219,61 @@ def node(
 
 def value(
     name: str,
-    type: ir.Type,
-    doc_string: str | None = None,
+    dtype: ir.DataType | None = None,
+    shape: ir.Shape | Sequence[int | str | None] | None = None,
+    *,
+    type: ir.TypeProtocol | None = None,
+    const_value: ir.Tensor | None = None,
 ) -> ir.Value:
     """Create a Value with the given name and type.
 
     Example::
 
         >>> import onnx_ir as ir
-        >>> t = ir.value("X", ir.TensorType(ir.DataType.FLOAT, shape=ir.Shape([1, 2, 3])))
+        >>> t = ir.value("x", ir.DataType.FLOAT, ["N", 42, 3])
         >>> t.name
-        'X'
+        'x'
         >>> t.type
-        TensorType<FLOAT,[1, 2, 3]>
+        TensorType(FLOAT)
+        >>> t.shape
+        Shape(['N', 42, 3])
 
     Args:
         name: The name of the value.
-        type: The type of the value.
-        doc_string: The documentation string of the value.
+        dtype: The data type of the TensorType of the value. This is used only when type is None.
+        shape: The shape of the value.
+        type: The type of the value. Only one of dtype and type can be specified.
+        const_value: The constant tensor that initializes the value. Supply this argument
+            when you want to create an initializer. The type and shape can be obtained from the tensor.
 
     Returns:
         A value with the given name and type.
     """
-    return _core.Value(name=name, type=type, doc_string=doc_string)
+    if const_value is not None:
+        if type is not None and type != _core.TensorType(const_value.dtype):
+            raise ValueError(
+                f"The type does not match the const_value. type={type} but const_value has type {_core.TensorType(const_value.dtype)}. "
+                "You do not have to specify the type when const_value is provided."
+            )
+        if dtype is not None and dtype != const_value.dtype:
+            raise ValueError(
+                f"The dtype does not match the const_value. dtype={dtype} but const_value has dtype {const_value.dtype}. "
+                "You do not have to specify the dtype when const_value is provided."
+            )
+        if shape is not None and _core.Shape(shape) != const_value.shape:
+            raise ValueError(
+                f"The shape does not match the const_value. shape={shape} but const_value has shape {const_value.shape}. "
+                "You do not have to specify the shape when const_value is provided."
+            )
+        return _core.Value(
+            name=name,
+            type=_core.TensorType(const_value.dtype),
+            shape=_core.Shape(const_value.shape),
+            const_value=const_value,
+        )
+
+    if type is None and dtype is not None:
+        type = _core.TensorType(dtype)
+    if shape is not None and not isinstance(shape, _core.Shape):
+        shape = _core.Shape(shape)
+    return _core.Value(name=name, type=type, shape=shape)
