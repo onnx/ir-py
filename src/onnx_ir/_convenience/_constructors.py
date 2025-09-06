@@ -236,7 +236,7 @@ def value(
         >>> t.type
         Tensor(FLOAT)
         >>> t.shape
-        Shape(['N', 42, 3])
+        Shape([SymbolicDim(N), 42, 3])
 
     Args:
         name: The name of the value.
