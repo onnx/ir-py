@@ -3397,6 +3397,13 @@ class Attr(
         *,
         doc_string: str | None = None,
     ) -> None:
+        # Quick checks to ensure that INT and FLOAT attributes are stored as int and float,
+        # not np.int32, np.float32, bool, etc.
+        if type == _enums.AttributeType.INT:
+            value = int(value)
+        elif type == _enums.AttributeType.FLOAT:
+            value = float(value)
+
         self._name = name
         self._type = type
         self._value = value
@@ -3605,7 +3612,7 @@ def RefAttr(
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float, doc_string: str | None = None) -> Attr:
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -3616,7 +3623,7 @@ def AttrFloat32(name: str, value: float, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrInt64(name: str, value: int, doc_string: str | None = None) -> Attr:
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
