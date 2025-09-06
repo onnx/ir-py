@@ -250,9 +250,10 @@ def value(
         A value with the given name and type.
     """
     if const_value is not None:
-        if type is not None and type != _core.TensorType(const_value.dtype):
+        const_tensor_type = _core.TensorType(const_value.dtype)
+        if type is not None and type != const_tensor_type:
             raise ValueError(
-                f"The type does not match the const_value. type={type} but const_value has type {_core.TensorType(const_value.dtype)}. "
+                f"The type does not match the const_value. type={type} but const_value has type {const_tensor_type}. "
                 "You do not have to specify the type when const_value is provided."
             )
         if dtype is not None and dtype != const_value.dtype:
@@ -267,7 +268,7 @@ def value(
             )
         return _core.Value(
             name=name,
-            type=_core.TensorType(const_value.dtype),
+            type=const_tensor_type,
             shape=_core.Shape(const_value.shape),
             const_value=const_value,
         )
