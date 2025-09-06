@@ -3399,6 +3399,8 @@ class Attr(
     ) -> None:
         # Quick checks to ensure that INT and FLOAT attributes are stored as int and float,
         # not np.int32, np.float32, bool, etc.
+        # This also allows errors to be raised at the time of construction instead of later
+        # during serialization.
         if type == _enums.AttributeType.INT:
             value = int(value)
         elif type == _enums.AttributeType.FLOAT:
