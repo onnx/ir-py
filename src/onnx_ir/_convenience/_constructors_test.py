@@ -28,10 +28,11 @@ class ConstructorsTest(unittest.TestCase):
 
 
 class ValueConstructorTest(unittest.TestCase):
-    def test_value_basic_creation(self):
-        value = _constructors.value("x")
+    def test_value_minimal_creation(self):
+        """Test creating a value with just a name."""
+        value = _constructors.value("minimal")
 
-        self.assertEqual(value.name, "x")
+        self.assertEqual(value.name, "minimal")
         self.assertIsNone(value.type)
         self.assertIsNone(value.shape)
         self.assertIsNone(value.const_value)
@@ -62,15 +63,6 @@ class ValueConstructorTest(unittest.TestCase):
         self.assertEqual(value.type, ir.TensorType(ir.DataType.FLOAT))
         self.assertEqual(value.shape, ir.Shape([3]))
         self.assertEqual(value.const_value, const_tensor)
-
-    def test_value_minimal_creation(self):
-        """Test creating a value with just a name."""
-        value = _constructors.value("minimal")
-
-        self.assertEqual(value.name, "minimal")
-        self.assertIsNone(value.type)
-        self.assertIsNone(value.shape)
-        self.assertIsNone(value.const_value)
 
     def test_value_creation_with_dtype_only(self):
         """Test value creation with only dtype specified."""
