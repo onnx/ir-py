@@ -234,7 +234,7 @@ def value(
         >>> t.name
         'x'
         >>> t.type
-        TensorType(FLOAT)
+        Tensor(FLOAT)
         >>> t.shape
         Shape(['N', 42, 3])
 
