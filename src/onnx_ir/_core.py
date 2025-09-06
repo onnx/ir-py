@@ -3401,6 +3401,7 @@ class Attr(
         # not np.int32, np.float32, bool, etc.
         # This also allows errors to be raised at the time of construction instead of later
         # during serialization.
+        # TODO(justinchuby): Use case matching when we drop support for Python 3.9
         if type == _enums.AttributeType.INT:
             value = int(value)
         elif type == _enums.AttributeType.FLOAT:
