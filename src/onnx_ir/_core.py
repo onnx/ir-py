@@ -3397,6 +3397,24 @@ class Attr(
         *,
         doc_string: str | None = None,
     ) -> None:
+        # Quick checks to ensure that INT and FLOAT attributes are stored as int and float,
+        # not np.int32, np.float32, bool, etc.
+        # This also allows errors to be raised at the time of construction instead of later
+        # during serialization.
+        # TODO(justinchuby): Use case matching when we drop support for Python 3.9
+        if value is None:
+            # Value can be None for reference attributes or when it is used as a
+            # placeholder for schemas
+            pass
+        elif type == _enums.AttributeType.INT:
+            value = int(value)
+        elif type == _enums.AttributeType.FLOAT:
+            value = float(value)
+        elif type == _enums.AttributeType.INTS:
+            value = tuple(int(v) for v in value)
+        elif type == _enums.AttributeType.FLOATS:
+            value = tuple(float(v) for v in value)
+
         self._name = name
         self._type = type
         self._value = value
@@ -3472,8 +3490,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type FLOAT. Actual type: {self.type}"
             )
-        # Do not use isinstance check because it may prevent np.float32 etc. from being used
-        return float(self.value)
+        # value is guaranteed to be a float in the constructor
+        return self.value
 
     def as_int(self) -> int:
         """Get the attribute value as an int."""
@@ -3481,8 +3499,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type INT. Actual type: {self.type}"
             )
-        # Do not use isinstance check because it may prevent np.int32 etc. from being used
-        return int(self.value)
+        # value is guaranteed to be an int in the constructor
+        return self.value
 
     def as_string(self) -> str:
         """Get the attribute value as a string."""
@@ -3522,9 +3540,8 @@ class Attr(
             )
         if not isinstance(self.value, Sequence):
             raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
-        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
-        # Create a copy of the list to prevent mutation
-        return [float(v) for v in self.value]
+        # value is guaranteed to be a sequence of float in the constructor
+        return self.value
 
     def as_ints(self) -> Sequence[int]:
         """Get the attribute value as a sequence of ints."""
@@ -3534,9 +3551,8 @@ class Attr(
             )
         if not isinstance(self.value, Sequence):
             raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
-        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
-        # Create a copy of the list to prevent mutation
-        return list(self.value)
+        # value is guaranteed to be a sequence of int in the constructor
+        return self.value
 
     def as_strings(self) -> Sequence[str]:
         """Get the attribute value as a sequence of strings."""
@@ -3605,7 +3621,7 @@ def RefAttr(
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float, doc_string: str | None = None) -> Attr:
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -3616,7 +3632,7 @@ def AttrFloat32(name: str, value: float, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrInt64(name: str, value: int, doc_string: str | None = None) -> Attr:
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(

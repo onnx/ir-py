@@ -950,7 +950,7 @@ class NodeTest(unittest.TestCase):
             inputs=(),
             attributes=[_core.AttrInt64s("test_attr", [1, 2, 3])],
         )
-        self.assertEqual(node.attributes.get_ints("test_attr"), [1, 2, 3])
+        self.assertEqual(node.attributes.get_ints("test_attr"), (1, 2, 3))
         self.assertIsNone(node.attributes.get_ints("non_existent_attr"))
         self.assertEqual(node.attributes.get_ints("non_existent_attr", [42]), [42])
 
@@ -961,7 +961,7 @@ class NodeTest(unittest.TestCase):
             inputs=(),
             attributes=[_core.AttrFloat32s("test_attr", [1.0, 2.0, 3.0])],
         )
-        self.assertEqual(node.attributes.get_floats("test_attr"), [1.0, 2.0, 3.0])
+        self.assertEqual(node.attributes.get_floats("test_attr"), (1.0, 2.0, 3.0))
         self.assertIsNone(node.attributes.get_floats("non_existent_attr"))
         self.assertEqual(node.attributes.get_floats("non_existent_attr", [42.0]), [42.0])
 
@@ -1971,11 +1971,11 @@ class AttrTest(unittest.TestCase):
 
     def test_as_floats(self):
         attr = _core.Attr("test", ir.AttributeType.FLOATS, [42.0])
-        self.assertEqual(attr.as_floats(), [42.0])
+        self.assertEqual(tuple(attr.as_floats()), (42.0,))
 
     def test_as_ints(self):
         attr = _core.Attr("test", ir.AttributeType.INTS, [42])
-        self.assertEqual(attr.as_ints(), [42])
+        self.assertEqual(tuple(attr.as_ints()), (42,))
 
     def test_as_strings(self):
         attr = _core.Attr("test", ir.AttributeType.STRINGS, ["test string", ""])

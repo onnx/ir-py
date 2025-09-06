@@ -539,8 +539,9 @@ class SerializationTest(unittest.TestCase):
             ("int_as_float", ir.AttributeType.FLOAT, 1, 1.0),
             ("int", ir.AttributeType.INT, 42, 42),
             ("bool", ir.AttributeType.INT, True, 1),
-            ("ints", ir.AttributeType.INTS, [1, 2, 3], [1, 2, 3]),
-            ("floats", ir.AttributeType.FLOATS, [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]),
+            ("ints", ir.AttributeType.INTS, [1, 2, 3], (1, 2, 3)),
+            ("floats", ir.AttributeType.FLOATS, [1.0, 2.0, 3.0], (1.0, 2.0, 3.0)),
+            ("bools", ir.AttributeType.INTS, [True, False], (1, 0)),
             ("string", ir.AttributeType.STRING, "test_string", "test_string"),
         ]
     )
