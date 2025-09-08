@@ -1143,7 +1143,15 @@ def _deserialize_attribute(
     if type_ == _enums.AttributeType.FLOAT:
         return _core.AttrFloat32(name, proto.f, doc_string=doc_string)
     if type_ == _enums.AttributeType.STRING:
-        return _core.AttrString(name, proto.s.decode("utf-8"), doc_string=doc_string)
+        try:
+            string = proto.s.decode("utf-8")
+        except UnicodeDecodeError:
+            string = proto.s
+            logger.warning(
+                "Attribute '%s' contains invalid UTF-8 bytes.",
+                name,
+            )
+        return _core.AttrString(name, proto.s, doc_string=doc_string)
     if type_ == _enums.AttributeType.INTS:
         return _core.AttrInt64s(name, proto.ints, doc_string=doc_string)
     if type_ == _enums.AttributeType.FLOATS:
@@ -1792,7 +1800,10 @@ def _fill_in_value_for_attribute(
         attribute_proto.type = onnx.AttributeProto.FLOAT
     elif type_ == _enums.AttributeType.STRING:
         # value: str
-        attribute_proto.s = value.encode("utf-8")
+        if type(value) is str:
+            attribute_proto.s = value.encode("utf-8")
+        else:
+            attribute_proto.s = value
         attribute_proto.type = onnx.AttributeProto.STRING
     elif type_ == _enums.AttributeType.INTS:
         # value: Sequence[int]
