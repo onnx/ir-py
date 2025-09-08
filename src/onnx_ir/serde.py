@@ -1144,14 +1144,15 @@ def _deserialize_attribute(
         return _core.AttrFloat32(name, proto.f, doc_string=doc_string)
     if type_ == _enums.AttributeType.STRING:
         try:
-            string = proto.s.decode("utf-8")
+            return _core.AttrString(name, proto.s.decode("utf-8"), doc_string=doc_string)
         except UnicodeDecodeError:
-            string = proto.s
             logger.warning(
-                "Attribute '%s' contains invalid UTF-8 bytes.",
+                "Attribute '%s' contains invalid UTF-8 bytes. ONNX spec requires string attributes "
+                "to be UTF-8 encoded so the model is invalid. We will skip decoding the attribute and "
+                "use the bytes as attribute value",
                 name,
             )
-        return _core.AttrString(name, proto.s, doc_string=doc_string)
+
     if type_ == _enums.AttributeType.INTS:
         return _core.AttrInt64s(name, proto.ints, doc_string=doc_string)
     if type_ == _enums.AttributeType.FLOATS:
