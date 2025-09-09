@@ -3417,6 +3417,7 @@ class Attr(
         elif type in {
             _enums.AttributeType.STRINGS,
             _enums.AttributeType.TENSORS,
+            _enums.AttributeType.GRAPHS,
             _enums.AttributeType.TYPE_PROTOS,
         }:
             value = tuple(value)
