@@ -167,8 +167,8 @@ def node(
     Example::
 
         >>> import onnx_ir as ir
-        >>> input_a = ir.Input("A", shape=ir.Shape([1, 2]), type=ir.TensorType(ir.DataType.INT32))
-        >>> input_b = ir.Input("B", shape=ir.Shape([1, 2]), type=ir.TensorType(ir.DataType.INT32))
+        >>> input_a = ir.val("A", shape=[1, 2], type=ir.TensorType(ir.DataType.INT32))
+        >>> input_b = ir.val("B", shape=[1, 2], type=ir.TensorType(ir.DataType.INT32))
         >>> node = ir.node(
         ...     "SomeOp",
         ...     inputs=[input_a, input_b],
@@ -218,7 +218,7 @@ def node(
 
 
 def val(
-    name: str,
+    name: str | None,
     dtype: ir.DataType | None = None,
     shape: ir.Shape | Sequence[int | str | None] | None = None,
     *,
@@ -255,7 +255,7 @@ def val(
             when you want to create an initializer. The type and shape can be obtained from the tensor.
 
     Returns:
-        A value with the given name and type.
+        A Value object.
     """
     if const_value is not None:
         const_tensor_type = _core.TensorType(const_value.dtype)

@@ -711,7 +711,7 @@ def _deserialize_graph(
 
     # Create values for initializers and inputs
     initializer_tensors = [deserialize_tensor(tensor) for tensor in proto.initializer]
-    inputs = [_core.Input(info.name) for info in proto.input]
+    inputs = [_core.Value(name=info.name) for info in proto.input]
     for info, value in zip(proto.input, inputs):
         deserialize_value_info_proto(info, value)
 
@@ -869,7 +869,7 @@ def deserialize_function(proto: onnx.FunctionProto) -> _core.Function:
     Returns:
         An IR Function object representing the ONNX function.
     """
-    inputs = [_core.Input(name) for name in proto.input]
+    inputs = [_core.Value(name=name) for name in proto.input]
     values: dict[str, _core.Value] = {v.name: v for v in inputs}  # type: ignore[misc]
     value_info = {info.name: info for info in getattr(proto, "value_info", [])}
 

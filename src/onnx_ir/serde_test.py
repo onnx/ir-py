@@ -447,7 +447,7 @@ class DeserializeGraphTest(unittest.TestCase):
         node_0 = ir.Node(
             "",
             "Op_0",
-            inputs=[ir.Input("input_0"), ir.Input("input_1")],
+            inputs=[ir.val("input_0"), ir.val("input_1")],
             num_outputs=2,
             name="node_0",
         )

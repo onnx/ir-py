@@ -16,7 +16,7 @@ class TestNameFixPass(unittest.TestCase):
     def test_assign_names_to_unnamed_values(self):
         """Test ensuring all values have names even if IR auto-assigned them."""
         # Create a simple model with auto-assigned names
-        input_value = ir.Input(
+        input_value = ir.val(
             None, shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )  # Will get auto-assigned name when added to graph
 
@@ -53,7 +53,7 @@ class TestNameFixPass(unittest.TestCase):
     def test_assign_names_to_unnamed_nodes(self):
         """Test ensuring all nodes have names even if IR auto-assigned them."""
         # Create a simple model
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -88,7 +88,7 @@ class TestNameFixPass(unittest.TestCase):
     def test_assigns_names_when_truly_unnamed(self):
         """Test that the pass assigns names when values/nodes are created without names and manually cleared."""
         # Create a model and manually clear names to test assignment
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -124,13 +124,13 @@ class TestNameFixPass(unittest.TestCase):
     def test_handles_global_uniqueness_across_subgraphs(self):
         """Test that names are unique globally, including across subgraphs."""
         # Create main graph input
-        main_input = ir.Input(
+        main_input = ir.val(
             "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
         # Create a simple subgraph for an If node
         # Subgraph input and output (with potential name conflicts)
-        sub_input = ir.Input(
+        sub_input = ir.val(
             "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )  # Same name as main input - should cause conflict
 
@@ -147,7 +147,7 @@ class TestNameFixPass(unittest.TestCase):
         )
 
         # Create condition input for If node
-        condition_input = ir.Input(
+        condition_input = ir.val(
             "condition", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.BOOL)
         )
 
@@ -236,10 +236,10 @@ class TestNameFixPass(unittest.TestCase):
     def test_handle_duplicate_value_names(self):
         """Test handling duplicate value names by making them unique."""
         # Create values with duplicate names
-        input1 = ir.Input(
+        input1 = ir.val(
             "duplicate_name", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
-        input2 = ir.Input(
+        input2 = ir.val(
             "duplicate_name", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -276,7 +276,7 @@ class TestNameFixPass(unittest.TestCase):
 
     def test_handle_duplicate_node_names(self):
         """Test handling duplicate node names by making them unique."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -321,7 +321,7 @@ class TestNameFixPass(unittest.TestCase):
 
     def test_no_modification_when_all_names_unique(self):
         """Test that the pass doesn't modify anything when all names are already unique."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "unique_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -359,7 +359,7 @@ class TestNameFixPass(unittest.TestCase):
     def test_graph_inputs_outputs_have_precedence(self):
         """Test that graph inputs and outputs keep their names when there are conflicts."""
         # Create an input with a specific name
-        input_value = ir.Input(
+        input_value = ir.val(
             "important_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
