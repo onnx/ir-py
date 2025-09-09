@@ -1146,6 +1146,8 @@ def _deserialize_attribute(
         try:
             return _core.AttrString(name, proto.s.decode("utf-8"), doc_string=doc_string)
         except UnicodeDecodeError:
+            # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
+            # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
             logger.warning(
                 "Attribute '%s' contains invalid UTF-8 bytes. ONNX spec requires string attributes "
                 "to be UTF-8 encoded so the model is invalid. We will skip decoding the attribute and "
@@ -1803,6 +1805,8 @@ def _fill_in_value_for_attribute(
     elif type_ == _enums.AttributeType.STRING:
         # value: str
         if type(value) is bytes:
+            # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
+            # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
             attribute_proto.s = value
         else:
             attribute_proto.s = value.encode("utf-8")
