@@ -972,7 +972,7 @@ class NodeTest(unittest.TestCase):
             inputs=(),
             attributes=[_core.AttrStrings("test_attr", ["a", "b", "c"])],
         )
-        self.assertEqual(node.attributes.get_strings("test_attr"), ["a", "b", "c"])
+        self.assertEqual(node.attributes.get_strings("test_attr"), ("a", "b", "c"))
         self.assertIsNone(node.attributes.get_strings("non_existent_attr"))
         self.assertEqual(
             node.attributes.get_strings("non_existent_attr", ["default"]), ["default"]
@@ -1979,7 +1979,7 @@ class AttrTest(unittest.TestCase):
 
     def test_as_strings(self):
         attr = _core.Attr("test", ir.AttributeType.STRINGS, ["test string", ""])
-        self.assertEqual(attr.as_strings(), ["test string", ""])
+        self.assertEqual(attr.as_strings(), ("test string", ""))
 
     def test_as_tensors(self):
         attr = _core.Attr("test", ir.AttributeType.TENSORS, [ir.tensor([42.0])])
