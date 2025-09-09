@@ -1152,6 +1152,7 @@ def _deserialize_attribute(
                 "use the bytes as attribute value",
                 name,
             )
+            return _core.Attr(name, type_, proto.s, doc_string=doc_string)
 
     if type_ == _enums.AttributeType.INTS:
         return _core.AttrInt64s(name, proto.ints, doc_string=doc_string)
@@ -1801,10 +1802,10 @@ def _fill_in_value_for_attribute(
         attribute_proto.type = onnx.AttributeProto.FLOAT
     elif type_ == _enums.AttributeType.STRING:
         # value: str
-        if type(value) is str:
-            attribute_proto.s = value.encode("utf-8")
-        else:
+        if type(value) is bytes:
             attribute_proto.s = value
+        else:
+            attribute_proto.s = value.encode("utf-8")
         attribute_proto.type = onnx.AttributeProto.STRING
     elif type_ == _enums.AttributeType.INTS:
         # value: Sequence[int]
