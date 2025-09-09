@@ -217,7 +217,7 @@ def node(
     )
 
 
-def value(
+def val(
     name: str,
     dtype: ir.DataType | None = None,
     shape: ir.Shape | Sequence[int | str | None] | None = None,
@@ -225,18 +225,26 @@ def value(
     type: ir.TypeProtocol | None = None,
     const_value: ir.TensorProtocol | None = None,
 ) -> ir.Value:
-    """Create a Value with the given name and type.
+    """Create a :class:`~onnx_ir.Value` with the given name and type.
+
+    This is a convenience constructor for creating a Value that allows you to specify
+    dtype and shape in a more relaxed manner. Whereas to create a Value directly, you
+    need to create a :class:`~onnx_ir.TypeProtocol` and :class:`~onnx_ir.Shape` object
+    first, this function allows you to specify dtype as a :class:`~onnx_ir.DataType`
+    and shape as a sequence of integers or symbolic dimensions.
 
     Example::
 
         >>> import onnx_ir as ir
-        >>> t = ir.value("x", ir.DataType.FLOAT, ["N", 42, 3])
+        >>> t = ir.val("x", ir.DataType.FLOAT, ["N", 42, 3])
         >>> t.name
         'x'
         >>> t.type
         Tensor(FLOAT)
         >>> t.shape
         Shape([SymbolicDim(N), 42, 3])
+
+    .. versionadded:: 0.1.9
 
     Args:
         name: The name of the value.
