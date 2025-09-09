@@ -78,6 +78,7 @@ __all__ = [
     # Convenience constructors
     "tensor",
     "node",
+    "val",
     # Pass infrastructure
     "passes",
     # IO
@@ -90,7 +91,7 @@ __all__ = [
 import types
 
 from onnx_ir import convenience, external_data, passes, serde, tape, traversal
-from onnx_ir._convenience._constructors import node, tensor
+from onnx_ir._convenience._constructors import node, tensor, val
 from onnx_ir._core import (
     Attr,
     AttrFloat32,
