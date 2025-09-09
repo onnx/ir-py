@@ -1149,7 +1149,7 @@ def _deserialize_attribute(
             # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
             # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
             logger.warning(
-                "Attribute '%s' contains invalid UTF-8 bytes. ONNX spec requires string attributes "
+                "Attribute %r contains invalid UTF-8 bytes. ONNX spec requires string attributes "
                 "to be UTF-8 encoded so the model is invalid. We will skip decoding the attribute and "
                 "use the bytes as attribute value",
                 name,
@@ -1807,6 +1807,12 @@ def _fill_in_value_for_attribute(
         if type(value) is bytes:
             # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
             # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
+            logger.warning(
+                "Value in attribute %r should be a string but is instead bytes. ONNX "
+                "spec requires string attributes to be UTF-8 encoded so the model is invalid. "
+                "We will skip encoding the attribute and use the bytes as attribute value",
+                attribute_proto.name,
+            )
             attribute_proto.s = value
         else:
             attribute_proto.s = value.encode("utf-8")
