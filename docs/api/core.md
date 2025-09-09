@@ -19,6 +19,7 @@
     onnx_ir.to_proto
     onnx_ir.to_onnx_text
     onnx_ir.tensor
+    onnx_ir.val
     onnx_ir.node
 ```
 
