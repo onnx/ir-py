@@ -1143,7 +1143,19 @@ def _deserialize_attribute(
     if type_ == _enums.AttributeType.FLOAT:
         return _core.AttrFloat32(name, proto.f, doc_string=doc_string)
     if type_ == _enums.AttributeType.STRING:
-        return _core.AttrString(name, proto.s.decode("utf-8"), doc_string=doc_string)
+        try:
+            return _core.AttrString(name, proto.s.decode("utf-8"), doc_string=doc_string)
+        except UnicodeDecodeError:
+            # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
+            # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
+            logger.warning(
+                "Attribute %r contains invalid UTF-8 bytes. ONNX spec requires string attributes "
+                "to be UTF-8 encoded so the model is invalid. We will skip decoding the attribute and "
+                "use the bytes as attribute value",
+                name,
+            )
+            return _core.Attr(name, type_, proto.s, doc_string=doc_string)
+
     if type_ == _enums.AttributeType.INTS:
         return _core.AttrInt64s(name, proto.ints, doc_string=doc_string)
     if type_ == _enums.AttributeType.FLOATS:
@@ -1792,7 +1804,18 @@ def _fill_in_value_for_attribute(
         attribute_proto.type = onnx.AttributeProto.FLOAT
     elif type_ == _enums.AttributeType.STRING:
         # value: str
-        attribute_proto.s = value.encode("utf-8")
+        if type(value) is bytes:
+            # Even though onnx.ai/onnx/repo-docs/IR.html#attributes requires the attribute
+            # for strings to be utf-8 encoded bytes, custom ops may still store arbitrary data there
+            logger.warning(
+                "Value in attribute %r should be a string but is instead bytes. ONNX "
+                "spec requires string attributes to be UTF-8 encoded so the model is invalid. "
+                "We will skip encoding the attribute and use the bytes as attribute value",
+                attribute_proto.name,
+            )
+            attribute_proto.s = value
+        else:
+            attribute_proto.s = value.encode("utf-8")
         attribute_proto.type = onnx.AttributeProto.STRING
     elif type_ == _enums.AttributeType.INTS:
         # value: Sequence[int]
