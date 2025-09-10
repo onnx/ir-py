@@ -16,7 +16,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
     def test_eliminate_identity_not_graph_output(self):
         """Test: y = Identity(x) where y is not a graph output."""
         # Create a simple model: input -> Identity -> Add -> output
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -110,7 +110,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
     def test_keep_identity_when_both_input_and_output_are_graph_boundaries(self):
         """Test: y = Identity(x) where y is graph output AND x is graph input."""
         # Create graph input
-        input_value = ir.Input(
+        input_value = ir.val(
             "graph_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -150,7 +150,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
     def test_multiple_identity_nodes(self):
         """Test elimination of multiple Identity nodes in different scenarios."""
         # Create graph input
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -203,7 +203,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_invalid_identity_node_skipped(self):
         """Test that invalid Identity nodes are skipped."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -261,7 +261,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_no_identity_nodes(self):
         """Test pass on a graph with no Identity nodes."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -311,7 +311,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_chain_of_identities(self):
         """Test elimination of a chain of Identity nodes."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -362,7 +362,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_non_standard_domain_identity_skipped(self):
         """Test that Identity nodes with non-standard domain are skipped."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -404,7 +404,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_non_identity_node_skipped(self):
         """Test that non-Identity nodes are skipped (covers line 55)."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -438,7 +438,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
     def test_function_with_identity_elimination(self):
         """Test that Identity nodes in functions are processed."""
         # Create function with Identity node
-        func_input = ir.Input(
+        func_input = ir.val(
             "func_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -470,7 +470,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
         )
 
         # Create a main graph
-        main_input = ir.Input(
+        main_input = ir.val(
             "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 
@@ -508,7 +508,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
 
     def test_multiple_graph_outputs_with_identity(self):
         """Test case where graph has multiple outputs and only one is the Identity output."""
-        input_value = ir.Input(
+        input_value = ir.val(
             "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
         )
 

@@ -15,7 +15,7 @@ An in-memory IR that supports the full ONNX spec, designed for graph constructio
 ## Get started
 
 ```{toctree}
-:maxdepth: 1
+:maxdepth: 2
 
 Overview <self>
 getting_started

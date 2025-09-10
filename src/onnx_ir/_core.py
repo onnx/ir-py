@@ -45,7 +45,7 @@ from typing import (
 
 import ml_dtypes
 import numpy as np
-from typing_extensions import TypeIs
+from typing_extensions import TypeIs, deprecated
 
 import onnx_ir
 from onnx_ir import (
@@ -2275,6 +2275,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         return self._is_initializer
 
 
+@deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
 def Input(
     name: str | None = None,
     shape: Shape | None = None,

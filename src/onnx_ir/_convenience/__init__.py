@@ -293,7 +293,7 @@ def replace_all_uses_with(
     We want to replace the node A with a new node D::
 
         >>> import onnx_ir as ir
-        >>> input = ir.Input("input")
+        >>> input = ir.val("input")
         >>> node_a = ir.Node("", "A", [input])
         >>> node_b = ir.Node("", "B", node_a.outputs)
         >>> node_c = ir.Node("", "C", node_a.outputs)
