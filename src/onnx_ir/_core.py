@@ -3414,6 +3414,13 @@ class Attr(
             value = tuple(int(v) for v in value)
         elif type == _enums.AttributeType.FLOATS:
             value = tuple(float(v) for v in value)
+        elif type in {
+            _enums.AttributeType.STRINGS,
+            _enums.AttributeType.TENSORS,
+            _enums.AttributeType.GRAPHS,
+            _enums.AttributeType.TYPE_PROTOS,
+        }:
+            value = tuple(value)
 
         self._name = name
         self._type = type
@@ -3508,9 +3515,10 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type STRING. Actual type: {self.type}"
             )
-        if not isinstance(self.value, str):
+        value = self.value
+        if not isinstance(value, str):
             raise TypeError(f"Value of attribute '{self!r}' is not a string.")
-        return self.value
+        return value
 
     def as_tensor(self) -> _protocols.TensorProtocol:
         """Get the attribute value as a tensor."""
@@ -3518,9 +3526,10 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type TENSOR. Actual type: {self.type}"
             )
-        if not isinstance(self.value, _protocols.TensorProtocol):
+        value = self.value
+        if not isinstance(value, _protocols.TensorProtocol):
             raise TypeError(f"Value of attribute '{self!r}' is not a tensor.")
-        return self.value
+        return value
 
     def as_graph(self) -> Graph:
         """Get the attribute value as a graph."""
@@ -3528,73 +3537,64 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type GRAPH. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Graph):
+        value = self.value
+        if not isinstance(value, Graph):
             raise TypeError(f"Value of attribute '{self!r}' is not a graph.")
-        return self.value
+        return value
 
-    def as_floats(self) -> Sequence[float]:
+    def as_floats(self) -> tuple[float, ...]:
         """Get the attribute value as a sequence of floats."""
         if self.type != _enums.AttributeType.FLOATS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type FLOATS. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Sequence):
-            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         # value is guaranteed to be a sequence of float in the constructor
         return self.value
 
-    def as_ints(self) -> Sequence[int]:
+    def as_ints(self) -> tuple[int, ...]:
         """Get the attribute value as a sequence of ints."""
         if self.type != _enums.AttributeType.INTS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type INTS. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Sequence):
-            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         # value is guaranteed to be a sequence of int in the constructor
         return self.value
 
-    def as_strings(self) -> Sequence[str]:
+    def as_strings(self) -> tuple[str, ...]:
         """Get the attribute value as a sequence of strings."""
         if self.type != _enums.AttributeType.STRINGS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type STRINGS. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Sequence):
-            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, str) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of strings.")
-        # Create a copy of the list to prevent mutation
-        return list(self.value)
+        # value is guaranteed to be a sequence in the constructor
+        return self.value
 
-    def as_tensors(self) -> Sequence[_protocols.TensorProtocol]:
+    def as_tensors(self) -> tuple[_protocols.TensorProtocol, ...]:
         """Get the attribute value as a sequence of tensors."""
         if self.type != _enums.AttributeType.TENSORS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type TENSORS. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Sequence):
-            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, _protocols.TensorProtocol) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of tensors.")
-        # Create a copy of the list to prevent mutation
-        return list(self.value)
+        # value is guaranteed to be a sequence in the constructor
+        return tuple(self.value)
 
-    def as_graphs(self) -> Sequence[Graph]:
+    def as_graphs(self) -> tuple[Graph, ...]:
         """Get the attribute value as a sequence of graphs."""
         if self.type != _enums.AttributeType.GRAPHS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type GRAPHS. Actual type: {self.type}"
             )
-        if not isinstance(self.value, Sequence):
-            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, Graph) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of graphs.")
-        # Create a copy of the list to prevent mutation
-        return list(self.value)
+        # value is guaranteed to be a sequence in the constructor
+        return tuple(self.value)
 
 
 # NOTE: The following functions are just for convenience
