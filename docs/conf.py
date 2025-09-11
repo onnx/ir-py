@@ -72,6 +72,7 @@ html_theme_options = {
     "light_logo": "logo-light.png",
     "dark_logo": "logo-dark.png",
     "sidebar_hide_name": True,
+    "navigation_depth": 2,
 }
 html_css_files = ["css/custom.css"]
 
