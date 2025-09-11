@@ -45,7 +45,7 @@ from typing import (
 
 import ml_dtypes
 import numpy as np
-from typing_extensions import TypeIs, deprecated
+from typing_extensions import TypeIs
 
 import onnx_ir
 from onnx_ir import (
@@ -78,7 +78,6 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.FLOAT8E4M3FNUZ,
         _enums.DataType.FLOAT8E5M2,
         _enums.DataType.FLOAT8E5M2FNUZ,
-        _enums.DataType.FLOAT8E8M0,
         _enums.DataType.INT4,
         _enums.DataType.UINT4,
         _enums.DataType.FLOAT4E2M1,
@@ -262,7 +261,6 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
             ml_dtypes.float8_e4m3fn,
             ml_dtypes.float8_e5m2fnuz,
             ml_dtypes.float8_e5m2,
-            ml_dtypes.float8_e8m0fnu,
         ):
             raise TypeError(
                 f"The numpy array dtype must be uint8 or ml_dtypes.float8* (not {array.dtype}) for IR data type {dtype}."
@@ -321,8 +319,6 @@ def _maybe_view_np_array_with_ml_dtypes(
         return array.view(ml_dtypes.float8_e5m2)
     if dtype == _enums.DataType.FLOAT8E5M2FNUZ:
         return array.view(ml_dtypes.float8_e5m2fnuz)
-    if dtype == _enums.DataType.FLOAT8E8M0:
-        return array.view(ml_dtypes.float8_e8m0fnu)
     if dtype == _enums.DataType.INT4:
         return array.view(ml_dtypes.int4)
     if dtype == _enums.DataType.UINT4:
@@ -421,9 +417,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         else:
             self._shape = shape
             self._shape.freeze()
-        if isinstance(value, np.generic):
-            # Turn numpy scalar into a numpy array
-            value = np.array(value)  # type: ignore[assignment]
         if dtype is None:
             if isinstance(value, np.ndarray):
                 self._dtype = _enums.DataType.from_numpy(value.dtype)
@@ -661,13 +654,15 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             self._array = np.empty(self.shape.numpy(), dtype=self.dtype.numpy())
             return
         # Map the whole file into the memory
+        # TODO(justinchuby): Verify if this would exhaust the memory address space
         with open(self.path, "rb") as f:
             self.raw = mmap.mmap(
                 f.fileno(),
                 0,
                 access=mmap.ACCESS_READ,
             )
-
+        # Handle the byte order correctly by always using little endian
+        dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
         if self.dtype in {
             _enums.DataType.INT4,
             _enums.DataType.UINT4,
@@ -677,18 +672,16 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             dt = np.dtype(np.uint8).newbyteorder("<")
             count = self.size // 2 + self.size % 2
         else:
-            # Handle the byte order correctly by always using little endian
-            dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
             count = self.size
-
         self._array = np.frombuffer(self.raw, dtype=dt, offset=self.offset or 0, count=count)
         shape = self.shape.numpy()
-
-        if self.dtype.bitwidth == 4:
-            # Unpack the 4bit arrays
-            self._array = _type_casting.unpack_4bitx2(self._array, shape).view(
-                self.dtype.numpy()
-            )
+        if self.dtype == _enums.DataType.INT4:
+            # Unpack the int4 arrays
+            self._array = _type_casting.unpack_int4(self._array, shape)
+        elif self.dtype == _enums.DataType.UINT4:
+            self._array = _type_casting.unpack_uint4(self._array, shape)
+        elif self.dtype == _enums.DataType.FLOAT4E2M1:
+            self._array = _type_casting.unpack_float4e2m1(self._array, shape)
         else:
             self._array = self._array.reshape(shape)
 
@@ -837,11 +830,6 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
         return self._shape
 
     @property
-    def nbytes(self) -> int:
-        """The number of bytes in the tensor."""
-        return sum(len(string) for string in self.string_data())
-
-    @property
     def raw(self) -> Sequence[bytes] | npt.NDArray[np.bytes_]:
         """Backing data of the tensor. Immutable."""
         return self._raw  # type: ignore[return-value]
@@ -976,10 +964,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
-    """A tensor that stores 4bit datatypes in packed format.
-
-    .. versionadded:: 0.1.2
-    """
+    """A tensor that stores 4bit datatypes in packed format."""
 
     __slots__ = (
         "_dtype",
@@ -1080,7 +1065,15 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         """
         array = self.numpy_packed()
         # ONNX IR returns the unpacked arrays
-        return _type_casting.unpack_4bitx2(array, self.shape.numpy()).view(self.dtype.numpy())
+        if self.dtype == _enums.DataType.INT4:
+            return _type_casting.unpack_int4(array, self.shape.numpy())
+        if self.dtype == _enums.DataType.UINT4:
+            return _type_casting.unpack_uint4(array, self.shape.numpy())
+        if self.dtype == _enums.DataType.FLOAT4E2M1:
+            return _type_casting.unpack_float4e2m1(array, self.shape.numpy())
+        raise TypeError(
+            f"PackedTensor only supports INT4, UINT4, FLOAT4E2M1, but got {self.dtype}"
+        )
 
     def numpy_packed(self) -> npt.NDArray[np.uint8]:
         """Return the tensor as a packed array."""
@@ -2275,7 +2268,6 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         return self._is_initializer
 
 
-@deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
 def Input(
     name: str | None = None,
     shape: Shape | None = None,
@@ -2342,12 +2334,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
     Note that there is not a ``node`` attribute in the Graph. The Graph can be
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(graph)``.
-
-    .. versionchanged:: 0.1.1
-        Values with non-none producers will be rejected as graph inputs or initializers.
-
-    .. versionadded:: 0.1.1
-        Added ``add`` method to initializers and attributes.
 
     Attributes:
         name: The name of the graph.
@@ -2559,34 +2545,20 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Consider using
         :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
-
-        .. versionadded:: 0.1.2
         """
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return onnx_ir.traversal.RecursiveGraphIterator(self)
 
     def subgraphs(self) -> Iterator[Graph]:
-        """Get all subgraphs in the graph in O(#nodes + #attributes) time.
-
-        .. versionadded:: 0.1.2
-        """
-        # Use a dict to preserve order
-        seen_graphs: dict[Graph, None] = {}
-
-        # Need to use the enter_graph callback so that empty subgraphs are collected
-        def enter_subgraph(graph) -> None:
+        """Get all subgraphs in the graph in O(#nodes + #attributes) time."""
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
             if graph is self:
-                return
-            if not isinstance(graph, Graph):
-                raise TypeError(
-                    f"Expected a Graph, got {type(graph)}. The model may be invalid"
-                )
-            if graph not in seen_graphs:
-                seen_graphs[graph] = None
-
-        for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
-            pass
-        yield from seen_graphs.keys()
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -2808,172 +2780,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
-
-    def __call__(self, *args: Value) -> tuple[Value, ...]:
-        """Create a copy of this graph and connect it with the provided input values.
-        
-        This enables graph composition by creating a copy of the graph with new
-        values connected as inputs. All nodes from this graph are cloned and
-        added to the graph that owns the input values.
-        
-        Args:
-            *args: Input values to connect to the graph inputs. The number of
-                arguments must match the number of graph inputs.
-                
-        Returns:
-            A tuple of output values from the cloned graph.
-            
-        Raises:
-            ValueError: If the number of input arguments doesn't match the graph inputs.
-            ValueError: If the input values don't all belong to the same graph.
-            ValueError: If any input value doesn't belong to a graph.
-        """
-        # Validate inputs
-        if len(args) != len(self.inputs):
-            raise ValueError(
-                f"Expected {len(self.inputs)} input arguments, got {len(args)}"
-            )
-        
-        if not args:
-            # Handle the case of a graph with no inputs
-            target_graph = None
-        else:
-            # Validate that all input values belong to a graph and the same graph
-            target_graph = args[0].graph
-            if target_graph is None:
-                raise ValueError(f"Input value {args[0]} does not belong to any graph")
-            
-            for i, arg in enumerate(args[1:], 1):
-                if arg.graph is None:
-                    raise ValueError(f"Input value {arg} does not belong to any graph")
-                if arg.graph is not target_graph:
-                    raise ValueError(
-                        f"All input values must belong to the same graph. "
-                        f"Value at index {i} belongs to a different graph."
-                    )
-        
-        # Create value mapping from original inputs to provided inputs
-        value_map: dict[Value, Value] = {}
-        for original_input, new_input in zip(self.inputs, args):
-            value_map[original_input] = new_input
-        
-        # Clone all nodes, building the value map as we go
-        cloned_nodes = []
-        for node in self:
-            cloned_node = self._clone_node_for_composition(node, value_map, target_graph)
-            cloned_nodes.append(cloned_node)
-        
-        # Clone initializers and add them to the target graph
-        if target_graph is not None:
-            for init in self.initializers.values():
-                cloned_init = self._clone_value_for_composition(init, value_map)
-                target_graph.register_initializer(cloned_init)
-        
-        # Add all cloned nodes to the target graph
-        if target_graph is not None and cloned_nodes:
-            target_graph.extend(cloned_nodes)
-        
-        # Return the cloned output values
-        cloned_outputs = []
-        for output in self.outputs:
-            if output in value_map:
-                cloned_outputs.append(value_map[output])
-            else:
-                # This should not happen if the graph is well-formed
-                raise RuntimeError(f"Output value {output} was not found in value mapping")
-        
-        return tuple(cloned_outputs)
-    
-    def _clone_node_for_composition(
-        self, node: Node, value_map: dict[Value, Value], target_graph: Graph | None
-    ) -> Node:
-        """Clone a node for graph composition, updating the value map."""
-        # Clone input values (or use existing mappings)
-        cloned_inputs = []
-        for input_val in node.inputs:
-            if input_val is None:
-                cloned_inputs.append(None)
-            elif input_val in value_map:
-                cloned_inputs.append(value_map[input_val])
-            else:
-                # This input is not yet mapped, clone it
-                cloned_input = self._clone_value_for_composition(input_val, value_map)
-                value_map[input_val] = cloned_input
-                cloned_inputs.append(cloned_input)
-        
-        # Clone attributes
-        cloned_attributes = []
-        for attr in node.attributes.values():
-            if isinstance(attr, Attr):
-                cloned_attr = self._clone_attr_for_composition(attr, value_map, target_graph)
-                if cloned_attr is not None:
-                    cloned_attributes.append(cloned_attr)
-        
-        # Create the new node
-        cloned_node = Node(
-            domain=node.domain,
-            op_type=node.op_type,
-            inputs=cloned_inputs,
-            attributes=cloned_attributes,
-            overload=node.overload,
-            num_outputs=len(node.outputs),
-            graph=target_graph,
-            name=node.name,  # Note: Graph.extend will assign unique names if needed
-            doc_string=node.doc_string,
-            metadata_props=node.metadata_props,
-        )
-        
-        # Map the output values
-        for original_output, cloned_output in zip(node.outputs, cloned_node.outputs):
-            value_map[original_output] = cloned_output
-            # Copy relevant properties
-            cloned_output.name = original_output.name
-            cloned_output.type = original_output.type
-            cloned_output.shape = original_output.shape
-            cloned_output.const_value = original_output.const_value
-        
-        return cloned_node
-    
-    def _clone_value_for_composition(
-        self, value: Value, value_map: dict[Value, Value]
-    ) -> Value:
-        """Clone a value for graph composition."""
-        if value in value_map:
-            return value_map[value]
-        
-        # Create a new value
-        cloned_value = Value(
-            name=value.name,
-            type=value.type,
-            shape=value.shape,
-            doc_string=value.doc_string,
-            const_value=value.const_value,
-        )
-        
-        value_map[value] = cloned_value
-        return cloned_value
-    
-    def _clone_attr_for_composition(
-        self, attr: Attr, value_map: dict[Value, Value], target_graph: Graph | None
-    ) -> Attr | None:
-        """Clone an attribute for graph composition."""
-        if not attr.is_ref():
-            if attr.type == _enums.AttributeType.GRAPH:
-                # Recursively clone subgraphs
-                subgraph = attr.as_graph()
-                # For subgraphs, we need to handle them specially
-                # For now, we'll just return the attribute as-is
-                # TODO: Implement proper subgraph composition if needed
-                return attr
-            elif attr.type == _enums.AttributeType.GRAPHS:
-                # Handle multiple subgraphs
-                # For now, we'll just return the attribute as-is
-                # TODO: Implement proper subgraph composition if needed
-                return attr
-            return attr
-        
-        # Handle reference attributes - for now just return as-is
-        return attr
 
     def __str__(self) -> str:
         return _graph_str(self)
@@ -3361,21 +3167,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     def attributes(self) -> _graph_containers.Attributes:
         return self._attributes
 
-    @property
-    def graph(self) -> Graph:
-        """The underlying Graph object that contains the nodes of this function.
-
-        Only use this graph for identity comparison::
-
-            if value.graph is function.graph:
-                # Do something with the value that belongs to this function
-
-        Otherwise use the Function object directly to access the nodes and other properties.
-
-        .. versionadded:: 0.1.7
-        """
-        return self._graph
-
     @typing.overload
     def __getitem__(self, index: int) -> Node: ...
     @typing.overload
@@ -3425,33 +3216,20 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         Consider using
         :class:`onnx_ir.traversal.RecursiveGraphIterator` for more advanced
         traversals on nodes.
-
-        .. versionadded:: 0.1.2
         """
         # NOTE: This is a method specific to Graph, not required by the protocol unless proven
         return onnx_ir.traversal.RecursiveGraphIterator(self)
 
     def subgraphs(self) -> Iterator[Graph]:
-        """Get all subgraphs in the function in O(#nodes + #attributes) time.
-
-        .. versionadded:: 0.1.2
-        """
-        seen_graphs: dict[Graph, None] = {}
-
-        # Need to use the enter_graph callback so that empty subgraphs are collected
-        def enter_subgraph(graph) -> None:
-            if graph is self:
-                return
-            if not isinstance(graph, Graph):
-                raise TypeError(
-                    f"Expected a Graph, got {type(graph)}. The model may be invalid"
-                )
-            if graph not in seen_graphs:
-                seen_graphs[graph] = None
-
-        for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
-            pass
-        yield from seen_graphs.keys()
+        """Get all subgraphs in the function in O(#nodes + #attributes) time."""
+        seen_graphs: set[Graph] = set()
+        for node in onnx_ir.traversal.RecursiveGraphIterator(self):
+            graph = node.graph
+            if graph is self._graph:
+                continue
+            if graph is not None and graph not in seen_graphs:
+                seen_graphs.add(graph)
+                yield graph
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -3553,7 +3331,7 @@ class Attr(
 ):
     """Base class for ONNX attributes or references."""
 
-    __slots__ = ("_metadata", "_name", "_ref_attr_name", "_type", "_value", "doc_string")
+    __slots__ = ("_name", "_ref_attr_name", "_type", "_value", "doc_string")
 
     def __init__(
         self,
@@ -3564,37 +3342,11 @@ class Attr(
         *,
         doc_string: str | None = None,
     ) -> None:
-        # Quick checks to ensure that INT and FLOAT attributes are stored as int and float,
-        # not np.int32, np.float32, bool, etc.
-        # This also allows errors to be raised at the time of construction instead of later
-        # during serialization.
-        # TODO(justinchuby): Use case matching when we drop support for Python 3.9
-        if value is None:
-            # Value can be None for reference attributes or when it is used as a
-            # placeholder for schemas
-            pass
-        elif type == _enums.AttributeType.INT:
-            value = int(value)
-        elif type == _enums.AttributeType.FLOAT:
-            value = float(value)
-        elif type == _enums.AttributeType.INTS:
-            value = tuple(int(v) for v in value)
-        elif type == _enums.AttributeType.FLOATS:
-            value = tuple(float(v) for v in value)
-        elif type in {
-            _enums.AttributeType.STRINGS,
-            _enums.AttributeType.TENSORS,
-            _enums.AttributeType.GRAPHS,
-            _enums.AttributeType.TYPE_PROTOS,
-        }:
-            value = tuple(value)
-
         self._name = name
         self._type = type
         self._value = value
         self._ref_attr_name = ref_attr_name
         self.doc_string = doc_string
-        self._metadata: _metadata.MetadataStore | None = None
 
     @property
     def name(self) -> str:
@@ -3615,17 +3367,6 @@ class Attr(
     @property
     def ref_attr_name(self) -> str | None:
         return self._ref_attr_name
-
-    @property
-    def meta(self) -> _metadata.MetadataStore:
-        """The metadata store for intermediate analysis.
-
-        Write to the :attr:`metadata_props` if you would like the metadata to be serialized
-        to the ONNX proto.
-        """
-        if self._metadata is None:
-            self._metadata = _metadata.MetadataStore()
-        return self._metadata
 
     def is_ref(self) -> bool:
         """Check if this attribute is a reference attribute."""
@@ -3664,8 +3405,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type FLOAT. Actual type: {self.type}"
             )
-        # value is guaranteed to be a float in the constructor
-        return self.value
+        # Do not use isinstance check because it may prevent np.float32 etc. from being used
+        return float(self.value)
 
     def as_int(self) -> int:
         """Get the attribute value as an int."""
@@ -3673,8 +3414,8 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type INT. Actual type: {self.type}"
             )
-        # value is guaranteed to be an int in the constructor
-        return self.value
+        # Do not use isinstance check because it may prevent np.int32 etc. from being used
+        return int(self.value)
 
     def as_string(self) -> str:
         """Get the attribute value as a string."""
@@ -3682,10 +3423,9 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type STRING. Actual type: {self.type}"
             )
-        value = self.value
-        if not isinstance(value, str):
+        if not isinstance(self.value, str):
             raise TypeError(f"Value of attribute '{self!r}' is not a string.")
-        return value
+        return self.value
 
     def as_tensor(self) -> _protocols.TensorProtocol:
         """Get the attribute value as a tensor."""
@@ -3693,10 +3433,9 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type TENSOR. Actual type: {self.type}"
             )
-        value = self.value
-        if not isinstance(value, _protocols.TensorProtocol):
+        if not isinstance(self.value, _protocols.TensorProtocol):
             raise TypeError(f"Value of attribute '{self!r}' is not a tensor.")
-        return value
+        return self.value
 
     def as_graph(self) -> Graph:
         """Get the attribute value as a graph."""
@@ -3704,64 +3443,75 @@ class Attr(
             raise TypeError(
                 f"Attribute '{self.name}' is not of type GRAPH. Actual type: {self.type}"
             )
-        value = self.value
-        if not isinstance(value, Graph):
+        if not isinstance(self.value, Graph):
             raise TypeError(f"Value of attribute '{self!r}' is not a graph.")
-        return value
+        return self.value
 
-    def as_floats(self) -> tuple[float, ...]:
+    def as_floats(self) -> Sequence[float]:
         """Get the attribute value as a sequence of floats."""
         if self.type != _enums.AttributeType.FLOATS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type FLOATS. Actual type: {self.type}"
             )
-        # value is guaranteed to be a sequence of float in the constructor
-        return self.value
+        if not isinstance(self.value, Sequence):
+            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
+        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
+        # Create a copy of the list to prevent mutation
+        return [float(v) for v in self.value]
 
-    def as_ints(self) -> tuple[int, ...]:
+    def as_ints(self) -> Sequence[int]:
         """Get the attribute value as a sequence of ints."""
         if self.type != _enums.AttributeType.INTS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type INTS. Actual type: {self.type}"
             )
-        # value is guaranteed to be a sequence of int in the constructor
-        return self.value
+        if not isinstance(self.value, Sequence):
+            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
+        # Do not use isinstance check on elements because it may prevent np.int32 etc. from being used
+        # Create a copy of the list to prevent mutation
+        return list(self.value)
 
-    def as_strings(self) -> tuple[str, ...]:
+    def as_strings(self) -> Sequence[str]:
         """Get the attribute value as a sequence of strings."""
         if self.type != _enums.AttributeType.STRINGS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type STRINGS. Actual type: {self.type}"
             )
+        if not isinstance(self.value, Sequence):
+            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, str) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of strings.")
-        # value is guaranteed to be a sequence in the constructor
-        return self.value
+        # Create a copy of the list to prevent mutation
+        return list(self.value)
 
-    def as_tensors(self) -> tuple[_protocols.TensorProtocol, ...]:
+    def as_tensors(self) -> Sequence[_protocols.TensorProtocol]:
         """Get the attribute value as a sequence of tensors."""
         if self.type != _enums.AttributeType.TENSORS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type TENSORS. Actual type: {self.type}"
             )
+        if not isinstance(self.value, Sequence):
+            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, _protocols.TensorProtocol) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of tensors.")
-        # value is guaranteed to be a sequence in the constructor
-        return tuple(self.value)
+        # Create a copy of the list to prevent mutation
+        return list(self.value)
 
-    def as_graphs(self) -> tuple[Graph, ...]:
+    def as_graphs(self) -> Sequence[Graph]:
         """Get the attribute value as a sequence of graphs."""
         if self.type != _enums.AttributeType.GRAPHS:
             raise TypeError(
                 f"Attribute '{self.name}' is not of type GRAPHS. Actual type: {self.type}"
             )
+        if not isinstance(self.value, Sequence):
+            raise TypeError(f"Value of attribute '{self!r}' is not a Sequence.")
         if onnx_ir.DEBUG:
             if not all(isinstance(x, Graph) for x in self.value):
                 raise TypeError(f"Value of attribute '{self!r}' is not a Sequence of graphs.")
-        # value is guaranteed to be a sequence in the constructor
-        return tuple(self.value)
+        # Create a copy of the list to prevent mutation
+        return list(self.value)
 
 
 # NOTE: The following functions are just for convenience
@@ -3788,7 +3538,7 @@ def RefAttr(
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:
+def AttrFloat32(name: str, value: float, doc_string: str | None = None) -> Attr:
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -3799,7 +3549,7 @@ def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = 
     )
 
 
-def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:
+def AttrInt64(name: str, value: int, doc_string: str | None = None) -> Attr:
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
