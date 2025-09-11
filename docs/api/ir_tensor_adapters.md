@@ -12,7 +12,7 @@
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.tensor_adapters.TorchTensor
+    TorchTensor
 ```
 
 ```{eval-rst}
