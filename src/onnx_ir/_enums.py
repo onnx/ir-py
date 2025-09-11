@@ -422,14 +422,8 @@ _NP_TYPE_TO_DATA_TYPE = {
     np.dtype(ml_dtypes.float8_e8m0fnu): DataType.FLOAT8E8M0,
     np.dtype(ml_dtypes.int4): DataType.INT4,
     np.dtype(ml_dtypes.uint4): DataType.UINT4,
+    np.dtype(ml_dtypes.float4_e2m1fn): DataType.FLOAT4E2M1,
 }
-
-# TODO(after min req for ml_dtypes>=0.5): Move this inside _NP_TYPE_TO_DATA_TYPE
-_NP_TYPE_TO_DATA_TYPE.update(
-    {np.dtype(ml_dtypes.float4_e2m1fn): DataType.FLOAT4E2M1}
-    if hasattr(ml_dtypes, "float4_e2m1fn")
-    else {}
-)
 
 # ONNX DataType to Numpy dtype.
 _DATA_TYPE_TO_NP_TYPE = {v: k for k, v in _NP_TYPE_TO_DATA_TYPE.items()}
