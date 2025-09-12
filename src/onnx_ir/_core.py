@@ -3484,7 +3484,7 @@ class Attr(
             return f"@{self.ref_attr_name}"
         if self.type == _enums.AttributeType.GRAPH:
             return textwrap.indent("\n" + str(self.value), " " * 4)
-        return str(self.value)
+        return repr(self.value)
 
     def __repr__(self) -> str:
         if self.is_ref():
