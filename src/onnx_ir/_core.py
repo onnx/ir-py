@@ -2031,6 +2031,14 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     ) -> None:
         """Initialize a value.
 
+        When assigning a name to the value, the name of the backing `const_value` (Tensor)
+        will also be updated. If the value is an initializer of a graph, the initializer
+        entry in the graph will also be updated.
+
+        .. versionchanged:: 0.1.10
+            Assigning a name to the value will also update the graph initializer entry
+            if the value is an initializer of a graph.
+
         Args:
             producer: The node that produces the value.
                 It can be ``None`` when the value is initialized first than its producer.
@@ -2179,7 +2187,18 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     def name(self, value: str | None) -> None:
         if self._const_value is not None:
             self._const_value.name = value
+        old_name = self._name
         self._name = value
+        if self.is_initializer():
+            if value is None:
+                raise ValueError(
+                    "Initializer value cannot have name set to None. Please pop() the value from initializers first"
+                )
+            # Rename the initializer entry in the graph
+            assert self._graph is not None
+            assert old_name is not None
+            self._graph.initializers.pop(old_name)
+            self._graph.initializers[value] = self
 
     @property
     def type(self) -> _protocols.TypeProtocol | None:
