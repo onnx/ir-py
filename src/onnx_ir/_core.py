@@ -2032,8 +2032,8 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         """Initialize a value.
 
         When assigning a name to the value, the name of the backing `const_value` (Tensor)
-        will also be updated. If the value is an initializer of a graph, the initializer
-        entry in the graph will also be updated.
+        will also be updated. If the value is an initializer of a graph, the initializers
+        dictionary of graph will also be updated.
 
         .. versionchanged:: 0.1.10
             Assigning a name to the value will also update the graph initializer entry
