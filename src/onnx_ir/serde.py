@@ -1390,7 +1390,12 @@ def _should_create_value_info_for_value(value: _protocols.ValueProtocol) -> bool
         True if value info should be created for the value.
     """
     # No need to serialize value info if it is not set
-    if value.shape is None and value.type is None:
+    if (
+        value.shape is None
+        and value.type is None
+        and not value.metadata_props
+        and not value.doc_string
+    ):
         return False
     if not value.name:
         logger.debug("Did not serialize '%s' because its name is empty", value)

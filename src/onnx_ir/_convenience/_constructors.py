@@ -224,6 +224,7 @@ def val(
     *,
     type: ir.TypeProtocol | None = None,
     const_value: ir.TensorProtocol | None = None,
+    metadata_props: dict[str, str] | None = None,
 ) -> ir.Value:
     """Create a :class:`~onnx_ir.Value` with the given name and type.
 
@@ -279,10 +280,11 @@ def val(
             type=const_tensor_type,
             shape=_core.Shape(const_value.shape),  # type: ignore
             const_value=const_value,
+            metadata_props=metadata_props,
         )
 
     if type is None and dtype is not None:
         type = _core.TensorType(dtype)
     if shape is not None and not isinstance(shape, _core.Shape):
         shape = _core.Shape(shape)
-    return _core.Value(name=name, type=type, shape=shape)
+    return _core.Value(name=name, type=type, shape=shape, metadata_props=metadata_props)

@@ -2022,6 +2022,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         type: _protocols.TypeProtocol | None = None,
         doc_string: str | None = None,
         const_value: _protocols.TensorProtocol | None = None,
+        metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a value.
 
@@ -2038,7 +2039,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         self._producer: Node | None = producer
         self._index: int | None = index
         self._metadata: _metadata.MetadataStore | None = None
-        self._metadata_props: dict[str, str] | None = None
+        self._metadata_props: dict[str, str] | None = metadata_props
 
         self._name: str | None = name
         self._shape: Shape | None = shape
