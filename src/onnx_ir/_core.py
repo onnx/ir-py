@@ -165,6 +165,11 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the tensor.
+
+        The metadata properties are used to store additional information about the tensor.
+        Unlike ``meta``, this property is serialized to the ONNX proto.
+        """
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -2035,6 +2040,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
             type: The type of the value.
             doc_string: The documentation string.
             const_value: The constant tensor if the value is constant.
+            metadata_props: Metadata that will be serialized to the ONNX file.
         """
         self._producer: Node | None = producer
         self._index: int | None = index
@@ -2227,9 +2233,16 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     def const_value(
         self,
     ) -> _protocols.TensorProtocol | None:
-        """A concrete value.
+        """The backing constant tensor for the value.
 
-        The value can be backed by different raw data types, such as numpy arrays.
+        If the ``Value`` has a ``const_value`` and is part of a graph initializers
+        dictionary, the value is an initialized value. Its ``const_value``
+        will appear as an ``initializer`` in the GraphProto when serialized.
+
+        If the ``Value`` is not part of a graph initializers dictionary, the ``const_value``
+        field will be ignored during serialization.
+
+        ``const_value`` can be backed by different raw data types, such as numpy arrays.
         The only guarantee is that it conforms TensorProtocol.
         """
         return self._const_value
@@ -2259,6 +2272,11 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the value.
+
+        The metadata properties are used to store additional information about the value.
+        Unlike ``meta``, this property is serialized to the ONNX proto.
+        """
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -2806,6 +2824,11 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the graph.
+
+        The metadata properties are used to store additional information about the graph.
+        Unlike ``meta``, this property is serialized to the ONNX proto.
+        """
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -3058,6 +3081,11 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the model.
+
+        The metadata properties are used to store additional information about the model.
+        Unlike ``meta``, this property is serialized to the ONNX proto.
+        """
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -3251,6 +3279,11 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the function.
+
+        The metadata properties are used to store additional information about the function.
+        Unlike ``meta``, this property is serialized to the ONNX proto.
+        """
         return self._graph.metadata_props
 
     def all_nodes(self) -> Iterator[Node]:

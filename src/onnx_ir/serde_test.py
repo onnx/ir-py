@@ -539,10 +539,17 @@ class DeserializeGraphTest(unittest.TestCase):
             const_value=ir.tensor([1.0, 2.0], name="test_initializer"),
             metadata_props={"key": "value"},
         )
-        input = ir.val("test_input", dtype=ir.DataType.FLOAT, shape=(2,), metadata_props={"key": "input"})
+        input = ir.val(
+            "test_input", dtype=ir.DataType.FLOAT, shape=(2,), metadata_props={"key": "input"}
+        )
         node = ir.node("Identity", inputs=[input])
         node.outputs[0].metadata_props["key"] = "intermediate"
-        output = ir.val("test_output", dtype=ir.DataType.FLOAT, shape=(2,), metadata_props={"key": "output"})
+        output = ir.val(
+            "test_output",
+            dtype=ir.DataType.FLOAT,
+            shape=(2,),
+            metadata_props={"key": "output"},
+        )
         node2 = ir.node("Identity", inputs=node.outputs, outputs=[output])
         graph = ir.Graph(
             inputs=[input],
@@ -562,6 +569,7 @@ class DeserializeGraphTest(unittest.TestCase):
         self.assertIn("test_initializer", deserialized_graph.initializers)
         deserialized_value = deserialized_graph.initializers["test_initializer"]
         self.assertEqual(deserialized_value.metadata_props, {"key": "value"})
+
 
 class SerializationTest(unittest.TestCase):
     @parameterized.parameterized.expand(
