@@ -254,6 +254,7 @@ def val(
         type: The type of the value. Only one of dtype and type can be specified.
         const_value: The constant tensor that initializes the value. Supply this argument
             when you want to create an initializer. The type and shape can be obtained from the tensor.
+        metadata_props: The metadata properties that will be serialized to the ONNX proto.
 
     Returns:
         A Value object.
