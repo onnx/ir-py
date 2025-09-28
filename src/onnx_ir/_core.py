@@ -1132,6 +1132,8 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
                 "The value of a SymbolicDim cannot be an int. "
                 "If you are creating a Shape, use int directly instead of SymbolicDim."
             )
+        if value is None:
+            value = "_s" + str(id(self))
         self._value = value
 
     def __eq__(self, other: object) -> bool:
