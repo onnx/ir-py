@@ -193,14 +193,8 @@ class NameFixPass(ir.passes.InPlacePass):
         if not value.name:
             modified = self._assign_value_name(value, used_value_names, value_counter)
         else:
-            old_name = value.name
             modified = self._fix_duplicate_value_name(value, used_value_names, value_counter)
-            if modified:
-                assert value.graph is not None
-                if value.is_initializer():
-                    value.graph.initializers.pop(old_name)
-                    # Add the initializer back with the new name
-                    value.graph.initializers.add(value)
+            # initializers dictionary is updated automatically when the Value is renamed
 
         # Record the final name for this value
         assert value.name is not None

@@ -779,6 +779,108 @@ class ValueTest(unittest.TestCase):
         self.assertEqual(self.node.outputs[0].consumers(), ())
         self.assertEqual(self.node.outputs[1].consumers(), ())
 
+    def test_name_setter_updates_const_value_name(self):
+        """Test that setting a Value's name also updates the const_value's name if it exists."""
+        tensor = ir.tensor([1, 2, 3], name="original_tensor_name")
+        value = _core.Value(name="original_value_name", const_value=tensor)
+
+        # Verify initial state
+        self.assertEqual(value.name, "original_value_name")
+        self.assertEqual(value.const_value.name, "original_tensor_name")
+
+        # Update the value's name and verify const_value name is also updated
+        value.name = "new_name"
+        self.assertEqual(value.name, "new_name")
+        self.assertEqual(value.const_value.name, "new_name")
+
+        # Test setting name to None
+        value.name = None
+        self.assertIsNone(value.name)
+        self.assertIsNone(value.const_value.name)
+
+    def test_name_setter_without_const_value(self):
+        """Test that setting a Value's name works normally when no const_value exists."""
+        value = _core.Value(name="original_name")
+
+        # Verify initial state
+        self.assertEqual(value.name, "original_name")
+        self.assertIsNone(value.const_value)
+
+        # Update the name
+        value.name = "new_name"
+        self.assertEqual(value.name, "new_name")
+
+        # Set to None
+        value.name = None
+        self.assertIsNone(value.name)
+
+    def test_initializer_name_setter_raises_when_set_to_none(self):
+        """Test that setting an initializer value's name to None raises ValueError."""
+        tensor = ir.tensor([1, 2, 3])
+        value = _core.Value(name="initializer1", const_value=tensor)
+        _core.Graph(inputs=(), outputs=(), nodes=(), initializers=[value])
+
+        # Verify the value is an initializer
+        self.assertTrue(value.is_initializer())
+
+        # Attempt to set name to None should raise ValueError
+        with self.assertRaisesRegex(
+            ValueError,
+            "Initializer value cannot have name set to None. Please pop\\(\\) the value from initializers first",
+        ):
+            value.name = None
+
+    def test_initializer_name_setter_updates_graph_initializers_dict(self):
+        """Test that renaming an initializer value updates the graph's initializers dictionary."""
+        tensor = ir.tensor([1, 2, 3])
+        value = _core.Value(name="old_name", const_value=tensor)
+        graph = _core.Graph(inputs=(), outputs=(), nodes=(), initializers=[value])
+
+        # Verify initial state
+        self.assertTrue(value.is_initializer())
+        self.assertIn("old_name", graph.initializers)
+        self.assertIs(graph.initializers["old_name"], value)
+        self.assertEqual(value.name, "old_name")
+
+        # Rename the value and verify the graph's initializers dict is updated
+        value.name = "new_name"
+
+        # Old key should be removed, new key should be added
+        self.assertNotIn("old_name", graph.initializers)
+        self.assertIn("new_name", graph.initializers)
+        self.assertIs(graph.initializers["new_name"], value)
+        self.assertEqual(value.name, "new_name")
+        self.assertEqual(value.const_value.name, "new_name")
+
+    def test_non_initializer_name_setter_works_normally(self):
+        """Test that name changes work normally for values that are not initializers."""
+        # Test regular value (not part of any graph)
+        tensor = ir.tensor([1, 2, 3])
+        value = _core.Value(name="original_name", const_value=tensor)
+
+        self.assertFalse(value.is_initializer())
+
+        # Should be able to change name without issues
+        value.name = "new_name"
+        self.assertEqual(value.name, "new_name")
+        self.assertEqual(value.const_value.name, "new_name")
+
+        # Should be able to set to None without issues
+        value.name = None
+        self.assertIsNone(value.name)
+        self.assertIsNone(value.const_value.name)
+
+        # Test graph input
+        input_value = _core.Value(name="input1")
+        _core.Graph(inputs=[input_value], outputs=(), nodes=())
+
+        self.assertTrue(input_value.is_graph_input())
+        self.assertFalse(input_value.is_initializer())
+
+        # Should be able to rename input without issues
+        input_value.name = "renamed_input"
+        self.assertEqual(input_value.name, "renamed_input")
+
     # TODO(justinchuby): Test all methods
 
 
