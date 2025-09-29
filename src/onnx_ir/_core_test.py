@@ -826,7 +826,7 @@ class ValueTest(unittest.TestCase):
         # Attempt to set name to None should raise ValueError
         with self.assertRaisesRegex(
             ValueError,
-            "Initializer value cannot have name set to None. Please pop\\(\\) the value from initializers first"
+            "Initializer value cannot have name set to None. Please pop\\(\\) the value from initializers first",
         ):
             value.name = None
 
