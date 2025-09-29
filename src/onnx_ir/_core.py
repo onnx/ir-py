@@ -1434,7 +1434,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
 
     def is_unknown(self, dim: int) -> bool:
         """Return True if the dimension is unknown (None)."""
-        return self._dims[dim] is None
+        return isinstance(self[dim], SymbolicDim) and self[dim].value is None
 
     def has_unknown_dim(self) -> bool:
         """Return True if any dimension is unknown (None)."""
