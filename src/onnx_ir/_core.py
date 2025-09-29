@@ -1433,10 +1433,10 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
             return not self.is_static()
         return not self.is_static(dim)
 
-    def is_unknown(self, dim: int) -> bool:
+    def is_unknown_dim(self, dim: int) -> bool:
         """Return True if the dimension is unknown (None).
 
-        An unknown dimension is represented by a SymbolicDim with value None.
+        A dynamic dimension without a symbolic name is considered unknown.
 
         .. versionadded:: 0.1.10
 

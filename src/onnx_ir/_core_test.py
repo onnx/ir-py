@@ -743,19 +743,19 @@ class ShapeTest(unittest.TestCase):
         shape = _core.Shape(())
         self.assertFalse(shape.is_dynamic())
 
-    def test_is_unknown(self):
+    def test_is_unknown_dim(self):
         shape = _core.Shape([42, None, "any string", None])
-        self.assertFalse(shape.is_unknown(0))  # integer dimension is not unknown
-        self.assertTrue(shape.is_unknown(1))  # None dimension is unknown
+        self.assertFalse(shape.is_unknown_dim(0))  # integer dimension is not unknown
+        self.assertTrue(shape.is_unknown_dim(1))  # None dimension is unknown
         self.assertFalse(
-            shape.is_unknown(2)
+            shape.is_unknown_dim(2)
         )  # string dimension is not unknown (it's symbolic)
-        self.assertTrue(shape.is_unknown(3))  # None dimension is unknown
+        self.assertTrue(shape.is_unknown_dim(3))  # None dimension is unknown
 
-    def test_is_unknown_raises_when_index_out_of_range(self):
+    def test_is_unknown_dim_raises_when_index_out_of_range(self):
         shape = _core.Shape([42])
         with self.assertRaises(IndexError):
-            shape.is_unknown(1)
+            shape.is_unknown_dim(1)
 
     def test_has_unknown_dim(self):
         # Shape with unknown dimensions
