@@ -531,6 +531,45 @@ class DeserializeGraphTest(unittest.TestCase):
             [n.name for n in deserialized_model.graph], ["b_producer", "node_with_subgraph"]
         )
 
+    def test_value_metadata_props_are_preserved(self):
+        value = ir.val(
+            "test_initializer",
+            dtype=ir.DataType.FLOAT,
+            shape=(2,),
+            const_value=ir.tensor([1.0, 2.0], name="test_initializer"),
+            metadata_props={"key": "value"},
+        )
+        input = ir.val(
+            "test_input", dtype=ir.DataType.FLOAT, shape=(2,), metadata_props={"key": "input"}
+        )
+        node = ir.node("Identity", inputs=[input])
+        node.outputs[0].metadata_props["key"] = "intermediate"
+        output = ir.val(
+            "test_output",
+            dtype=ir.DataType.FLOAT,
+            shape=(2,),
+            metadata_props={"key": "output"},
+        )
+        node2 = ir.node("Identity", inputs=node.outputs, outputs=[output])
+        graph = ir.Graph(
+            inputs=[input],
+            outputs=[output],
+            nodes=[node, node2],
+            initializers=[value],
+            name="test_graph",
+        )
+        graph_proto = serde.serialize_graph(graph)
+        deserialized_graph = serde.deserialize_graph(graph_proto)
+
+        self.assertEqual(deserialized_graph.inputs[0].metadata_props, {"key": "input"})
+        self.assertEqual(deserialized_graph.outputs[0].metadata_props, {"key": "output"})
+        intermediate_value = deserialized_graph.node(0).outputs[0]
+        self.assertEqual(intermediate_value.metadata_props, {"key": "intermediate"})
+
+        self.assertIn("test_initializer", deserialized_graph.initializers)
+        deserialized_value = deserialized_graph.initializers["test_initializer"]
+        self.assertEqual(deserialized_value.metadata_props, {"key": "value"})
+
 
 class SerializationTest(unittest.TestCase):
     @parameterized.parameterized.expand(

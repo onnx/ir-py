@@ -709,8 +709,7 @@ def _deserialize_graph(
         annotation.tensor_name: annotation for annotation in proto.quantization_annotation
     }
 
-    # Create values for initializers and inputs
-    initializer_tensors = [deserialize_tensor(tensor) for tensor in proto.initializer]
+    # Create values for inputs
     inputs = [_core.Value(name=info.name) for info in proto.input]
     for info, value in zip(proto.input, inputs):
         deserialize_value_info_proto(info, value)
@@ -725,6 +724,11 @@ def _deserialize_graph(
     # Enter the graph scope by pushing the values for this scope to the stack
     scoped_values.append(values)
 
+    # Build the value info dictionary to allow for quick lookup for this graph scope
+    value_info = {info.name: info for info in proto.value_info}
+
+    # Create values for initializers
+    initializer_tensors = [deserialize_tensor(tensor) for tensor in proto.initializer]
     initializer_values = []
     for i, tensor in enumerate(initializer_tensors):
         initializer_name = tensor.name
@@ -750,15 +754,14 @@ def _deserialize_graph(
                 shape=tensor.shape,  # type: ignore[arg-type]
                 const_value=tensor,
             )
+            if initializer_name in value_info:
+                deserialize_value_info_proto(value_info[initializer_name], initializer_value)
             if initializer_value.name in quantization_annotations:
                 _deserialize_quantization_annotation(
                     quantization_annotations[initializer_value.name], initializer_value
                 )
             values[initializer_name] = initializer_value
         initializer_values.append(initializer_value)
-
-    # Build the value info dictionary to allow for quick lookup for this graph scope
-    value_info = {info.name: info for info in proto.value_info}
 
     # Declare values for all node outputs from this graph scope. This is necessary
     # to handle the case where a node in a subgraph uses a value that is declared out
@@ -1390,7 +1393,12 @@ def _should_create_value_info_for_value(value: _protocols.ValueProtocol) -> bool
         True if value info should be created for the value.
     """
     # No need to serialize value info if it is not set
-    if value.shape is None and value.type is None:
+    if (
+        value.shape is None
+        and value.type is None
+        and not value.metadata_props
+        and not value.doc_string
+    ):
         return False
     if not value.name:
         logger.debug("Did not serialize '%s' because its name is empty", value)
