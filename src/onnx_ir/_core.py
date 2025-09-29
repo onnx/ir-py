@@ -1433,11 +1433,24 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return not self.is_static(dim)
 
     def is_unknown(self, dim: int) -> bool:
-        """Return True if the dimension is unknown (None)."""
-        return isinstance(self[dim], SymbolicDim) and self[dim].value is None
+        """Return True if the dimension is unknown (None).
+
+        An unknown dimension is represented by a SymbolicDim with value None.
+
+        .. versionadded:: 0.1.10
+
+        Args:
+            dim: The index of the dimension.
+        """
+        dim_obj = self._dims[dim]
+        return isinstance(dim_obj, SymbolicDim) and dim_obj.value is None
 
     def has_unknown_dim(self) -> bool:
-        """Return True if any dimension is unknown (None)."""
+        """Return True if any dimension is unknown (None).
+
+        .. versionadded:: 0.1.10
+        """
+        # We can use "in" directly because SymbolicDim implements __eq__ with None
         return None in self._dims
 
 
