@@ -1221,8 +1221,9 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
 
     .. note::
         Two shapes can be compared for equality. Be careful when comparing shapes with
-        unknown dimensions (``None``), as they may not be considered semantically equal even if all
-        dimensions are the same. You can use has_unknown_dim() to check if a shape has any unknown dimensions.
+        unknown dimensions (``None``), as they may not be considered semantically equal
+        even if all dimensions are the same. You can use :meth:`has_unknown_dim`` to
+        check if a shape has any unknown dimensions.
 
     Example::
 
