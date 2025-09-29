@@ -1449,6 +1449,8 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
     def has_unknown_dim(self) -> bool:
         """Return True if any dimension is unknown (None).
 
+        You can use :meth:`is_unknown_dim` to check if a specific dimension is unknown.
+
         .. versionadded:: 0.1.10
         """
         # We can use "in" directly because SymbolicDim implements __eq__ with None
