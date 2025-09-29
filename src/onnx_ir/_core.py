@@ -2195,10 +2195,11 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
                     "Initializer value cannot have name set to None. Please pop() the value from initializers first"
                 )
             # Rename the initializer entry in the graph
-            assert self._graph is not None
+            graph = self._graph
+            assert graph is not None
             assert old_name is not None
-            self._graph.initializers.pop(old_name)
-            self._graph.initializers[value] = self
+            graph.initializers.pop(old_name)
+            graph.initializers[value] = self
 
     @property
     def type(self) -> _protocols.TypeProtocol | None:
