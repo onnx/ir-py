@@ -2198,6 +2198,10 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
             graph = self._graph
             assert graph is not None
             assert old_name is not None
+            if value in graph.initializers and graph.initializers[value] is not self:
+                raise ValueError(
+                    f"Cannot rename initializer to '{value}': an initializer with that name already exists."
+                )
             graph.initializers.pop(old_name)
             graph.initializers[value] = self
 
