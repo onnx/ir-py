@@ -1975,11 +1975,26 @@ def serialize_type(type_protocol: _protocols.TypeProtocol) -> onnx.TypeProto:
 @_capture_errors(lambda type_proto, from_: repr(from_))
 def serialize_shape_into(type_proto: onnx.TypeProto, from_: _protocols.ShapeProtocol) -> None:
     value_field = type_proto.WhichOneof("value")
+    if value_field is None:
+        # We cannot write the shape because we do not know where to write it
+        logger.warning(
+            # TODO(justinchuby): Show more context about the value when move everything to an object
+            "The value type for shape %s is not known. Please set type for the value. Skipping serialization",
+            from_,
+        )
+        return
     tensor_type = getattr(type_proto, value_field)
     while not isinstance(tensor_type.elem_type, int):
         # Find the leaf type that has the shape field
         type_proto = tensor_type.elem_type
         value_field = type_proto.WhichOneof("value")
+        if value_field is None:
+            logger.warning(
+                # TODO(justinchuby): Show more context about the value when move everything to an object
+                "The value type for shape %s is not known. Please set type for the value. Skipping serialization",
+                from_,
+            )
+            return
         tensor_type = getattr(type_proto, value_field)
     # When from is empty, we still need to set the shape field to an empty list by touching it
     tensor_type.shape.ClearField("dim")

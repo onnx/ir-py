@@ -598,6 +598,15 @@ class SerializationTest(unittest.TestCase):
         self.assertEqual(deserialized_attr.type, attr.type)
         self.assertEqual(deserialized_attr.value, expected)
 
+    def test_serialize_shape_into_skips_writing_when_value_type_not_known(self):
+        shape = ir.Shape((1, 2, 3))
+        proto = onnx.TypeProto()
+        self.assertIsNone(proto.WhichOneof("value"))
+        serde.serialize_shape_into(proto, shape)
+        self.assertIsNone(proto.WhichOneof("value"))
+        deserialized = serde.deserialize_type_proto_for_shape(proto)
+        self.assertIsNone(deserialized, shape)
+
 
 class QuantizationAnnotationTest(unittest.TestCase):
     """Test that quantization annotations are correctly serialized and deserialized."""
