@@ -36,6 +36,8 @@ class TestLiftConstantsToInitializersPass(unittest.TestCase):
         const_node = ir.node(
             "Constant", inputs=[], attributes={"value": constant_tensor}, num_outputs=1
         )
+        const_node.outputs[0].meta["meta_key"] = "meta_val"
+        const_node.outputs[0].metadata_props["metadata_key"] = "metadata_val"
         add_node = ir.node("Add", inputs=[inputs[0], const_node.outputs[0]])
         mul_node = ir.node("Mul", inputs=[add_node.outputs[0], inputs[1]])
 
@@ -71,6 +73,15 @@ class TestLiftConstantsToInitializersPass(unittest.TestCase):
         # And 0 constant node
         self.assertEqual(
             len([node for node in result.model.graph if node.op_type == "Constant"]), 0
+        )
+        # Metadata is preserved
+        self.assertEqual(
+            result.model.graph.initializers["val_0"].meta,
+            {"meta_key": "meta_val"},
+        )
+        self.assertEqual(
+            result.model.graph.initializers["val_0"].metadata_props,
+            {"metadata_key": "metadata_val"},
         )
 
     @parameterized.parameterized.expand(
