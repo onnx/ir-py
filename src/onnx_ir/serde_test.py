@@ -607,6 +607,7 @@ class SerializationTest(unittest.TestCase):
         deserialized = serde.deserialize_type_proto_for_shape(proto)
         self.assertEqual(deserialized, shape)
         self.assertIsNotNone(proto.tensor_type)
+        self.assertEqual(proto.tensor_type.elem_type, onnx.TensorProto.UNDEFINED)
 
 
 class QuantizationAnnotationTest(unittest.TestCase):
