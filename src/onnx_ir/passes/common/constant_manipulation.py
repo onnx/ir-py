@@ -69,7 +69,12 @@ class LiftConstantsToInitializersPass(ir.passes.InPlacePass):
                 shape=tensor.shape,  # type: ignore[arg-type]
                 type=ir.TensorType(tensor.dtype),
                 const_value=tensor,
+                # Preserve metadata from Constant value into the onnx model
+                metadata_props=node.outputs[0].metadata_props.copy(),
             )
+            # Preserve value meta from the Constant output for intermediate analysis
+            initializer.meta.update(node.outputs[0].meta)
+
             assert node.graph is not None
             node.graph.register_initializer(initializer)
             # Replace the constant node with the initializer
