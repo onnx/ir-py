@@ -1979,7 +1979,8 @@ def serialize_shape_into(type_proto: onnx.TypeProto, from_: _protocols.ShapeProt
         # We cannot write the shape because we do not know where to write it
         logger.warning(
             # TODO(justinchuby): Show more context about the value when move everything to an object
-            "The value type for shape %s is not known. Please set type for the value. Skipping serialization"
+            "The value type for shape %s is not known. Please set type for the value. Skipping serialization",
+            from_,
         )
         return
     tensor_type = getattr(type_proto, value_field)
@@ -1990,7 +1991,8 @@ def serialize_shape_into(type_proto: onnx.TypeProto, from_: _protocols.ShapeProt
         if value_field is None:
             logger.warning(
                 # TODO(justinchuby): Show more context about the value when move everything to an object
-                "The value type for shape %s is not known. Please set type for the value. Skipping serialization"
+                "The value type for shape %s is not known. Please set type for the value. Skipping serialization",
+                from_,
             )
             return
         tensor_type = getattr(type_proto, value_field)
