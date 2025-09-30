@@ -2000,5 +2000,8 @@ def serialize_dimension_into(
         dim_proto.dim_value = dim
     elif isinstance(dim, (_core.SymbolicDim, _protocols.SymbolicDimProtocol)):
         if dim.value is not None:
-            # TODO(justinchuby): None is probably not a valid value for dim_param
             dim_proto.dim_param = str(dim.value)
+        # NOTE: None is a valid value for symbolic dimension:
+        # A dimension MAY have neither dim_value nor dim_param set. Such a dimension
+        # represents an unknown dimension unrelated to other unknown dimensions.
+        # Here we will just leave the dim_proto empty.

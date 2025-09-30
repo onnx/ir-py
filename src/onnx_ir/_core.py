@@ -1219,6 +1219,12 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
 
     Use :meth:`get_denotation` and :meth:`set_denotation` to access and modify the denotations.
 
+    .. note::
+        Two shapes can be compared for equality. Be careful when comparing shapes with
+        unknown dimensions (``None``), as they may not be considered semantically equal
+        even if all dimensions are the same. You can use :meth:`has_unknown_dim` to
+        check if a shape has any unknown dimensions.
+
     Example::
 
         >>> import onnx_ir as ir
@@ -1426,6 +1432,29 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         if dim is None:
             return not self.is_static()
         return not self.is_static(dim)
+
+    def is_unknown_dim(self, dim: int) -> bool:
+        """Return True if the dimension is unknown (None).
+
+        A dynamic dimension without a symbolic name is considered unknown.
+
+        .. versionadded:: 0.1.10
+
+        Args:
+            dim: The index of the dimension.
+        """
+        dim_obj = self._dims[dim]
+        return isinstance(dim_obj, SymbolicDim) and dim_obj.value is None
+
+    def has_unknown_dim(self) -> bool:
+        """Return True if any dimension is unknown (None).
+
+        You can use :meth:`is_unknown_dim` to check if a specific dimension is unknown.
+
+        .. versionadded:: 0.1.10
+        """
+        # We can use "in" directly because SymbolicDim implements __eq__ with None
+        return None in self._dims
 
 
 def _quoted(string: str) -> str:
