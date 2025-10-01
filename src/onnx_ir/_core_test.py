@@ -869,6 +869,9 @@ class ValueTest(unittest.TestCase):
         ):
             value.name = None
 
+        # Name should remain unchanged
+        self.assertEqual(value.name, "initializer1")
+
     def test_initializer_name_setter_updates_graph_initializers_dict(self):
         """Test that renaming an initializer value updates the graph's initializers dictionary."""
         tensor = ir.tensor([1, 2, 3])
