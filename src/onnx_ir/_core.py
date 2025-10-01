@@ -2217,7 +2217,8 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         if self._name == value:
             return
 
-        # First check if renaming is valid. Do not change anything if it is invalid.
+        # First check if renaming is valid. Do not change anything if it is invalid
+        # to prevent the value from being in an inconsistent state.
         if self.is_initializer():
             if value is None:
                 raise ValueError(
