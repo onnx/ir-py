@@ -32,7 +32,9 @@ def _merge_shapes(shape1: ir.Shape | None, shape2: ir.Shape | None) -> ir.Shape 
     if shape2 is None:
         return shape1
     if len(shape1) != len(shape2):
-        raise ValueError(f"Shapes must have the same rank, got {len(shape1)} and {len(shape2)}.")
+        raise ValueError(
+            f"Shapes must have the same rank, got {len(shape1)} and {len(shape2)}."
+        )
     return ir.Shape([merge_dims(dim1, dim2) for dim1, dim2 in zip(shape1, shape2)])
 
 
