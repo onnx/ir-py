@@ -2219,7 +2219,8 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
 
         # First check if renaming is valid. Do not change anything if it is invalid
         # to prevent the value from being in an inconsistent state.
-        if self.is_initializer():
+        is_initializer = self.is_initializer()
+        if is_initializer:
             if value is None:
                 raise ValueError(
                     "Initializer value cannot have name set to None. Please pop() the value from initializers first to do so."
@@ -2239,7 +2240,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         old_name = self._name
         self._name = value
 
-        if self.is_initializer():
+        if is_initializer:
             # Rename the initializer entry in the graph
             assert value is not None, "debug: Should be guarded above"
             graph = self._graph
