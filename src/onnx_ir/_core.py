@@ -520,7 +520,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         else:
             assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
         if not _IS_LITTLE_ENDIAN:
-            array = array.view(array.dtype.newbyteorder("<"))
+            array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
 
@@ -1110,7 +1110,7 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         """
         array = self.numpy_packed()
         if not _IS_LITTLE_ENDIAN:
-            array = array.view(array.dtype.newbyteorder("<"))
+            array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
 
