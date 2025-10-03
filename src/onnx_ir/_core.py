@@ -1029,7 +1029,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
     def tofile(self, file) -> None:
         """Write the tensor to a binary file."""
         tensor = self._evaluate()
-        if hasattr(tensor, "write"):
+        if hasattr(tensor, "tofile"):
             tensor.tofile(file)
         else:
             super().tofile(file)

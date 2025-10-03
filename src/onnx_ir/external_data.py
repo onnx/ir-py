@@ -210,7 +210,7 @@ def _write_external_data(
             if current_offset > file_size:
                 data_file.write(b"\0" * (current_offset - file_size))
 
-            if hasattr(tensor, "write"):
+            if hasattr(tensor, "tofile"):
                 tensor.tofile(data_file)
             else:
                 raw_data = tensor.tobytes()
