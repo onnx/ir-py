@@ -185,7 +185,7 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
             self._metadata = _metadata.MetadataStore()
         return self._metadata
 
-    def write(self, file) -> None:
+    def tofile(self, file) -> None:
         """Write the tensor to a binary file.
 
         This method writes the raw bytes of the tensor to a file-like object.
@@ -534,7 +534,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             array = array.view(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
-    def write(self, file) -> None:
+    def tofile(self, file) -> None:
         """Write the tensor to a binary file.
 
         Args:
@@ -781,7 +781,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         length = self._length or self.nbytes
         return self.raw[offset : offset + length]
 
-    def write(self, file) -> None:
+    def tofile(self, file) -> None:
         self._check_validity()
         with open(self.path, "rb") as src:
             if self._offset is not None:
@@ -1026,13 +1026,13 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         """Return the bytes of the tensor."""
         return self._evaluate().tobytes()
 
-    def write(self, file) -> None:
+    def tofile(self, file) -> None:
         """Write the tensor to a binary file."""
         tensor = self._evaluate()
         if hasattr(tensor, "write"):
-            tensor.write(file)
+            tensor.tofile(file)
         else:
-            super().write(file)
+            super().tofile(file)
 
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
@@ -1168,7 +1168,7 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             array = array.view(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
-    def write(self, file) -> None:
+    def tofile(self, file) -> None:
         """Write the tensor to a binary file.
 
         Args:
