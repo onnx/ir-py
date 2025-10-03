@@ -185,6 +185,17 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
             self._metadata = _metadata.MetadataStore()
         return self._metadata
 
+    def write(self, file) -> None:
+        """Write the tensor to a binary file.
+
+        This method writes the raw bytes of the tensor to a file-like object.
+        The file-like object must have a ``write`` method that accepts bytes.
+
+        Args:
+            file: A file-like object with a ``write`` method that accepts bytes.
+        """
+        file.write(self.tobytes())
+
     def display(self, *, page: bool = False) -> None:
         rich = _display.require_rich()
 
@@ -520,8 +531,16 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         else:
             assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
         if not _IS_LITTLE_ENDIAN:
-            array = array.view(array.dtype.newbyteorder("<"))
+            array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
+
+    def write(self, file) -> None:
+        """Write the tensor to a binary file.
+
+        Args:
+            file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
+        """
+        file.write(self.tobytes())
 
 
 class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-many-ancestors
@@ -1110,7 +1129,7 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         """
         array = self.numpy_packed()
         if not _IS_LITTLE_ENDIAN:
-            array = array.view(array.dtype.newbyteorder("<"))
+            array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
 
