@@ -2214,23 +2214,38 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
 
     @name.setter
     def name(self, value: str | None) -> None:
-        if self._const_value is not None:
-            self._const_value.name = value
-        old_name = self._name
-        self._name = value
-        if self.is_initializer():
+        if self._name == value:
+            return
+
+        # First check if renaming is valid. Do not change anything if it is invalid
+        # to prevent the value from being in an inconsistent state.
+        is_initializer = self.is_initializer()
+        if is_initializer:
             if value is None:
                 raise ValueError(
-                    "Initializer value cannot have name set to None. Please pop() the value from initializers first"
+                    "Initializer value cannot have name set to None. Please pop() the value from initializers first to do so."
                 )
+            graph = self._graph
+            assert graph is not None
+            if value in graph.initializers and graph.initializers[value] is not self:
+                raise ValueError(
+                    f"Cannot rename initializer '{self}' to '{value}': an initializer with that name already exists."
+                )
+
+        # Rename the backing constant tensor
+        if self._const_value is not None:
+            self._const_value.name = value
+
+        # Rename self
+        old_name = self._name
+        self._name = value
+
+        if is_initializer:
             # Rename the initializer entry in the graph
+            assert value is not None, "debug: Should be guarded above"
             graph = self._graph
             assert graph is not None
             assert old_name is not None
-            if value in graph.initializers and graph.initializers[value] is not self:
-                raise ValueError(
-                    f"Cannot rename initializer to '{value}': an initializer with that name already exists."
-                )
             graph.initializers.pop(old_name)
             graph.initializers[value] = self
 
