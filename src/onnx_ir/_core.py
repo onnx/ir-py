@@ -540,8 +540,8 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
         """
-        if hasattr(file, "fileno"):
-            # This is a duplication of tobytes() for handling edge cases
+        if hasattr(file, "fileno") and isinstance(self._raw, np.ndarray):
+            # This is a duplication of tobytes() for handling special cases
             array = self.numpy()
             if self.dtype in {
                 _enums.DataType.INT4,
