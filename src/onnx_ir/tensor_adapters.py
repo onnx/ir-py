@@ -193,4 +193,4 @@ class TorchTensor(_core.Tensor):
         return bytes(self._get_data_chunk())
 
     def tofile(self, file) -> None:
-        return file.tofile(self._get_data_chunk())
+        return file.write(self._get_data_chunk())
