@@ -185,6 +185,17 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
             self._metadata = _metadata.MetadataStore()
         return self._metadata
 
+    def tofile(self, file) -> None:
+        """Write the tensor to a binary file.
+
+        This method writes the raw bytes of the tensor to a file-like object.
+        The file-like object must have a ``write`` method that accepts bytes.
+
+        Args:
+            file: A file-like object with a ``write`` method that accepts bytes.
+        """
+        file.write(self.tobytes())
+
     def display(self, *, page: bool = False) -> None:
         rich = _display.require_rich()
 
@@ -523,6 +534,30 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
 
+    def tofile(self, file) -> None:
+        """Write the tensor to a binary file.
+
+        Args:
+            file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
+        """
+        if hasattr(file, "fileno") and isinstance(self._raw, np.ndarray):
+            # This is a duplication of tobytes() for handling special cases
+            array = self.numpy()
+            if self.dtype in {
+                _enums.DataType.INT4,
+                _enums.DataType.UINT4,
+                _enums.DataType.FLOAT4E2M1,
+            }:
+                # Pack the array into int4
+                array = _type_casting.pack_4bitx2(array)
+            else:
+                assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
+            if not _IS_LITTLE_ENDIAN:
+                array = array.view(array.dtype.newbyteorder("<"))
+            array.tofile(file)
+        else:
+            file.write(self.tobytes())
+
 
 class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-many-ancestors
     """An immutable concrete tensor with its data store on disk.
@@ -590,7 +625,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             length: The length of the data in bytes.
             dtype: The data type of the tensor.
             shape: The shape of the tensor.
-            name: The name of the tensor..
+            name: The name of the tensor.
             doc_string: The documentation string.
             metadata_props: The metadata properties.
             base_dir: The base directory for the external data. It is used to resolve relative paths.
@@ -745,6 +780,18 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         offset = self._offset or 0
         length = self._length or self.nbytes
         return self.raw[offset : offset + length]
+
+    def tofile(self, file) -> None:
+        self._check_validity()
+        with open(self.path, "rb") as src:
+            if self._offset is not None:
+                src.seek(self._offset)
+            bytes_to_copy = self._length or self.nbytes
+            chunk_size = 1024 * 1024  # 1MB
+            while bytes_to_copy > 0:
+                chunk = src.read(min(chunk_size, bytes_to_copy))
+                file.write(chunk)
+                bytes_to_copy -= len(chunk)
 
     def valid(self) -> bool:
         """Check if the tensor is valid.
@@ -979,6 +1026,14 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         """Return the bytes of the tensor."""
         return self._evaluate().tobytes()
 
+    def tofile(self, file) -> None:
+        """Write the tensor to a binary file."""
+        tensor = self._evaluate()
+        if hasattr(tensor, "tofile"):
+            tensor.tofile(file)
+        else:
+            super().tofile(file)
+
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
     """A tensor that stores 4bit datatypes in packed format.
@@ -1112,6 +1167,21 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         if not _IS_LITTLE_ENDIAN:
             array = array.astype(array.dtype.newbyteorder("<"))
         return array.tobytes()
+
+    def tofile(self, file) -> None:
+        """Write the tensor to a binary file.
+
+        Args:
+            file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
+        """
+        if hasattr(file, "fileno"):
+            # This is a duplication of tobytes() for handling edge cases
+            array = self.numpy_packed()
+            if not _IS_LITTLE_ENDIAN:
+                array = array.view(array.dtype.newbyteorder("<"))
+            array.tofile(file)
+        else:
+            file.write(self.tobytes())
 
 
 class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
