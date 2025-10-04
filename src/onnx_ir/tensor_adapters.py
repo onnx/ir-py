@@ -192,5 +192,5 @@ class TorchTensor(_core.Tensor):
         # it avoids copying to a NumPy array
         return bytes(self._get_data_chunk())
 
-    def write(self, file) -> None:
-        return file.write(self._get_data_chunk())
+    def tofile(self, file) -> None:
+        return file.tofile(self._get_data_chunk())
