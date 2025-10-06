@@ -882,7 +882,7 @@ class TestIdentityEliminationPass(unittest.TestCase):
     def test_symbolic_dim_merging_edge_cases(self):
         """Test various symbolic dimension merging scenarios."""
         # Test case where one symbolic dim has value None, other has value
-        sym_dim_no_value = ir.SymbolicDim(None)  # value is None by default
+        sym_dim_no_value = ir.SymbolicDim(None)
         sym_dim_with_value = ir.SymbolicDim("batch")  # different name
 
         # Create input value with symbolic dim that has no value
