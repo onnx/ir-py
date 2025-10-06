@@ -578,6 +578,358 @@ class TestIdentityEliminationPass(unittest.TestCase):
         self.assertEqual(other_output.name, "other_output")
         self.assertIs(other_output, add_node.outputs[0])
 
+    def test_shape_merging_input_has_no_shape(self):
+        """Test shape merging when input value has no shape but output has shape info."""
+        # Create input value with no shape
+        input_value = ir.Value(
+            producer=None, name="input", shape=None, type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create Identity node with output that has shape info
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 3, 4])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([2, 3, 4]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([2, 3, 4])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity node was removed
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 1)
+        self.assertEqual(remaining_nodes[0].op_type, "Add")
+
+        # Verify the input value now has the shape from the identity output
+        self.assertIsNotNone(input_value.shape)
+        self.assertEqual(input_value.shape, ir.Shape([2, 3, 4]))
+
+    def test_shape_merging_output_has_no_shape(self):
+        """Test shape merging when output value has no shape but input has shape info."""
+        # Create input value with shape
+        input_value = ir.val(
+            "input", shape=ir.Shape([5, 6]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create Identity node with output that has no shape info
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = None
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([5, 6]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([5, 6])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value kept its original shape
+        self.assertEqual(input_value.shape, ir.Shape([5, 6]))
+
+    def test_shape_merging_identical_shapes(self):
+        """Test shape merging when input and output have identical shape information."""
+        # Create input value with shape
+        input_value = ir.val(
+            "input", shape=ir.Shape([3, 4, 5]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create Identity node with identical shape
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([3, 4, 5])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([3, 4, 5]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([3, 4, 5])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value kept its shape unchanged
+        self.assertEqual(input_value.shape, ir.Shape([3, 4, 5]))
+
+    def test_shape_merging_int_vs_symbolic_dims(self):
+        """Test shape merging where one shape has int dims and other has symbolic dims."""
+        # Create symbolic dimensions
+        sym_dim = ir.SymbolicDim("batch")
+
+        # Create input value with symbolic dimensions
+        input_value = ir.Value(
+            producer=None,
+            name="input",
+            shape=ir.Shape([sym_dim, 10]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        # Create Identity node with int dimensions in the same positions
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([32, 10])  # int dims
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([32, 10]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([32, 10])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value now has the int dimensions (preferred over symbolic)
+        expected_shape = ir.Shape([32, 10])
+        self.assertEqual(input_value.shape, expected_shape)
+
+    def test_shape_merging_different_ranks_raises_error(self):
+        """Test that merging shapes with different ranks raises an error."""
+        # Create input value with 2D shape
+        input_value = ir.Value(
+            producer=None,
+            name="input",
+            shape=ir.Shape([2, 3]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        # Create Identity node with 3D shape (different rank)
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 3, 4])  # Different rank
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([2, 3, 4]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([2, 3, 4])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+
+        # Should raise ValueError due to different ranks
+        with self.assertRaises(ValueError) as context:
+            pass_instance(model)
+
+        self.assertIn("Shapes must have the same rank", str(context.exception))
+
+    def test_type_copying_from_output_to_input(self):
+        """Test that type is copied from output to input when input has no type."""
+        # Create input value with no type
+        input_value = ir.Value(producer=None, name="input", shape=ir.Shape([2, 2]), type=None)
+
+        # Create Identity node with type info
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 2])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.INT32)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.INT32)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([2, 2])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.INT32)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value now has the type from the identity output
+        self.assertIsNotNone(input_value.type)
+        self.assertEqual(input_value.type, ir.TensorType(ir.DataType.INT32))
+
+    def test_type_preservation_when_input_already_has_type(self):
+        """Test that existing input type is preserved when both input and output have types."""
+        # Create input value with existing type
+        input_value = ir.val(
+            "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create Identity node with different type
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 2])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.INT32)  # Different type
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.INT32)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([2, 2])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.INT32)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value kept its original type (not overwritten)
+        self.assertEqual(input_value.type, ir.TensorType(ir.DataType.FLOAT))
+
+    def test_symbolic_dim_merging_edge_cases(self):
+        """Test various symbolic dimension merging scenarios."""
+        # Test case where one symbolic dim has value None, other has value
+        sym_dim_no_value = ir.SymbolicDim(None)
+        sym_dim_with_value = ir.SymbolicDim("batch")  # different name
+
+        # Create input value with symbolic dim that has no value
+        input_value = ir.Value(
+            producer=None,
+            name="input",
+            shape=ir.Shape([sym_dim_no_value, 10]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        # Create Identity node with symbolic dim that has a value
+        identity_node = ir.Node("", "Identity", inputs=[input_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([sym_dim_with_value, 10])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([16, 10]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([16, 10])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value, add_input],
+            outputs=[add_node.outputs[0]],
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify the input value now has the merged shape
+        self.assertIsNotNone(input_value.shape)
+        assert input_value.shape is not None  # For type checker
+        self.assertEqual(input_value.shape[0], sym_dim_with_value)
+        self.assertEqual(input_value.shape[1], 10)
+
     def test_duplicate_identity_output_in_graph_outputs(self):
         """Test case where the same Identity output appears multiple times in graph outputs."""
         # Create intermediate value (not a graph input)
