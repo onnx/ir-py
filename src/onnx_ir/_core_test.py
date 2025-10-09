@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import io
 import pathlib
 import tempfile
 import unittest
@@ -193,6 +194,112 @@ class TensorTest(unittest.TestCase):
         self.assertEqual(tensor.meta["test"], 1)
         tensor.metadata_props["test"] = "any string"
         self.assertEqual(tensor.metadata_props["test"], "any string")
+
+    def test_tobytes_big_endian_handling(self):
+        """Test that tobytes() correctly handles byte order conversion on big endian systems."""
+        import unittest.mock
+
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # Verify that the result is in little endian format regardless of system endianness
+        expected_bytes = array.astype(array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tobytes_packed_types_big_endian_handling(self):
+        """Test that tobytes() handles byte order conversion for packed 4-bit types."""
+        import unittest.mock
+
+        array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # For packed types, the result should be the same as the packed data in little endian
+        packed_array = _type_casting.pack_4bitx2(array.view(ir.DataType.UINT4.numpy()))
+        expected_bytes = packed_array.astype(packed_array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_with_fileno_numpy_array(self):
+        """Test tofile() with file-like object that has fileno() method and numpy array."""
+        import tempfile
+
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        self.assertEqual(result_bytes, array.tobytes())
+
+    def test_tofile_with_fileno_non_numpy_array(self):
+        """Test tofile() with file-like object that has fileno() method but non-numpy array."""
+        import tempfile
+
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        torch_tensor = torch.tensor(array)
+        tensor = _core.Tensor(torch_tensor, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should use tobytes() path since _raw is not a numpy array
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_without_fileno(self):
+        """Test tofile() with file-like object without fileno() method."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        buffer = io.BytesIO()
+        tensor.tofile(buffer)
+        result_bytes = buffer.getvalue()
+
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_packed_types_with_fileno(self):
+        """Test tofile() with packed types and file with fileno()."""
+        import tempfile
+
+        array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be the same as tobytes() for packed types
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_big_endian_handling_with_fileno(self):
+        """Test tofile() big endian handling when file has fileno() method."""
+        import tempfile
+        import unittest.mock
+
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+            with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+                tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should still produce little endian output
+        expected_bytes = array.astype(array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
 
 
 def _to_external_tensor(tensor_proto, dir: str, filename: str):
@@ -2627,6 +2734,66 @@ class PackedTensorTest(unittest.TestCase):
         # Should be able to get numpy array and perform operations
         result = tensor.numpy()
         self.assertEqual(result.sum(), 10)  # 1+2+3+4 = 10
+
+    @parameterized.parameterized.expand(
+        [
+            ("INT4", ir.DataType.INT4),
+            ("UINT4", ir.DataType.UINT4),
+            ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
+        ]
+    )
+    def test_tobytes_big_endian_handling(self, _: str, dtype: ir.DataType):
+        """Test that PackedTensor.tobytes() correctly handles byte order conversion."""
+        import unittest.mock
+
+        # Create packed data
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=dtype, shape=shape)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # Verify that the result is in little endian format regardless of system endianness
+        expected_bytes = packed_data.astype(packed_data.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_packed_tensor(self):
+        """Test tofile() method works correctly for PackedTensor."""
+        import tempfile
+
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be the same as tobytes()
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_packed_tensor_big_endian_handling(self):
+        """Test tofile() big endian handling for PackedTensor."""
+        import tempfile
+        import unittest.mock
+
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+            with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+                tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should still produce little endian output
+        expected_bytes = packed_data.astype(packed_data.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
 
 
 class StringTensorTest(unittest.TestCase):
