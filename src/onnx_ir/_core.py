@@ -348,6 +348,17 @@ def _maybe_view_np_array_with_ml_dtypes(
     return array
 
 
+def _supports_fileno(file: Any) -> bool:
+    """Check if the file-like object supports fileno()."""
+    if not hasattr(file, "fileno"):
+        return False
+    try:
+        file.fileno()
+    except Exception:  # pylint: disable=broad-except
+        return False
+    return True
+
+
 class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
     """An immutable concrete tensor.
 
@@ -540,7 +551,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
         """
-        if hasattr(file, "fileno") and isinstance(self._raw, np.ndarray):
+        if _supports_fileno(file) and isinstance(self._raw, np.ndarray):
             # This is a duplication of tobytes() for handling special cases
             array = self.numpy()
             if self.dtype in {
@@ -553,7 +564,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             else:
                 assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
             if not _IS_LITTLE_ENDIAN:
-                array = array.view(array.dtype.newbyteorder("<"))
+                array = array.astype(array.dtype.newbyteorder("<"))
             array.tofile(file)
         else:
             file.write(self.tobytes())
@@ -1174,11 +1185,11 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
         """
-        if hasattr(file, "fileno"):
+        if _supports_fileno(file):
             # This is a duplication of tobytes() for handling edge cases
             array = self.numpy_packed()
             if not _IS_LITTLE_ENDIAN:
-                array = array.view(array.dtype.newbyteorder("<"))
+                array = array.astype(array.dtype.newbyteorder("<"))
             array.tofile(file)
         else:
             file.write(self.tobytes())
