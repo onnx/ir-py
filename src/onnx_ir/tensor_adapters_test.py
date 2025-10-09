@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 
 import ml_dtypes
@@ -82,6 +83,57 @@ class TorchTensorTest(unittest.TestCase):
     def test_tobytes(self, dtype: torch.dtype):
         tensor = tensor_adapters.TorchTensor(torch.tensor([1], dtype=dtype))
         self.assertEqual(tensor.tobytes(), tensor.numpy().tobytes())
+
+    def test_tofile_method_exists_and_works(self):
+        """Test that tofile() method exists and works correctly."""
+        import io
+
+        torch_tensor = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)
+        tensor = tensor_adapters.TorchTensor(torch_tensor)
+
+        # Test with BytesIO buffer
+        buffer = io.BytesIO()
+        tensor.tofile(buffer)
+        result_bytes = buffer.getvalue()
+
+        expected_bytes = tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    @parameterized.parameterized.expand(
+        [
+            (torch.bfloat16,),
+            (torch.bool,),
+            (torch.complex128,),
+            (torch.complex64,),
+            (torch.float16,),
+            (torch.float32,),
+            (torch.float64,),
+            (torch.float8_e4m3fn,),
+            (torch.float8_e4m3fnuz,),
+            (torch.float8_e5m2,),
+            (torch.float8_e5m2fnuz,),
+            (torch.int16,),
+            (torch.int32,),
+            (torch.int64,),
+            (torch.int8,),
+            (torch.uint16,),
+            (torch.uint32,),
+            (torch.uint64,),
+            (torch.uint8,),
+        ],
+    )
+    def test_tofile(self, dtype: torch.dtype):
+        """Test tofile() method for various data types."""
+        torch_tensor = torch.tensor([1], dtype=dtype)
+        tensor = tensor_adapters.TorchTensor(torch_tensor)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        expected_bytes = tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
 
 
 class TorchDtypeConversionTest(unittest.TestCase):
