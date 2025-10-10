@@ -211,8 +211,8 @@ def _write_external_data(
                 data_file.write(b"\0" * (current_offset - file_size))
 
             if hasattr(tensor, "tofile"):
-                # Some existing implementation of TensorProtocol may not have tofile()
-                # as it was introduced in v0.1.11
+                # Some existing implementation (e.g. PyTorch <2.10) of TensorProtocol
+                # may not have tofile() as it was introduced in v0.1.11
                 tensor.tofile(data_file)
             else:
                 raw_data = tensor.tobytes()
