@@ -168,7 +168,8 @@ class TorchTensor(_core.Tensor):
             return self.numpy()
         return self.numpy().__array__(dtype)
 
-    def _get_data_chunk(self):
+    def _get_cbytes(self):
+        """Get a ctypes byte array pointing to the tensor data."""
         import torch._subclasses.fake_tensor
 
         with torch._subclasses.fake_tensor.unset_fake_temporarily():  # pylint: disable=protected-access
@@ -182,6 +183,7 @@ class TorchTensor(_core.Tensor):
                 "or save the model without initializers by setting include_initializers=False."
             )
 
+        # Return the tensor to ensure it is not garbage collected while the ctypes array is in use
         return tensor, (ctypes.c_ubyte * tensor.element_size() * tensor.numel()).from_address(
             tensor.data_ptr()
         )
@@ -190,9 +192,9 @@ class TorchTensor(_core.Tensor):
         # Implement tobytes to support native PyTorch types so we can use types like bloat16
         # Reading from memory directly is also more efficient because
         # it avoids copying to a NumPy array
-        _, address = self._get_data_chunk()
-        return bytes(address)
+        _, data = self._get_cbytes()
+        return bytes(data)
 
     def tofile(self, file) -> None:
-        _, address = self._get_data_chunk()
-        return file.write(address)
+        _, data = self._get_cbytes()
+        return file.write(data)
