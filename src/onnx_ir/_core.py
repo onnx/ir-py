@@ -191,6 +191,8 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
         This method writes the raw bytes of the tensor to a file-like object.
         The file-like object must have a ``write`` method that accepts bytes.
 
+        .. versionadded:: 0.1.11
+
         Args:
             file: A file-like object with a ``write`` method that accepts bytes.
         """
@@ -547,6 +549,8 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
     def tofile(self, file) -> None:
         """Write the tensor to a binary file.
+
+        .. versionadded:: 0.1.11
 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
@@ -1038,7 +1042,6 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         return self._evaluate().tobytes()
 
     def tofile(self, file) -> None:
-        """Write the tensor to a binary file."""
         tensor = self._evaluate()
         if hasattr(tensor, "tofile"):
             tensor.tofile(file)
@@ -1181,6 +1184,8 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
 
     def tofile(self, file) -> None:
         """Write the tensor to a binary file.
+
+        .. versionadded:: 0.1.11
 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
