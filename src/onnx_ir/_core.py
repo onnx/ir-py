@@ -361,6 +361,27 @@ def _supports_fileno(file: Any) -> bool:
     return True
 
 
+def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
+    """Create a numpy array for the byte representation of the tensor.
+
+    This function is used for serializing the tensor to bytes. It handles the
+    special cases for 4-bit data types and endianness.
+    """
+    array = tensor.numpy()
+    if tensor.dtype in {
+        _enums.DataType.INT4,
+        _enums.DataType.UINT4,
+        _enums.DataType.FLOAT4E2M1,
+    }:
+        # Pack the array into int4
+        array = _type_casting.pack_4bitx2(array)
+    else:
+        assert tensor.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
+    if not _IS_LITTLE_ENDIAN:
+        array = array.astype(array.dtype.newbyteorder("<"))
+    return array
+
+
 class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
     """An immutable concrete tensor.
 
@@ -533,18 +554,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         value is not a numpy array.
         """
         # TODO(justinchuby): Support DLPack
-        array = self.numpy()
-        if self.dtype in {
-            _enums.DataType.INT4,
-            _enums.DataType.UINT4,
-            _enums.DataType.FLOAT4E2M1,
-        }:
-            # Pack the array into int4
-            array = _type_casting.pack_4bitx2(array)
-        else:
-            assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
-        if not _IS_LITTLE_ENDIAN:
-            array = array.astype(array.dtype.newbyteorder("<"))
+        array = _create_np_array_for_byte_representation(self)
         return array.tobytes()
 
     def tofile(self, file) -> None:
@@ -557,18 +567,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         """
         if _supports_fileno(file) and isinstance(self._raw, np.ndarray):
             # This is a duplication of tobytes() for handling special cases
-            array = self.numpy()
-            if self.dtype in {
-                _enums.DataType.INT4,
-                _enums.DataType.UINT4,
-                _enums.DataType.FLOAT4E2M1,
-            }:
-                # Pack the array into int4
-                array = _type_casting.pack_4bitx2(array)
-            else:
-                assert self.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
-            if not _IS_LITTLE_ENDIAN:
-                array = array.astype(array.dtype.newbyteorder("<"))
+            array = _create_np_array_for_byte_representation(self)
             array.tofile(file)
         else:
             file.write(self.tobytes())
