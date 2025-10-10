@@ -7,6 +7,7 @@ import io
 import pathlib
 import tempfile
 import unittest
+import unittest.mock
 from typing import Any
 
 import ml_dtypes
@@ -197,8 +198,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tobytes_big_endian_handling(self):
         """Test that tobytes() correctly handles byte order conversion on big endian systems."""
-        import unittest.mock
-
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         tensor = _core.Tensor(array)
 
@@ -212,8 +211,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tobytes_packed_types_big_endian_handling(self):
         """Test that tobytes() handles byte order conversion for packed 4-bit types."""
-        import unittest.mock
-
         array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
         tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
 
@@ -228,8 +225,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tofile_with_fileno_numpy_array(self):
         """Test tofile() with file-like object that has fileno() method and numpy array."""
-        import tempfile
-
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         tensor = _core.Tensor(array)
 
@@ -242,8 +237,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tofile_with_fileno_non_numpy_array(self):
         """Test tofile() with file-like object that has fileno() method but non-numpy array."""
-        import tempfile
-
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         torch_tensor = torch.tensor(array)
         tensor = _core.Tensor(torch_tensor, dtype=ir.DataType.FLOAT)
@@ -269,8 +262,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tofile_packed_types_with_fileno(self):
         """Test tofile() with packed types and file with fileno()."""
-        import tempfile
-
         array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
         tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
 
@@ -284,9 +275,6 @@ class TensorTest(unittest.TestCase):
 
     def test_tofile_big_endian_handling_with_fileno(self):
         """Test tofile() big endian handling when file has fileno() method."""
-        import tempfile
-        import unittest.mock
-
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         tensor = _core.Tensor(array)
 
@@ -299,6 +287,113 @@ class TensorTest(unittest.TestCase):
 
         # Should still produce little endian output
         expected_bytes = array.astype(array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_empty_tensor(self):
+        """Test tofile() with an empty tensor."""
+        # Test with numpy empty array
+        empty_array = np.array([], dtype=np.float32)
+        tensor = _core.Tensor(empty_array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Empty tensor should write empty bytes
+        self.assertEqual(result_bytes, b"")
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_empty_tensor_torch(self):
+        """Test tofile() with an empty torch tensor."""
+        # Test with torch empty tensor
+        empty_torch_tensor = torch.tensor([], dtype=torch.float32)
+        tensor = _core.Tensor(empty_torch_tensor, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Empty tensor should write empty bytes
+        self.assertEqual(result_bytes, b"")
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_consecutive_writes_same_file(self):
+        """Test tofile() with three tensors writing consecutively to the same file."""
+        # Create three different tensors
+        array1 = np.array([1.0, 2.0], dtype=np.float32)
+        array2 = np.array([3.0, 4.0, 5.0], dtype=np.float32)
+        array3 = np.array([6.0], dtype=np.float32)
+
+        tensor1 = _core.Tensor(array1)
+        tensor2 = _core.Tensor(array2)
+        tensor3 = _core.Tensor(array3)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write three tensors consecutively
+            tensor1.tofile(temp_file)
+            tensor2.tofile(temp_file)
+            tensor3.tofile(temp_file)
+
+            # Read the entire file
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # The file should contain all three tensors' data concatenated
+        expected_bytes = array1.tobytes() + array2.tobytes() + array3.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+        # Verify each part
+        bytes1 = array1.tobytes()
+        bytes2 = array2.tobytes()
+        bytes3 = array3.tobytes()
+
+        self.assertEqual(result_bytes[: len(bytes1)], bytes1)
+        self.assertEqual(result_bytes[len(bytes1) : len(bytes1) + len(bytes2)], bytes2)
+        self.assertEqual(result_bytes[len(bytes1) + len(bytes2) :], bytes3)
+
+    def test_tofile_consecutive_writes_mixed_types(self):
+        """Test tofile() with mixed tensor types (numpy and torch) writing consecutively."""
+        # Create tensors with different underlying types
+        numpy_array = np.array([1.0, 2.0], dtype=np.float32)
+        torch_array = np.array([3.0, 4.0], dtype=np.float32)
+        torch_tensor_raw = torch.tensor(torch_array)
+
+        numpy_tensor = _core.Tensor(numpy_array)
+        torch_tensor = _core.Tensor(torch_tensor_raw, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write numpy tensor first, then torch tensor
+            numpy_tensor.tofile(temp_file)
+            torch_tensor.tofile(temp_file)
+
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be equivalent to concatenating their tobytes()
+        expected_bytes = numpy_tensor.tobytes() + torch_tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_consecutive_writes_packed_types(self):
+        """Test tofile() with packed tensor types writing consecutively."""
+        # Create packed tensors
+        array1 = np.array([0, 1, 2, 7], dtype=np.uint8)
+        array2 = np.array([8, 9, 10, 15], dtype=np.uint8)
+
+        tensor1 = _core.Tensor(array1, dtype=ir.DataType.UINT4)
+        tensor2 = _core.Tensor(array2, dtype=ir.DataType.UINT4)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write packed tensors consecutively
+            tensor1.tofile(temp_file)
+            tensor2.tofile(temp_file)
+
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be equivalent to concatenating their tobytes()
+        expected_bytes = tensor1.tobytes() + tensor2.tobytes()
         self.assertEqual(result_bytes, expected_bytes)
 
 
@@ -2744,8 +2839,6 @@ class PackedTensorTest(unittest.TestCase):
     )
     def test_tobytes_big_endian_handling(self, _: str, dtype: ir.DataType):
         """Test that PackedTensor.tobytes() correctly handles byte order conversion."""
-        import unittest.mock
-
         # Create packed data
         packed_data = np.array([0x21, 0x43], dtype=np.uint8)
         shape = _core.Shape([4])
@@ -2761,8 +2854,6 @@ class PackedTensorTest(unittest.TestCase):
 
     def test_tofile_packed_tensor(self):
         """Test tofile() method works correctly for PackedTensor."""
-        import tempfile
-
         packed_data = np.array([0x21, 0x43], dtype=np.uint8)
         shape = _core.Shape([4])
         tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
@@ -2777,9 +2868,6 @@ class PackedTensorTest(unittest.TestCase):
 
     def test_tofile_packed_tensor_big_endian_handling(self):
         """Test tofile() big endian handling for PackedTensor."""
-        import tempfile
-        import unittest.mock
-
         packed_data = np.array([0x21, 0x43], dtype=np.uint8)
         shape = _core.Shape([4])
         tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
