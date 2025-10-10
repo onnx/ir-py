@@ -585,7 +585,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
     the tensor is recommended if IO overhead and memory usage is a concern.
 
     To obtain an array, call :meth:`numpy`. To obtain the bytes,
-    call :meth:`tobytes`.
+    call :meth:`tobytes`. To write the data to a file, call :meth:`tofile`.
 
     The :attr:`location` must be a relative path conforming to the ONNX
     specification. Given the correct :attr:`base_dir`, the :attr:`path` is computed
