@@ -565,7 +565,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
         """
-        if _supports_fileno(file) and isinstance(self._raw, np.ndarray):
+        if isinstance(self._raw, np.ndarray) and _supports_fileno(file):
             # This is a duplication of tobytes() for handling special cases
             array = _create_np_array_for_byte_representation(self)
             array.tofile(file)
