@@ -710,6 +710,170 @@ class ExternalTensorTest(unittest.TestCase):
             # about permission errors
             del tensor
 
+    def test_tofile_basic(self):
+        """Test ExternalTensor.tofile() with basic functionality."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Test writing to BytesIO
+        output = io.BytesIO()
+        tensor.tofile(output)
+        output.seek(0)
+        written_data = output.read()
+
+        # Verify the written data matches expected
+        expected_data = self.data.tobytes()
+        self.assertEqual(written_data, expected_data)
+
+    def test_tofile_with_offset(self):
+        """Test ExternalTensor.tofile() with offset handling."""
+        # Use the second tensor which has an offset
+        external_tensor2 = self.model.graph.initializer[1]
+        external_info2 = onnx.external_data_helper.ExternalDataInfo(external_tensor2)
+        tensor2 = _core.ExternalTensor(
+            external_info2.location,
+            offset=external_info2.offset,
+            length=external_info2.length,
+            dtype=ir.DataType.FLOAT16,
+            base_dir=self.base_path,
+            name="input2",
+            shape=_core.Shape(external_tensor2.dims),
+        )
+
+        # Test writing to BytesIO
+        output = io.BytesIO()
+        tensor2.tofile(output)
+        output.seek(0)
+        written_data = output.read()
+
+        # Verify the written data matches expected
+        expected_data = self.data_float16.tobytes()
+        self.assertEqual(written_data, expected_data)
+
+    def test_tofile_with_file_object(self):
+        """Test ExternalTensor.tofile() writing to a file."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            written_data = temp_file.read()
+
+            # Verify the written data matches expected
+            expected_data = self.data.tobytes()
+            self.assertEqual(written_data, expected_data)
+
+    def test_tofile_empty_tensor(self):
+        """Test ExternalTensor.tofile() with empty tensor."""
+        expected_array = np.array([], dtype=np.float32)
+        tensor_proto = ir.serde.serialize_tensor(ir.Tensor(expected_array))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _to_external_tensor(tensor_proto, temp_dir, "tensor.bin")
+            tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)
+
+            self.assertIsInstance(tensor, _core.ExternalTensor)
+
+            # Test writing empty tensor to BytesIO
+            output = io.BytesIO()
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+            # Should write empty bytes
+            self.assertEqual(written_data, b"")
+            del tensor
+
+    def test_tofile_large_chunks(self):
+        """Test ExternalTensor.tofile() handles large data with chunking."""
+        # Create a larger array to test the chunking mechanism
+        large_data = np.random.rand(1100, 1100).astype(np.float32)
+        tensor_proto = ir.serde.serialize_tensor(ir.Tensor(large_data))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _to_external_tensor(tensor_proto, temp_dir, "large_tensor.bin")
+            tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)
+
+            self.assertIsInstance(tensor, _core.ExternalTensor)
+
+            # Test writing to BytesIO
+            output = io.BytesIO()
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+            # Verify the written data matches expected
+            expected_data = large_data.tobytes()
+            self.assertEqual(written_data, expected_data)
+            del tensor
+
+    def test_tofile_invalidated_tensor_raises_error(self):
+        """Test that tofile() raises error on invalidated tensor."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Invalidate the tensor
+        tensor.invalidate()
+
+        # Should raise ValueError when trying to write
+        output = io.BytesIO()
+        with self.assertRaisesRegex(ValueError, "invalidated"):
+            tensor.tofile(output)
+
+    def test_tofile_consecutive_writes(self):
+        """Test ExternalTensor.tofile() with consecutive writes to same file."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Write tensor three times consecutively to BytesIO
+        output = io.BytesIO()
+        tensor.tofile(output)
+        tensor.tofile(output)
+        tensor.tofile(output)
+
+        output.seek(0)
+        written_data = output.read()
+
+        # Should have written the data three times
+        expected_data = self.data.tobytes()
+        expected_triple = expected_data + expected_data + expected_data
+        self.assertEqual(written_data, expected_triple)
+
 
 class SymbolicDimTest(unittest.TestCase):
     def test_init_raises_when_value_is_int(self):
