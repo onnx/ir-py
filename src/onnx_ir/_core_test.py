@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import copy
+import io
 import pathlib
 import tempfile
 import unittest
+import unittest.mock
 from typing import Any
 
 import ml_dtypes
@@ -193,6 +195,206 @@ class TensorTest(unittest.TestCase):
         self.assertEqual(tensor.meta["test"], 1)
         tensor.metadata_props["test"] = "any string"
         self.assertEqual(tensor.metadata_props["test"], "any string")
+
+    def test_tobytes_big_endian_handling(self):
+        """Test that tobytes() correctly handles byte order conversion on big endian systems."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # Verify that the result is in little endian format regardless of system endianness
+        expected_bytes = array.astype(array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tobytes_packed_types_big_endian_handling(self):
+        """Test that tobytes() handles byte order conversion for packed 4-bit types."""
+        array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # For packed types, the result should be the same as the packed data in little endian
+        packed_array = _type_casting.pack_4bitx2(array.view(ir.DataType.UINT4.numpy()))
+        expected_bytes = packed_array.astype(packed_array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_with_fileno_numpy_array(self):
+        """Test tofile() with file-like object that has fileno() method and numpy array."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        self.assertEqual(result_bytes, array.tobytes())
+
+    def test_tofile_with_fileno_non_numpy_array(self):
+        """Test tofile() with file-like object that has fileno() method but non-numpy array."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        torch_tensor = torch.tensor(array)
+        tensor = _core.Tensor(torch_tensor, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should use tobytes() path since _raw is not a numpy array
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_without_fileno(self):
+        """Test tofile() with file-like object without fileno() method."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        buffer = io.BytesIO()
+        tensor.tofile(buffer)
+        result_bytes = buffer.getvalue()
+
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_packed_types_with_fileno(self):
+        """Test tofile() with packed types and file with fileno()."""
+        array = np.array([0, 1, 2, 7, 15], dtype=np.uint8)
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT4)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be the same as tobytes() for packed types
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_big_endian_handling_with_fileno(self):
+        """Test tofile() big endian handling when file has fileno() method."""
+        array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        tensor = _core.Tensor(array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+            with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+                tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should still produce little endian output
+        expected_bytes = array.astype(array.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_empty_tensor(self):
+        """Test tofile() with an empty tensor."""
+        # Test with numpy empty array
+        empty_array = np.array([], dtype=np.float32)
+        tensor = _core.Tensor(empty_array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Empty tensor should write empty bytes
+        self.assertEqual(result_bytes, b"")
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_empty_tensor_torch(self):
+        """Test tofile() with an empty torch tensor."""
+        # Test with torch empty tensor
+        empty_torch_tensor = torch.tensor([], dtype=torch.float32)
+        tensor = _core.Tensor(empty_torch_tensor, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Empty tensor should write empty bytes
+        self.assertEqual(result_bytes, b"")
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_consecutive_writes_same_file(self):
+        """Test tofile() with three tensors writing consecutively to the same file."""
+        # Create three different tensors
+        array1 = np.array([1.0, 2.0], dtype=np.float32)
+        array2 = np.array([3.0, 4.0, 5.0], dtype=np.float32)
+        array3 = np.array([6.0], dtype=np.float32)
+
+        tensor1 = _core.Tensor(array1)
+        tensor2 = _core.Tensor(array2)
+        tensor3 = _core.Tensor(array3)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write three tensors consecutively
+            tensor1.tofile(temp_file)
+            tensor2.tofile(temp_file)
+            tensor3.tofile(temp_file)
+
+            # Read the entire file
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # The file should contain all three tensors' data concatenated
+        expected_bytes = array1.tobytes() + array2.tobytes() + array3.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+        # Verify each part
+        bytes1 = array1.tobytes()
+        bytes2 = array2.tobytes()
+        bytes3 = array3.tobytes()
+
+        self.assertEqual(result_bytes[: len(bytes1)], bytes1)
+        self.assertEqual(result_bytes[len(bytes1) : len(bytes1) + len(bytes2)], bytes2)
+        self.assertEqual(result_bytes[len(bytes1) + len(bytes2) :], bytes3)
+
+    def test_tofile_consecutive_writes_mixed_types(self):
+        """Test tofile() with mixed tensor types (numpy and torch) writing consecutively."""
+        # Create tensors with different underlying types
+        numpy_array = np.array([1.0, 2.0], dtype=np.float32)
+        torch_array = np.array([3.0, 4.0], dtype=np.float32)
+        torch_tensor_raw = torch.tensor(torch_array)
+
+        numpy_tensor = _core.Tensor(numpy_array)
+        torch_tensor = _core.Tensor(torch_tensor_raw, dtype=ir.DataType.FLOAT)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write numpy tensor first, then torch tensor
+            numpy_tensor.tofile(temp_file)
+            torch_tensor.tofile(temp_file)
+
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be equivalent to concatenating their tobytes()
+        expected_bytes = numpy_tensor.tobytes() + torch_tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_consecutive_writes_packed_types(self):
+        """Test tofile() with packed tensor types writing consecutively."""
+        # Create packed tensors
+        array1 = np.array([0, 1, 2, 7], dtype=np.uint8)
+        array2 = np.array([8, 9, 10, 15], dtype=np.uint8)
+
+        tensor1 = _core.Tensor(array1, dtype=ir.DataType.UINT4)
+        tensor2 = _core.Tensor(array2, dtype=ir.DataType.UINT4)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Write packed tensors consecutively
+            tensor1.tofile(temp_file)
+            tensor2.tofile(temp_file)
+
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be equivalent to concatenating their tobytes()
+        expected_bytes = tensor1.tobytes() + tensor2.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
 
 
 def _to_external_tensor(tensor_proto, dir: str, filename: str):
@@ -507,6 +709,170 @@ class ExternalTensorTest(unittest.TestCase):
             # Close the mmap file by deleting the reference to tensor so Windows doesn't complain
             # about permission errors
             del tensor
+
+    def test_tofile_basic(self):
+        """Test ExternalTensor.tofile() with basic functionality."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Test writing to BytesIO
+        output = io.BytesIO()
+        tensor.tofile(output)
+        output.seek(0)
+        written_data = output.read()
+
+        # Verify the written data matches expected
+        expected_data = self.data.tobytes()
+        self.assertEqual(written_data, expected_data)
+
+    def test_tofile_with_offset(self):
+        """Test ExternalTensor.tofile() with offset handling."""
+        # Use the second tensor which has an offset
+        external_tensor2 = self.model.graph.initializer[1]
+        external_info2 = onnx.external_data_helper.ExternalDataInfo(external_tensor2)
+        tensor2 = _core.ExternalTensor(
+            external_info2.location,
+            offset=external_info2.offset,
+            length=external_info2.length,
+            dtype=ir.DataType.FLOAT16,
+            base_dir=self.base_path,
+            name="input2",
+            shape=_core.Shape(external_tensor2.dims),
+        )
+
+        # Test writing to BytesIO
+        output = io.BytesIO()
+        tensor2.tofile(output)
+        output.seek(0)
+        written_data = output.read()
+
+        # Verify the written data matches expected
+        expected_data = self.data_float16.tobytes()
+        self.assertEqual(written_data, expected_data)
+
+    def test_tofile_with_file_object(self):
+        """Test ExternalTensor.tofile() writing to a file."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            written_data = temp_file.read()
+
+            # Verify the written data matches expected
+            expected_data = self.data.tobytes()
+            self.assertEqual(written_data, expected_data)
+
+    def test_tofile_empty_tensor(self):
+        """Test ExternalTensor.tofile() with empty tensor."""
+        expected_array = np.array([], dtype=np.float32)
+        tensor_proto = ir.serde.serialize_tensor(ir.Tensor(expected_array))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _to_external_tensor(tensor_proto, temp_dir, "tensor.bin")
+            tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)
+
+            self.assertIsInstance(tensor, _core.ExternalTensor)
+
+            # Test writing empty tensor to BytesIO
+            output = io.BytesIO()
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+            # Should write empty bytes
+            self.assertEqual(written_data, b"")
+            del tensor
+
+    def test_tofile_large_chunks(self):
+        """Test ExternalTensor.tofile() handles large data with chunking."""
+        # Create a larger array to test the chunking mechanism
+        large_data = np.random.rand(1100, 1100).astype(np.float32)
+        tensor_proto = ir.serde.serialize_tensor(ir.Tensor(large_data))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _to_external_tensor(tensor_proto, temp_dir, "large_tensor.bin")
+            tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)
+
+            self.assertIsInstance(tensor, _core.ExternalTensor)
+
+            # Test writing to BytesIO
+            output = io.BytesIO()
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+            # Verify the written data matches expected
+            expected_data = large_data.tobytes()
+            self.assertEqual(written_data, expected_data)
+            del tensor
+
+    def test_tofile_invalidated_tensor_raises_error(self):
+        """Test that tofile() raises error on invalidated tensor."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Invalidate the tensor
+        tensor.invalidate()
+
+        # Should raise ValueError when trying to write
+        output = io.BytesIO()
+        with self.assertRaisesRegex(ValueError, "invalidated"):
+            tensor.tofile(output)
+
+    def test_tofile_consecutive_writes(self):
+        """Test ExternalTensor.tofile() with consecutive writes to same file."""
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        # Write tensor three times consecutively to BytesIO
+        output = io.BytesIO()
+        tensor.tofile(output)
+        tensor.tofile(output)
+        tensor.tofile(output)
+
+        output.seek(0)
+        written_data = output.read()
+
+        # Should have written the data three times
+        expected_data = self.data.tobytes()
+        expected_triple = expected_data + expected_data + expected_data
+        self.assertEqual(written_data, expected_triple)
 
 
 class SymbolicDimTest(unittest.TestCase):
@@ -2627,6 +2993,59 @@ class PackedTensorTest(unittest.TestCase):
         # Should be able to get numpy array and perform operations
         result = tensor.numpy()
         self.assertEqual(result.sum(), 10)  # 1+2+3+4 = 10
+
+    @parameterized.parameterized.expand(
+        [
+            ("INT4", ir.DataType.INT4),
+            ("UINT4", ir.DataType.UINT4),
+            ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
+        ]
+    )
+    def test_tobytes_big_endian_handling(self, _: str, dtype: ir.DataType):
+        """Test that PackedTensor.tobytes() correctly handles byte order conversion."""
+        # Create packed data
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=dtype, shape=shape)
+
+        # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+        with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+            result_bytes = tensor.tobytes()
+
+        # Verify that the result is in little endian format regardless of system endianness
+        expected_bytes = packed_data.astype(packed_data.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    def test_tofile_packed_tensor(self):
+        """Test tofile() method works correctly for PackedTensor."""
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should be the same as tobytes()
+        self.assertEqual(result_bytes, tensor.tobytes())
+
+    def test_tofile_packed_tensor_big_endian_handling(self):
+        """Test tofile() big endian handling for PackedTensor."""
+        packed_data = np.array([0x21, 0x43], dtype=np.uint8)
+        shape = _core.Shape([4])
+        tensor = _core.PackedTensor(packed_data, dtype=ir.DataType.UINT4, shape=shape)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            # Mock _IS_LITTLE_ENDIAN to simulate big endian system
+            with unittest.mock.patch("onnx_ir._core._IS_LITTLE_ENDIAN", False):
+                tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        # Should still produce little endian output
+        expected_bytes = packed_data.astype(packed_data.dtype.newbyteorder("<")).tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
 
 
 class StringTensorTest(unittest.TestCase):

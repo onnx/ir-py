@@ -205,14 +205,20 @@ def _write_external_data(
                 )
             current_offset = tensor_info.offset
             assert tensor is not None
-            raw_data = tensor.tobytes()
-            if isinstance(tensor, _core.ExternalTensor):
-                tensor.release()
             # Pad file to required offset if needed
             file_size = data_file.tell()
             if current_offset > file_size:
                 data_file.write(b"\0" * (current_offset - file_size))
-            data_file.write(raw_data)
+
+            if hasattr(tensor, "tofile"):
+                # Some existing implementation of TensorProtocol
+                # may not have tofile() as it was introduced in v0.1.11
+                tensor.tofile(data_file)
+            else:
+                raw_data = tensor.tobytes()
+                if isinstance(tensor, _core.ExternalTensor):
+                    tensor.release()
+                data_file.write(raw_data)
 
 
 def _create_external_tensor(
