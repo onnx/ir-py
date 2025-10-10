@@ -1043,7 +1043,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
     def tofile(self, file) -> None:
         tensor = self._evaluate()
         if hasattr(tensor, "tofile"):
-            # Some existing implementation (e.g. PyTorch <2.10) of TensorProtocol
+            # Some existing implementation of TensorProtocol
             # may not have tofile() as it was introduced in v0.1.11
             tensor.tofile(file)
         else:
