@@ -195,6 +195,20 @@ class TorchDtypeConversionTest(unittest.TestCase):
         actual = tensor_adapters.from_torch_dtype(torch_dtype)
         self.assertEqual(actual, expected_onnx_dtype)
 
+    def test_tofile_non_contiguous(self):
+        base = torch.arange(0, 64, dtype=torch.int32).reshape(8, 8)
+        sliced = base[:, ::2]  # Stride in last dim -> non-contiguous
+        self.assertFalse(sliced.is_contiguous())
+        tensor = tensor_adapters.TorchTensor(sliced)
+        # Ensure bytes correspond to the contiguous clone inside implementation
+        expected_manual = sliced.contiguous().numpy().tobytes()
+        with tempfile.NamedTemporaryFile() as tmp:
+            tensor.tofile(tmp)
+            tmp.seek(0)
+            data = tmp.read()
+        self.assertEqual(data, expected_manual)
+        self.assertEqual(tensor.tobytes(), expected_manual)
+
 
 if __name__ == "__main__":
     unittest.main()
