@@ -565,12 +565,8 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
         Args:
             file: A file-like object with a ``write`` method that accepts bytes, or has an ``fileno()`` method.
         """
-        if isinstance(self._raw, np.ndarray) and _supports_fileno(file):
-            # This is a duplication of tobytes() for handling special cases
-            array = _create_np_array_for_byte_representation(self)
-            array.tofile(file)
-        else:
-            file.write(self.tobytes())
+        # Avoid using numpy tofile as its performance is inconsistent
+        file.write(self.tobytes())
 
 
 class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-many-ancestors
