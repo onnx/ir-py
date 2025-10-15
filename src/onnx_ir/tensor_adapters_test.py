@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import tempfile
 import unittest
 
@@ -86,8 +87,6 @@ class TorchTensorTest(unittest.TestCase):
 
     def test_tofile_method_exists_and_works(self):
         """Test that tofile() method exists and works correctly."""
-        import io
-
         torch_tensor = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)
         tensor = tensor_adapters.TorchTensor(torch_tensor)
 
