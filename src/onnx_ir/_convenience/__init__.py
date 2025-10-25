@@ -397,12 +397,15 @@ def replace_nodes_and_values(
     """
     for old_value, new_value in zip(old_values, new_values):
         # Propagate relevant info from old value to new value
-        # TODO(Rama): Perhaps this should be a separate utility function. Also, consider
-        # merging old and new type/shape info.
-        new_value.type = old_value.type
-        new_value.shape = old_value.shape
-        new_value.const_value = old_value.const_value
-        new_value.name = old_value.name
+        # TODO(Rama): Perhaps this should be a separate utility function.
+        new_value.type = old_value.type if old_value.type is not None else new_value.type
+        new_value.shape = old_value.shape if old_value.shape is not None else new_value.shape
+        new_value.const_value = (
+            old_value.const_value
+            if old_value.const_value is not None
+            else new_value.const_value
+        )
+        new_value.name = old_value.name if old_value.name is not None else new_value.name
 
     # Reconnect the users of the deleted values to use the new values
     replace_all_uses_with(old_values, new_values)
