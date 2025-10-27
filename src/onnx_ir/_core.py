@@ -2448,6 +2448,35 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         """Whether the value is an initializer of a graph."""
         return self._is_initializer
 
+    def replace_all_uses_with(
+        self, replacement: Value, /, replace_graph_outputs: bool = True
+    ) -> None:
+        """Replace all uses of this value with another value.
+
+        If the value is an output of a graph and ``replace_graph_outputs`` is ``True`` (default),
+        the graph output will also be replaced. Be careful when a value appears multiple times
+        in the graph outputs - this is invalid. An identity node will need to be added on each
+        duplicated outputs to ensure a valid ONNX graph.
+
+        To replace usage of a sequence of values with another sequence of values, consider using
+        :func:`onnx_ir.convenience.replace_all_uses_with`.
+
+        .. versionadded:: 0.1.12
+
+        Args:
+            replacement: The value to replace all uses with.
+            replace_graph_outputs: Whether to replace the graph outputs if this value is
+                an output of a graph. Default to ``True``.
+        """
+        for user_node, index in self.uses():
+            user_node.replace_input_with(index, replacement)
+        if replace_graph_outputs and self.is_graph_output():
+            graph = self.graph
+            assert graph is not None
+            for i, output in enumerate(graph.outputs):
+                if output is self:
+                    graph.outputs[i] = replacement
+
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
 def Input(

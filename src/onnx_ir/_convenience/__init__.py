@@ -280,6 +280,7 @@ def convert_attributes(
 def replace_all_uses_with(
     values: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
     replacements: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
+    replace_graph_outputs: bool = False,
 ) -> None:
     """Replace all uses of the given values with the replacements.
 
@@ -329,8 +330,7 @@ def replace_all_uses_with(
     if len(values) != len(replacements):
         raise ValueError("The number of values and replacements must match.")
     for value, replacement in zip(values, replacements):
-        for user_node, index in tuple(value.uses()):
-            user_node.replace_input_with(index, replacement)
+        value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
 
 
 def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
