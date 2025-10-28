@@ -319,6 +319,9 @@ def replace_all_uses_with(
         replaced are part of the graph outputs. Be sure to remove the old nodes
         from the graph using ``graph.remove()`` if they are no longer needed.
 
+    .. versionadded:: 0.1.12
+        The ``replace_graph_outputs`` parameter.
+
     Args:
         values: The value or values to be replaced.
         replacements: The new value or values to use as inputs.
