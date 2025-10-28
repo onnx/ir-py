@@ -2471,6 +2471,10 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
             replace_graph_outputs: If True, graph outputs that reference this value
                 will also be updated to reference the replacement.
         """
+        # NOTE: Why we don't replace the value name when the value is an output:
+        # When the replacement value is already an output of the graph, renaming it
+        # to the name of this value will cause name conflicts. It is better to let
+        # the user handle the renaming explicitly and insert identity nodes if needed.
         for user_node, index in self.uses():
             user_node.replace_input_with(index, replacement)
         if replace_graph_outputs and self.is_graph_output():
