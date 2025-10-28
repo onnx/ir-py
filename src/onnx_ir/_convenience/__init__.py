@@ -322,6 +322,8 @@ def replace_all_uses_with(
     Args:
         values: The value or values to be replaced.
         replacements: The new value or values to use as inputs.
+        replace_graph_outputs: If True, graph outputs that reference the values
+            being replaced will also be updated to reference the replacements.
     """
     if not isinstance(values, Sequence):
         values = (values,)

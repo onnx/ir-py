@@ -105,20 +105,14 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
 
         # Case 1 & 2 (merged): Eliminate the identity node
         # Replace all uses of output with input
-        ir.convenience.replace_all_uses_with(output_value, input_value)
+        ir.convenience.replace_all_uses_with(
+            output_value, input_value, replace_graph_outputs=True
+        )
 
         # If output is a graph output, we need to rename input and update graph outputs
         if output_is_graph_output:
-            # Store the original output name
-            original_output_name = output_value.name
-
             # Update the input value to have the output's name
-            input_value.name = original_output_name
-
-            # Update graph outputs to point to the input value
-            for idx, graph_output in enumerate(graph_like.outputs):
-                if graph_output is output_value:
-                    graph_like.outputs[idx] = input_value
+            input_value.name = output_value.name
 
         # Remove the identity node
         graph_like.remove(node, safe=True)

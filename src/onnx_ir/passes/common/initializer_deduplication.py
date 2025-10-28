@@ -100,7 +100,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
                 if key in initializers:
                     modified = True
                     initializer_to_keep = initializers[key]  # type: ignore[index]
-                    ir.convenience.replace_all_uses_with(initializer, initializer_to_keep)
+                    initializer.replace_all_uses_with(initializer_to_keep)
                     assert initializer.name is not None
                     graph.initializers.pop(initializer.name)
                     logger.info(
@@ -165,7 +165,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                         continue
                     modified = True
                     initializer_to_keep = initializers[key]  # type: ignore[index]
-                    ir.convenience.replace_all_uses_with(initializer, initializer_to_keep)
+                    initializer.replace_all_uses_with(initializer_to_keep)
                     assert initializer.name is not None
                     graph.initializers.pop(initializer.name)
                     logger.info(
