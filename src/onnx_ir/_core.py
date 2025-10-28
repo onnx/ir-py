@@ -2475,14 +2475,23 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         # When the replacement value is already an output of the graph, renaming it
         # to the name of this value will cause name conflicts. It is better to let
         # the user handle the renaming explicitly and insert identity nodes if needed.
-        for user_node, index in self.uses():
-            user_node.replace_input_with(index, replacement)
-        if replace_graph_outputs and self.is_graph_output():
+        if self.is_graph_output():
             graph = self.graph
             assert graph is not None
+
+            if not replace_graph_outputs:
+                raise ValueError(
+                    f"{self!r} is an output of graph {graph.name!r}. "
+                    "Set replace_graph_outputs=True or replace the graph output frist before "
+                    "calling replace_all_uses_with."
+                )
+
             for i, output in enumerate(graph.outputs):
                 if output is self:
                     graph.outputs[i] = replacement
+
+        for user_node, index in self.uses():
+            user_node.replace_input_with(index, replacement)
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
