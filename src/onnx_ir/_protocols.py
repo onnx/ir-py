@@ -204,14 +204,13 @@ class ValueProtocol(Protocol):
         ...
 
     def replace_all_uses_with(
-        self, new_value: ValueProtocol | None, replace_graph_outputs: bool = True
+        self, new_value: ValueProtocol | None, replace_graph_outputs: bool = False
     ) -> None:
         """Replace all uses of this value with the given new value.
 
         Args:
             new_value: The new value to replace this value with.
             replace_graph_outputs: Whether to replace graph outputs that use this value.
-                Defaults to True.
         """
         ...
 
