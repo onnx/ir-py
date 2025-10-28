@@ -150,8 +150,6 @@ def _remove_node_and_replace_values(
         remove_values: The values to replace.
         new_values: The values to replace with.
     """
-    # Reconnect the users of the deleted values to use the new values
-    ir.convenience.replace_all_uses_with(remove_values, new_values)
     # Update graph/function outputs if the node generates output
     if any(remove_value.is_graph_output() for remove_value in remove_values):
         replacement_mapping = dict(zip(remove_values, new_values))
@@ -184,6 +182,9 @@ def _remove_node_and_replace_values(
                     # update it to use old_value name.
                     new_value.name = graph_output.name
                     graph.outputs[idx] = new_value
+
+    # Reconnect the users of the deleted values to use the new values
+    ir.convenience.replace_all_uses_with(remove_values, new_values)
 
     graph.remove(remove_node, safe=True)
 

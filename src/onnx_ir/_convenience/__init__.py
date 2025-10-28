@@ -280,6 +280,7 @@ def convert_attributes(
 def replace_all_uses_with(
     values: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
     replacements: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
+    replace_graph_outputs: bool = False,
 ) -> None:
     """Replace all uses of the given values with the replacements.
 
@@ -318,9 +319,22 @@ def replace_all_uses_with(
         replaced are part of the graph outputs. Be sure to remove the old nodes
         from the graph using ``graph.remove()`` if they are no longer needed.
 
+    .. versionadded:: 0.1.12
+        The ``replace_graph_outputs`` parameter is added.
+
+    .. versionadded:: 0.1.12
+        ValueError is raised when ``replace_graph_outputs`` is False && when the value to
+        replace is a graph output.
+
     Args:
         values: The value or values to be replaced.
         replacements: The new value or values to use as inputs.
+        replace_graph_outputs: If True, graph outputs that reference the values
+            being replaced will also be updated to reference the replacements.
+
+    Raises:
+        ValueError: When ``replace_graph_outputs`` is False && when the value to
+            replace is a graph output.
     """
     if not isinstance(values, Sequence):
         values = (values,)
@@ -329,8 +343,7 @@ def replace_all_uses_with(
     if len(values) != len(replacements):
         raise ValueError("The number of values and replacements must match.")
     for value, replacement in zip(values, replacements):
-        for user_node, index in tuple(value.uses()):
-            user_node.replace_input_with(index, replacement)
+        value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
 
 
 def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
@@ -408,12 +421,7 @@ def replace_nodes_and_values(
         new_value.name = old_value.name if old_value.name is not None else new_value.name
 
     # Reconnect the users of the deleted values to use the new values
-    replace_all_uses_with(old_values, new_values)
-    # Update graph/function outputs if the node generates output
-    replacement_mapping = dict(zip(old_values, new_values))
-    for idx, graph_or_function_output in enumerate(graph_or_function.outputs):
-        if graph_or_function_output in replacement_mapping:
-            graph_or_function.outputs[idx] = replacement_mapping[graph_or_function_output]
+    replace_all_uses_with(old_values, new_values, replace_graph_outputs=True)
 
     # insert new nodes after the index node
     graph_or_function.insert_after(insertion_point, new_nodes)

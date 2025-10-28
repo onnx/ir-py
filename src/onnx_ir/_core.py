@@ -2448,6 +2448,55 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         """Whether the value is an initializer of a graph."""
         return self._is_initializer
 
+    def replace_all_uses_with(
+        self, replacement: Value, /, replace_graph_outputs: bool = False
+    ) -> None:
+        """Replace all uses of this value with another value.
+
+        If the value is an output of a graph and ``replace_graph_outputs`` is ``True``,
+        the graph output will also be replaced. Be careful when a value appears multiple times
+        in the graph outputs - this is invalid. An identity node will need to be added on each
+        duplicated outputs to ensure a valid ONNX graph.
+
+        You may also want to assign the name of this value to the replacement value
+        to maintain the name when it is a graph output.
+
+        To replace usage of a sequence of values with another sequence of values, consider using
+        :func:`onnx_ir.convenience.replace_all_uses_with`.
+
+        .. versionadded:: 0.1.12
+
+        Args:
+            replacement: The value to replace all uses with.
+            replace_graph_outputs: If True, graph outputs that reference this value
+                will also be updated to reference the replacement.
+
+        Raises:
+            ValueError: When ``replace_graph_outputs`` is False && when the value to
+                replace is a graph output.
+        """
+        # NOTE: Why we don't replace the value name when the value is an output:
+        # When the replacement value is already an output of the graph, renaming it
+        # to the name of this value will cause name conflicts. It is better to let
+        # the user handle the renaming explicitly and insert identity nodes if needed.
+        if self.is_graph_output():
+            graph = self.graph
+            assert graph is not None
+
+            if not replace_graph_outputs:
+                raise ValueError(
+                    f"{self!r} is an output of graph {graph.name!r}. "
+                    "Set replace_graph_outputs=True or replace the graph output frist before "
+                    "calling replace_all_uses_with."
+                )
+
+            for i, output in enumerate(graph.outputs):
+                if output is self:
+                    graph.outputs[i] = replacement
+
+        for user_node, index in self.uses():
+            user_node.replace_input_with(index, replacement)
+
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
 def Input(

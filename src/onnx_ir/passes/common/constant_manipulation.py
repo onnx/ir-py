@@ -78,7 +78,7 @@ class LiftConstantsToInitializersPass(ir.passes.InPlacePass):
             assert node.graph is not None
             node.graph.register_initializer(initializer)
             # Replace the constant node with the initializer
-            ir.convenience.replace_all_uses_with(node.outputs[0], initializer)
+            node.outputs[0].replace_all_uses_with(initializer)
             node.graph.remove(node, safe=True)
             count += 1
             logger.debug(
