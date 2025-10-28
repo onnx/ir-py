@@ -2470,6 +2470,10 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
             replacement: The value to replace all uses with.
             replace_graph_outputs: If True, graph outputs that reference this value
                 will also be updated to reference the replacement.
+
+        Raises:
+            ValueError: When ``replace_graph_outputs`` is False && when the value to
+                replace is a graph output.
         """
         # NOTE: Why we don't replace the value name when the value is an output:
         # When the replacement value is already an output of the graph, renaming it

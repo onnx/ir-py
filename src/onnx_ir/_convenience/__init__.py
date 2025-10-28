@@ -320,13 +320,21 @@ def replace_all_uses_with(
         from the graph using ``graph.remove()`` if they are no longer needed.
 
     .. versionadded:: 0.1.12
-        The ``replace_graph_outputs`` parameter.
+        The ``replace_graph_outputs`` parameter is added.
+
+    .. versionadded:: 0.1.12
+        ValueError is raised when ``replace_graph_outputs`` is False && when the value to
+        replace is a graph output.
 
     Args:
         values: The value or values to be replaced.
         replacements: The new value or values to use as inputs.
         replace_graph_outputs: If True, graph outputs that reference the values
             being replaced will also be updated to reference the replacements.
+
+    Raises:
+        ValueError: When ``replace_graph_outputs`` is False && when the value to
+            replace is a graph output.
     """
     if not isinstance(values, Sequence):
         values = (values,)
