@@ -13,7 +13,11 @@ import onnx_ir as ir
 
 
 class TopologicalSortPass(ir.passes.InPlacePass):
-    """Topologically sort graphs and functions in a model."""
+    """Topologically sort graphs and functions in a model.
+
+    The sort is stable, preserving the relative order of nodes that are not
+    dependent on each other. Read more at :meth:`onnx_ir.Graph.sort`.
+    """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         original_nodes = list(model.graph)
