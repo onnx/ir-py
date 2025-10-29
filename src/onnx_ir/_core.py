@@ -2453,13 +2453,19 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     ) -> None:
         """Replace all uses of this value with another value.
 
-        If the value is an output of a graph and ``replace_graph_outputs`` is ``True``,
-        the graph output will also be replaced. Be careful when a value appears multiple times
-        in the graph outputs - this is invalid. An identity node will need to be added on each
-        duplicated outputs to ensure a valid ONNX graph.
+        .. tip::
+            **Handling graph outputs**
 
-        You may also want to assign the name of this value to the replacement value
-        to maintain the name when it is a graph output.
+            To also replace graph outputs that reference the values being replaced, either
+            set ``replace_graph_outputs`` to True, or manually update the graph outputs
+            before calling this function to avoid an error being raised when ``replace_graph_outputs=False``.
+
+            Be careful when a value appears multiple times in the graph outputs -
+            this is invalid. An identity node will need to be added on each duplicated
+            outputs to ensure a valid ONNX graph.
+
+            You may also want to assign the name of this value to the replacement value
+            to maintain the name when it is a graph output.
 
         To replace usage of a sequence of values with another sequence of values, consider using
         :func:`onnx_ir.convenience.replace_all_uses_with`.

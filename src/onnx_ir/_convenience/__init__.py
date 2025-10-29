@@ -315,9 +315,23 @@ def replace_all_uses_with(
     users of the first value is replaced with the first replacement, and so on.
 
     .. note::
-        You still need to update the graph outputs if any of the values being
-        replaced are part of the graph outputs. Be sure to remove the old nodes
-        from the graph using ``graph.remove()`` if they are no longer needed.
+        Be sure to remove the old nodes from the graph using ``graph.remove()``
+        if they are no longer needed, or use :class:`onnx_ir.passes.common.RemoveUnusedNodesPass`
+        to remove all unused nodes in the graph.
+
+    .. tip::
+        **Handling graph outputs**
+
+        To also replace graph outputs that reference the values being replaced, either
+        set ``replace_graph_outputs`` to True, or manually update the graph outputs
+        before calling this function to avoid an error being raised when ``replace_graph_outputs=False``.
+
+        Be careful when a value appears multiple times in the graph outputs -
+        this is invalid. An identity node will need to be added on each duplicated
+        outputs to ensure a valid ONNX graph.
+
+        You may also want to assign the name of this value to the replacement value
+        to maintain the name when it is a graph output.
 
     .. versionadded:: 0.1.12
         The ``replace_graph_outputs`` parameter is added.
