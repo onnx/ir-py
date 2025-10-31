@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import abc
-import contextlib
 import dataclasses
 import heapq
 import math
@@ -199,62 +198,43 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
         file.write(self.tobytes())
 
     def display(self, *, page: bool = False) -> None:
-        rich = _display.require_rich()
-
-        if rich is None:
-            status_manager = contextlib.nullcontext()
-        else:
-            import rich.status  # type: ignore[import-not-found, no-redef]  # pylint: disable=import-outside-toplevel
-
-            status_manager = rich.status.Status(f"Computing tensor stats for {self!r}")
-
         from onnx_ir._thirdparty import (  # pylint: disable=import-outside-toplevel
             asciichartpy,
         )
 
-        with status_manager:
-            # Construct the text to display
-            lines = []
-            array = self.numpy().flatten()
-            lines.append(repr(self))
-            lines.append("")
-            nan_values = np.isnan(array)
-            nan_count = np.count_nonzero(nan_values)
-            inf_count = np.count_nonzero(np.isinf(array))
-            numbers = array[~nan_values]
-            lines.append(
-                f"Min: {np.min(numbers)}, Max: {np.max(numbers)}, "
-                f"NaN count: {nan_count}, "
-                f"Inf count: {inf_count}"
+        # Construct the text to display
+        lines = []
+        array = self.numpy().flatten()
+        lines.append(repr(self))
+        lines.append("")
+        nan_values = np.isnan(array)
+        nan_count = np.count_nonzero(nan_values)
+        inf_count = np.count_nonzero(np.isinf(array))
+        numbers = array[~nan_values]
+        lines.append(
+            f"Min: {np.min(numbers)}, Max: {np.max(numbers)}, "
+            f"NaN count: {nan_count}, "
+            f"Inf count: {inf_count}"
+        )
+        # Compute sparsity
+        sparse_threathold = 1e-6
+        # NOTE: count_nonzero() is faster than sum() for boolean arrays
+        sparsity = np.count_nonzero(np.abs(array) < sparse_threathold) / array.size
+        lines.append(f"Sparsity (abs<{sparse_threathold}): {sparsity:.2f}")
+
+        # Compute histogram
+        finite_numbers = array[np.isfinite(array)]
+        lines.append("Histogram:")
+        hist, bin_edges = np.histogram(finite_numbers, bins=80, density=False)
+        lines.append(
+            asciichartpy.plot(
+                hist, bin_edges=bin_edges, cfg={"height": 8, "format": "{:8.0f}"}
             )
-            # Compute sparsity
-            sparse_threathold = 1e-6
-            # NOTE: count_nonzero() is faster than sum() for boolean arrays
-            sparsity = np.count_nonzero(np.abs(array) < sparse_threathold) / array.size
-            lines.append(f"Sparsity (abs<{sparse_threathold}): {sparsity:.2f}")
+        )
 
-            # Compute histogram
-            finite_numbers = array[np.isfinite(array)]
-            lines.append("Histogram:")
-            hist, bin_edges = np.histogram(finite_numbers, bins=80, density=False)
-            lines.append(
-                asciichartpy.plot(
-                    hist, bin_edges=bin_edges, cfg={"height": 8, "format": "{:8.0f}"}
-                )
-            )
+        text = "\n".join(lines)
 
-            text = "\n".join(lines)
-
-        if rich is None:
-            print(text)
-        elif page:
-            import rich.console  # type: ignore[import-not-found, no-redef]  # pylint: disable=import-outside-toplevel
-
-            console = rich.console.Console()
-            with console.pager():
-                console.print(text)
-        else:
-            rich.print(text)
+        print(text)
 
 
 def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) -> None:

@@ -9,17 +9,6 @@ importing unnecessary dependencies.
 
 from __future__ import annotations
 
-from typing import Any
-
-
-def require_rich() -> Any:
-    """Raise an ImportError if rich is not installed."""
-    try:
-        import rich
-    except ImportError:
-        return None
-    return rich
-
 
 class PrettyPrintable:
     def display(self, *, page: bool = False) -> None:
@@ -28,16 +17,7 @@ class PrettyPrintable:
         Args:
             page: Whether to page the output.
         """
-        rich = require_rich()
         text = str(self)
-
-        if rich is None:
-            print(text)
-            # Color print this message
-            print(
-                f"\n\n\u001b[36mTip: Install the rich library with 'pip install rich' to pretty print this {self.__class__.__name__}.\u001b[0m"
-            )
-            return
 
         if page:
             import rich.console
@@ -46,4 +26,4 @@ class PrettyPrintable:
             with console.pager():
                 console.print(text)
         else:
-            rich.print(text)
+            print(text)
