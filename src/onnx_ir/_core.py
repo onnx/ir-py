@@ -1853,6 +1853,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         If the new size is greater than the current size, new inputs are added as None.
         If the new size is less than the current size, the extra inputs are removed.
 
+        ..versionadded:: 0.1.13
+
         Args:
             new_size: The new number of inputs.
         """
@@ -1961,6 +1963,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         If the new size is greater than the current size, new output values are created.
         If the new size is less than the current size, the extra output values are removed.
         The removed output values must not have any uses.
+
+        ..versionadded:: 0.1.13
 
         Args:
             new_size: The new number of outputs.

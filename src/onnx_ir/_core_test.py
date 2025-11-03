@@ -1507,6 +1507,207 @@ class NodeTest(unittest.TestCase):
             node.attributes.get_tensors("non_existent_attr", [tensor1]), [tensor1]
         )
 
+    def test_resize_inputs_increase_size(self):
+        """Test that resize_inputs increases the number of inputs by adding None values."""
+        v0 = _core.Value(name="v0")
+        v1 = _core.Value(name="v1")
+        node = _core.Node("", "TestOp", inputs=(v0, v1), num_outputs=1)
+
+        self.assertEqual(len(node.inputs), 2)
+        self.assertIs(node.inputs[0], v0)
+        self.assertIs(node.inputs[1], v1)
+
+        # Resize to 4 inputs
+        node.resize_inputs(4)
+
+        self.assertEqual(len(node.inputs), 4)
+        self.assertIs(node.inputs[0], v0)
+        self.assertIs(node.inputs[1], v1)
+        self.assertIsNone(node.inputs[2])
+        self.assertIsNone(node.inputs[3])
+
+    def test_resize_inputs_decrease_size(self):
+        """Test that resize_inputs decreases the number of inputs and removes uses."""
+        v0 = _core.Value(name="v0")
+        v1 = _core.Value(name="v1")
+        v2 = _core.Value(name="v2")
+        node = _core.Node("", "TestOp", inputs=(v0, v1, v2), num_outputs=1)
+
+        self.assertEqual(len(node.inputs), 3)
+        # Check that node is in v2's uses
+        self.assertEqual(len(v2.uses()), 1)
+        self.assertIn(_core.Usage(node, 2), v2.uses())
+
+        # Resize to 2 inputs (remove v2)
+        node.resize_inputs(2)
+
+        self.assertEqual(len(node.inputs), 2)
+        self.assertIs(node.inputs[0], v0)
+        self.assertIs(node.inputs[1], v1)
+        # Check that node is no longer in v2's uses
+        self.assertEqual(len(v2.uses()), 0)
+
+    def test_resize_inputs_same_size(self):
+        """Test that resize_inputs does nothing when size is unchanged."""
+        v0 = _core.Value(name="v0")
+        v1 = _core.Value(name="v1")
+        node = _core.Node("", "TestOp", inputs=(v0, v1), num_outputs=1)
+
+        # Resize to same size
+        node.resize_inputs(2)
+
+        self.assertEqual(len(node.inputs), 2)
+        self.assertIs(node.inputs[0], v0)
+        self.assertIs(node.inputs[1], v1)
+
+    def test_resize_inputs_to_zero(self):
+        """Test that resize_inputs can reduce inputs to zero."""
+        v0 = _core.Value(name="v0")
+        v1 = _core.Value(name="v1")
+        node = _core.Node("", "TestOp", inputs=(v0, v1), num_outputs=1)
+
+        node.resize_inputs(0)
+
+        self.assertEqual(len(node.inputs), 0)
+        self.assertEqual(node.inputs, ())
+        # Check that uses are removed
+        self.assertEqual(len(v0.uses()), 0)
+        self.assertEqual(len(v1.uses()), 0)
+
+    def test_resize_inputs_from_zero(self):
+        """Test that resize_inputs can increase from zero inputs."""
+        node = _core.Node("", "TestOp", inputs=(), num_outputs=1)
+
+        self.assertEqual(len(node.inputs), 0)
+
+        node.resize_inputs(3)
+
+        self.assertEqual(len(node.inputs), 3)
+        self.assertIsNone(node.inputs[0])
+        self.assertIsNone(node.inputs[1])
+        self.assertIsNone(node.inputs[2])
+
+    def test_resize_inputs_preserves_none_inputs(self):
+        """Test that resize_inputs preserves None inputs when decreasing size."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0, None, None), num_outputs=1)
+
+        node.resize_inputs(2)
+
+        self.assertEqual(len(node.inputs), 2)
+        self.assertIs(node.inputs[0], v0)
+        self.assertIsNone(node.inputs[1])
+
+    def test_resize_outputs_increase_size(self):
+        """Test that resize_outputs increases the number of outputs."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=2)
+
+        self.assertEqual(len(node.outputs), 2)
+        old_output_0 = node.outputs[0]
+        old_output_1 = node.outputs[1]
+
+        # Resize to 4 outputs
+        node.resize_outputs(4)
+
+        self.assertEqual(len(node.outputs), 4)
+        # Verify old outputs are preserved
+        self.assertIs(node.outputs[0], old_output_0)
+        self.assertIs(node.outputs[1], old_output_1)
+        # Verify new outputs are created
+        self.assertIsNotNone(node.outputs[2])
+        self.assertIsNotNone(node.outputs[3])
+        # Verify new outputs have correct producer and index
+        self.assertIs(node.outputs[2].producer(), node)
+        self.assertIs(node.outputs[3].producer(), node)
+        self.assertEqual(node.outputs[2].index(), 2)
+        self.assertEqual(node.outputs[3].index(), 3)
+
+    def test_resize_outputs_decrease_size(self):
+        """Test that resize_outputs decreases the number of outputs when they have no uses."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=3)
+
+        self.assertEqual(len(node.outputs), 3)
+        old_output_0 = node.outputs[0]
+
+        # Resize to 1 output
+        node.resize_outputs(1)
+
+        self.assertEqual(len(node.outputs), 1)
+        self.assertIs(node.outputs[0], old_output_0)
+
+    def test_resize_outputs_decrease_size_raises_when_output_has_uses(self):
+        """Test that resize_outputs raises ValueError when removing outputs with uses."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=3)
+        # Create a consumer for the third output
+        _consumer = _core.Node("", "Consumer", inputs=(node.outputs[2],), num_outputs=1)
+
+        self.assertEqual(len(node.outputs[2].uses()), 1)
+
+        # Try to resize to 2 outputs (remove the third one)
+        with self.assertRaisesRegex(ValueError, "Cannot remove output.*because it has uses"):
+            node.resize_outputs(2)
+
+        # Verify outputs are unchanged
+        self.assertEqual(len(node.outputs), 3)
+
+    def test_resize_outputs_same_size(self):
+        """Test that resize_outputs does nothing when size is unchanged."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=2)
+
+        old_outputs = node.outputs
+
+        # Resize to same size
+        node.resize_outputs(2)
+
+        self.assertEqual(len(node.outputs), 2)
+        self.assertIs(node.outputs[0], old_outputs[0])
+        self.assertIs(node.outputs[1], old_outputs[1])
+
+    def test_resize_outputs_to_zero(self):
+        """Test that resize_outputs can reduce outputs to zero."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=2)
+
+        node.resize_outputs(0)
+
+        self.assertEqual(len(node.outputs), 0)
+        self.assertEqual(node.outputs, ())
+
+    def test_resize_outputs_from_zero(self):
+        """Test that resize_outputs can increase from zero outputs."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=0)
+
+        self.assertEqual(len(node.outputs), 0)
+
+        node.resize_outputs(2)
+
+        self.assertEqual(len(node.outputs), 2)
+        self.assertIsNotNone(node.outputs[0])
+        self.assertIsNotNone(node.outputs[1])
+        self.assertIs(node.outputs[0].producer(), node)
+        self.assertIs(node.outputs[1].producer(), node)
+        self.assertEqual(node.outputs[0].index(), 0)
+        self.assertEqual(node.outputs[1].index(), 1)
+
+    def test_resize_outputs_decrease_with_middle_output_having_uses(self):
+        """Test that resize_outputs raises when removing a middle output with uses."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0,), num_outputs=4)
+        # Create a consumer for the second output (index 1)
+        _consumer = _core.Node("", "Consumer", inputs=(node.outputs[1],), num_outputs=1)
+
+        # Try to resize to 1 output (remove outputs at indices 1, 2, 3)
+        with self.assertRaisesRegex(ValueError, "Cannot remove output.*because it has uses"):
+            node.resize_outputs(1)
+
+        # Verify outputs are unchanged
+        self.assertEqual(len(node.outputs), 4)
+
     # TODO(justinchuby): Test all methods
 
 
