@@ -1855,7 +1855,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         After ``inputs`` is resized, you can use :meth:`replace_input_with` to set the new inputs.
 
-        ..versionadded:: 0.1.13
+        .. versionadded:: 0.1.13
 
         Args:
             new_size: The new number of inputs.
