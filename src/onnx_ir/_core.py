@@ -1853,6 +1853,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         If the new size is greater than the current size, new inputs are added as None.
         If the new size is less than the current size, the extra inputs are removed.
 
+        After ``inputs`` is resized, you can use :meth:`replace_input_with` to set the new inputs.
+
         ..versionadded:: 0.1.13
 
         Args:
