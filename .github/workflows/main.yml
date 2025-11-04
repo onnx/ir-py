@@ -60,6 +60,8 @@ jobs:
       - name: Pull Test Data
         run: git lfs pull
       - name: Run tests
+        env:
+          NOX_DEFAULT_VENV_BACKEND: uv
         run: nox -t ${{ matrix.nox-tag }} --forcecolor -- --cov=src/onnx_ir --cov-report=xml --cov-append --cov-branch -n=auto --junitxml junit.xml
       - name: Upload coverage to Codecov
         if: always()

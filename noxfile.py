@@ -9,6 +9,7 @@ Documentation:
 import nox
 
 nox.options.error_on_missing_interpreters = False
+nox.options.default_venv_backend = "uv"
 
 
 COMMON_TEST_DEPENDENCIES = (
