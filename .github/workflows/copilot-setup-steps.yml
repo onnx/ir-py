@@ -34,8 +34,6 @@ jobs:
           python-version: "3.12"
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
       - name: Install Python build dependencies
         run: |
           uv pip install --system -r requirements-dev.txt
