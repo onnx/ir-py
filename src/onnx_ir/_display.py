@@ -39,6 +39,11 @@ class PrettyPrintable:
             )
             return
 
+        import rich.markup
+
+        # Escape text to display `[...]` correctly
+        text = rich.markup.escape(text)
+
         if page:
             import rich.console
 
