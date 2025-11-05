@@ -1985,6 +1985,10 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     raise ValueError(
                         f"Cannot remove output {output} because it has uses: {output.uses()}"
                     )
+            for output in self._outputs[new_size:]:
+                # Detach the output from this node
+                output._producer = None  # pylint: disable=protected-access
+                output._index = -1  # pylint: disable=protected-access
             self._outputs = self._outputs[:new_size]
         else:
             # Create new outputs
