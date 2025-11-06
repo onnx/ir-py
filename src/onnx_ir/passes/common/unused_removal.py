@@ -64,6 +64,26 @@ def _remove_unused_optional_outputs(
         if out not in graph_outputs and (not out.uses()) and optional_info[i] is True:
             out.name = ""
 
+    # Remove trailing outputs with empty names by counting backwards
+    new_output_count = len(node.outputs)
+    for i in reversed(range(len(node.outputs))):
+        if not node.outputs[i].name:
+            new_output_count -= 1
+        else:
+            break
+    node.resize_outputs(new_output_count)
+
+
+def _remove_trailing_empty_inputs(node: ir.Node) -> None:
+    # Remove trailing None inputs
+    new_input_count = len(node.inputs)
+    for i in reversed(range(len(node.inputs))):
+        if node.inputs[i] is None:
+            new_input_count -= 1
+        else:
+            break
+    node.resize_inputs(new_input_count)
+
 
 def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph) -> int:
     graph_outputs = frozenset(function_or_graph.outputs)
@@ -79,6 +99,7 @@ def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph
             function_or_graph.remove(node, safe=True)
             count += 1
         else:
+            _remove_trailing_empty_inputs(node)
             if onnx_opset_version is not None:
                 _remove_unused_optional_outputs(node, graph_outputs, onnx_opset_version)
             for attr in node.attributes.values():

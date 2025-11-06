@@ -1843,8 +1843,34 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     @inputs.setter
     def inputs(self, _: Any) -> None:
         raise AttributeError(
-            "Directly mutating the input sequence is unsupported. Please use Node.replace_input_with() instead."
+            "Node.inputs cannot be assigned to. Please use 'resize_inputs' and "
+            "'replace_input_with' instead."
         )
+
+    def resize_inputs(self, new_size: int, /) -> None:
+        """Resize the inputs of the node.
+
+        If the new size is greater than the current size, new inputs are added as None.
+        If the new size is less than the current size, the extra inputs are removed.
+
+        After ``inputs`` is resized, you can use :meth:`replace_input_with` to set the new inputs.
+
+        .. versionadded:: 0.1.13
+
+        Args:
+            new_size: The new number of inputs.
+        """
+        current_size = len(self._inputs)
+        if new_size == current_size:
+            return
+        if new_size < current_size:
+            # Remove extra inputs
+            for i in range(new_size, current_size):
+                self.replace_input_with(i, None)
+            self._inputs = self._inputs[:new_size]
+        else:
+            # Add new inputs as None
+            self._inputs = self._inputs + (None,) * (new_size - current_size)
 
     def predecessors(self) -> Sequence[Node]:
         """Return the predecessor nodes of the node, deduplicated, in a deterministic order."""
@@ -1920,15 +1946,54 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     def outputs(self) -> Sequence[Value]:
         """The output values of the node.
 
-        The outputs are immutable. To change the outputs, create a new node and
-        replace the inputs of the using nodes of this node's outputs by calling
-        :meth:`replace_input_with` on the using nodes of this node's outputs.
+        The outputs are always attached to this node once initialized (immutable),
+        except that the list can be resized to remove or add outputs.
+
+        Use :meth:`resize_outputs` to change the number of outputs of the node.
         """
         return self._outputs
 
     @outputs.setter
     def outputs(self, _: Sequence[Value]) -> None:
-        raise AttributeError("outputs is immutable. Please create a new node instead.")
+        raise AttributeError(
+            "Node.outputs cannot be assigned to. Please use 'resize_outputs' or create a new node instead."
+        )
+
+    def resize_outputs(self, new_size: int, /) -> None:
+        """Resize the outputs of the node.
+
+        If the new size is greater than the current size, new output values are created.
+        If the new size is less than the current size, the extra output values are removed.
+        The removed output values must not have any uses.
+
+        .. versionadded:: 0.1.13
+
+        Args:
+            new_size: The new number of outputs.
+
+        Raises:
+            ValueError: If the new size is less than the current size and
+                the removed outputs have uses.
+        """
+        current_size = len(self._outputs)
+        if new_size == current_size:
+            return
+        if new_size < current_size:
+            # Check that the removed outputs have no uses
+            for output in self._outputs[new_size:]:
+                if output.uses():
+                    raise ValueError(
+                        f"Cannot remove output {output} because it has uses: {output.uses()}"
+                    )
+            for output in self._outputs[new_size:]:
+                # Detach the output from this node
+                output._producer = None  # pylint: disable=protected-access
+                output._index = -1  # pylint: disable=protected-access
+            self._outputs = self._outputs[:new_size]
+        else:
+            # Create new outputs
+            new_outputs = [Value(self, index=i) for i in range(current_size, new_size)]
+            self._outputs = self._outputs + tuple(new_outputs)
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
