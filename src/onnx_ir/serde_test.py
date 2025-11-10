@@ -296,7 +296,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             tensor = serde.TensorProtoTensor(tensor_proto)
             np.testing.assert_array_equal(tensor.numpy().view(ml_dtypes.int2), data_array)
             return  # Skip remaining tests for INT2 as ONNX doesn't support it yet
-        
+
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 4], [-1, 0, 1, 8])
         tensor = serde.TensorProtoTensor(tensor_proto)
         expected_array = onnx.numpy_helper.to_array(
@@ -337,7 +337,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             tensor = serde.TensorProtoTensor(tensor_proto)
             np.testing.assert_array_equal(tensor.numpy().view(ml_dtypes.uint2), data_array)
             return  # Skip remaining tests for UINT2 as ONNX doesn't support it yet
-        
+
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 3], [0, 1, 8])
         tensor = serde.TensorProtoTensor(tensor_proto)
         expected_array = onnx.numpy_helper.to_array(tensor_proto)
