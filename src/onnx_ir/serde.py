@@ -390,6 +390,10 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return _type_casting.unpack_4bitx2(
                     np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
                 ).view(dtype.numpy())
+            if dtype.bitwidth == 2:
+                return _type_casting.unpack_2bitx4(
+                    np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
+                ).view(dtype.numpy())
             return np.frombuffer(
                 self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
             ).reshape(shape)
@@ -408,9 +412,11 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 _enums.DataType.FLOAT8E8M0,
                 _enums.DataType.INT16,
                 _enums.DataType.INT32,
+                _enums.DataType.INT2,
                 _enums.DataType.INT4,
                 _enums.DataType.INT8,
                 _enums.DataType.UINT16,
+                _enums.DataType.UINT2,
                 _enums.DataType.UINT4,
                 _enums.DataType.UINT8,
             }, f"Unsupported dtype {dtype} for int32_data"
@@ -424,6 +430,10 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return array.astype(np.uint8).view(dtype.numpy()).reshape(shape)
             if dtype.bitwidth == 4:
                 return _type_casting.unpack_4bitx2(array.astype(np.uint8), shape).view(
+                    dtype.numpy()
+                )
+            if dtype.bitwidth == 2:
+                return _type_casting.unpack_2bitx4(array.astype(np.uint8), shape).view(
                     dtype.numpy()
                 )
             raise ValueError(
@@ -507,11 +517,13 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 _enums.DataType.FLOAT8E5M2,
                 _enums.DataType.FLOAT8E5M2FNUZ,
                 _enums.DataType.FLOAT8E8M0,
+                _enums.DataType.INT2,
                 _enums.DataType.INT4,
+                _enums.DataType.UINT2,
                 _enums.DataType.UINT4,
                 _enums.DataType.FLOAT4E2M1,
             }:
-                # uint4 and int4 values are already packed, even when stored as int32
+                # uint2, uint4, int2 and int4 values are already packed, even when stored as int32
                 # so we don't need to pack them again
                 return array.astype(_little_endian_dtype(np.uint8)).tobytes()
             assert self.dtype == _enums.DataType.INT32

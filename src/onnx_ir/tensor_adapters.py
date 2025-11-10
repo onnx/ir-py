@@ -80,6 +80,10 @@ def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
         if hasattr(torch, "float8_e8m0fnu"):
             # torch.float8_e8m0fnu is available in PyTorch 2.7+
             _TORCH_DTYPE_TO_ONNX[torch.float8_e8m0fnu] = ir.DataType.FLOAT8E8M0
+        if hasattr(torch, "int2"):
+            _TORCH_DTYPE_TO_ONNX[torch.int2] = ir.DataType.INT2
+        if hasattr(torch, "uint2"):
+            _TORCH_DTYPE_TO_ONNX[torch.uint2] = ir.DataType.UINT2
 
     if dtype not in _TORCH_DTYPE_TO_ONNX:
         raise TypeError(
@@ -121,6 +125,10 @@ def to_torch_dtype(dtype: ir.DataType) -> torch.dtype:
         if hasattr(torch, "float8_e8m0fnu"):
             # torch.float8_e8m0fnu is available in PyTorch 2.7+
             _ONNX_DTYPE_TO_TORCH[ir.DataType.FLOAT8E8M0] = torch.float8_e8m0fnu
+        if hasattr(torch, "int2"):
+            _ONNX_DTYPE_TO_TORCH[ir.DataType.INT2] = torch.int2
+        if hasattr(torch, "uint2"):
+            _ONNX_DTYPE_TO_TORCH[ir.DataType.UINT2] = torch.uint2
 
     if dtype not in _ONNX_DTYPE_TO_TORCH:
         if dtype == ir.DataType.FLOAT8E8M0:
