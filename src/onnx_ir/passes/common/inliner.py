@@ -10,6 +10,7 @@ __all__ = ["InlinePass", "InlinePassResult"]
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Callable
 
 import onnx_ir as ir
 import onnx_ir.convenience as _ir_convenience
@@ -51,17 +52,15 @@ class _CopyReplace:
 
     def __init__(
         self,
-        inliner: InlinePass,
         attr_map: Mapping[str, ir.Attr],
         value_map: dict[ir.Value, ir.Value | None],
         metadata_props: dict[str, str],
-        call_stack: CallStack,
+        post_process: Callable[[ir.Node], None],
     ) -> None:
-        self._inliner = inliner
         self._value_map = value_map
         self._attr_map = attr_map
         self._metadata_props = metadata_props
-        self._call_stack = call_stack
+        self._post_process = post_process
 
     def clone_value(self, value: ir.Value) -> ir.Value | None:
         if value in self._value_map:
@@ -119,11 +118,6 @@ class _CopyReplace:
             for key, value in node.attributes.items()
             if (new_value := self.clone_attr(key, value)) is not None
         ]
-        new_name = node.name
-        if new_name is not None:
-            new_name = _make_unique_name(
-                new_name, self._call_stack, self._inliner.used_node_names
-            )
 
         new_metadata = {**self._metadata_props, **node.metadata_props}
         # TODO: For now, node metadata overrides callnode metadata if there is a conflict.
@@ -137,20 +131,16 @@ class _CopyReplace:
             overload=node.overload,
             num_outputs=len(node.outputs),
             graph=None,
-            name=new_name,
+            name=node.name,
             doc_string=node.doc_string,  # type: ignore
             metadata_props=new_metadata,
         )
         new_outputs = new_node.outputs
         for i, output in enumerate(node.outputs):
             self._value_map[output] = new_outputs[i]
-            old_name = output.name if output.name is not None else f"output_{i}"
-            new_outputs[i].name = _make_unique_name(
-                old_name, self._call_stack, self._inliner.used_value_names
-            )
+            new_outputs[i].name = output.name if output.name is not None else f"output_{i}"
 
-        self._inliner.node_context[new_node] = self._call_stack
-
+        self._post_process(new_node)
         return new_node
 
     def clone_graph(self, graph: ir.Graph) -> ir.Graph:
@@ -265,6 +255,20 @@ class InlinePass(ir.passes.InPlacePass):
         # Identify call-stack for node, used to generate unique names.
         call_stack = self.node_context.get(node, [])
         new_call_stack = [*call_stack, call_site_id]
+
+        def rename(node: ir.Node) -> None:
+            """Rename node/values in inlined node to ensure uniqueness in the inlined context."""
+            node.name = _make_unique_name(
+                node.name, new_call_stack, self.used_node_names
+            )
+            for output in node.outputs:
+                if output is not None:
+                    output.name = _make_unique_name(
+                        output.name, new_call_stack, self.used_value_names
+                    )
+            # Update context in case the new node is itself a call node that will be inlined.
+            self.node_context[node] = new_call_stack
+
 
         cloner = _CopyReplace(self, attributes, value_map, node.metadata_props, new_call_stack)
 
