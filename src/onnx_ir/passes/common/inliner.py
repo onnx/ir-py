@@ -47,7 +47,7 @@ def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> 
     return candidate
 
 
-class _CopyReplace:
+class Cloner:
     """Utilities for creating a copy of IR objects with substitutions for attributes/input values."""
 
     def __init__(
@@ -270,7 +270,7 @@ class InlinePass(ir.passes.InPlacePass):
             self.node_context[node] = new_call_stack
 
 
-        cloner = _CopyReplace(self, attributes, value_map, node.metadata_props, new_call_stack)
+        cloner = Cloner(attributes, value_map, node.metadata_props, rename)
 
         # iterate over the nodes in the function, creating a copy of each node
         # and replacing inputs with the corresponding values in the value map.
