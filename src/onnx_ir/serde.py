@@ -51,6 +51,7 @@ __all__ = [
     "serialize_node",
     "serialize_shape_into",
     "serialize_reference_attribute_into",
+    "serialize_reference_attribute",
     "serialize_tensor_into",
     "serialize_tensor",
     "serialize_type_into",
