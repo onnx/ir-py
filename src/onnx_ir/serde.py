@@ -51,6 +51,7 @@ __all__ = [
     "serialize_node",
     "serialize_shape_into",
     "serialize_reference_attribute_into",
+    "serialize_reference_attribute",
     "serialize_tensor_into",
     "serialize_tensor",
     "serialize_type_into",
@@ -286,7 +287,7 @@ def to_proto(ir_object: object) -> object:
         return serialize_attribute(ir_object)
     if isinstance(ir_object, _protocols.ReferenceAttributeProtocol):
         assert ir_object.is_ref()
-        return serialize_reference_attribute_into(onnx.AttributeProto(), ir_object)
+        return serialize_reference_attribute(ir_object)
     if isinstance(ir_object, _protocols.TypeProtocol):
         return serialize_type_into(onnx.TypeProto(), ir_object)
     if isinstance(ir_object, _protocols.GraphViewProtocol):
@@ -1894,6 +1895,14 @@ def serialize_reference_attribute_into(
     if from_.doc_string:
         attribute_proto.doc_string = from_.doc_string
     attribute_proto.type = typing.cast(onnx.AttributeProto.AttributeType, from_.type.value)
+
+
+def serialize_reference_attribute(
+    attr: _protocols.ReferenceAttributeProtocol,
+) -> onnx.AttributeProto:
+    attr_proto = onnx.AttributeProto()
+    serialize_reference_attribute_into(attr_proto, attr)
+    return attr_proto
 
 
 def serialize_value(value: _protocols.ValueProtocol, *, name: str = "") -> onnx.ValueInfoProto:
