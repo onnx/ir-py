@@ -258,9 +258,7 @@ class InlinePass(ir.passes.InPlacePass):
 
         def rename(node: ir.Node) -> None:
             """Rename node/values in inlined node to ensure uniqueness in the inlined context."""
-            node.name = _make_unique_name(
-                node.name, new_call_stack, self.used_node_names
-            )
+            node.name = _make_unique_name(node.name, new_call_stack, self.used_node_names)
             for output in node.outputs:
                 if output is not None:
                     output.name = _make_unique_name(
@@ -268,7 +266,6 @@ class InlinePass(ir.passes.InPlacePass):
                     )
             # Update context in case the new node is itself a call node that will be inlined.
             self.node_context[node] = new_call_stack
-
 
         cloner = Cloner(attributes, value_map, node.metadata_props, rename)
 
