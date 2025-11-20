@@ -1896,7 +1896,9 @@ def serialize_reference_attribute_into(
     attribute_proto.type = typing.cast(onnx.AttributeProto.AttributeType, from_.type.value)
 
 
-def serialize_reference_attribute(attr: _protocols.ReferenceAttributeProtocol) -> onnx.AttributeProto:
+def serialize_reference_attribute(
+    attr: _protocols.ReferenceAttributeProtocol,
+) -> onnx.AttributeProto:
     attr_proto = onnx.AttributeProto()
     serialize_reference_attribute_into(attr_proto, attr)
     return attr_proto
