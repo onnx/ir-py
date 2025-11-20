@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
-__all__ = ["InlinePass", "InlinePassResult"]
+__all__ = ["InlinePass", "InlinePassResult", "Cloner"]
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
