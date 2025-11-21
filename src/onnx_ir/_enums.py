@@ -67,6 +67,8 @@ class DataType(enum.IntEnum):
     INT4 = 22
     FLOAT4E2M1 = 23
     FLOAT8E8M0 = 24
+    INT2 = 25
+    UINT2 = 26
 
     @classmethod
     def from_numpy(cls, dtype: np.dtype) -> DataType:
@@ -101,6 +103,10 @@ class DataType(enum.IntEnum):
                 return DataType.INT4
             if dtype.names == ("float4e2m1",):
                 return DataType.FLOAT4E2M1
+            if dtype.names == ("int2",):
+                return DataType.INT2
+            if dtype.names == ("uint2",):
+                return DataType.UINT2
         raise TypeError(f"Unsupported numpy data type: {dtype}")
 
     @classmethod
@@ -329,6 +335,8 @@ class DataType(enum.IntEnum):
             DataType.UINT64,
             DataType.UINT4,
             DataType.INT4,
+            DataType.INT2,
+            DataType.UINT2,
         }
 
     def is_signed(self) -> bool:
@@ -354,6 +362,7 @@ class DataType(enum.IntEnum):
             DataType.INT4,
             DataType.FLOAT4E2M1,
             DataType.FLOAT8E8M0,
+            DataType.INT2,
         }
 
     def is_string(self) -> bool:
@@ -394,6 +403,8 @@ _BITWIDTH_MAP = {
     DataType.INT4: 4,
     DataType.FLOAT4E2M1: 4,
     DataType.FLOAT8E8M0: 8,
+    DataType.INT2: 2,
+    DataType.UINT2: 2,
 }
 
 
@@ -423,6 +434,8 @@ _NP_TYPE_TO_DATA_TYPE = {
     np.dtype(ml_dtypes.int4): DataType.INT4,
     np.dtype(ml_dtypes.uint4): DataType.UINT4,
     np.dtype(ml_dtypes.float4_e2m1fn): DataType.FLOAT4E2M1,
+    np.dtype(ml_dtypes.int2): DataType.INT2,
+    np.dtype(ml_dtypes.uint2): DataType.UINT2,
 }
 
 # ONNX DataType to Numpy dtype.
@@ -442,12 +455,14 @@ _DATA_TYPE_TO_SHORT_NAME = {
     DataType.FLOAT4E2M1: "f4e2m1",
     DataType.COMPLEX64: "c64",
     DataType.COMPLEX128: "c128",
+    DataType.INT2: "i2",
     DataType.INT4: "i4",
     DataType.INT8: "i8",
     DataType.INT16: "i16",
     DataType.INT32: "i32",
     DataType.INT64: "i64",
     DataType.BOOL: "b8",
+    DataType.UINT2: "u2",
     DataType.UINT4: "u4",
     DataType.UINT8: "u8",
     DataType.UINT16: "u16",
