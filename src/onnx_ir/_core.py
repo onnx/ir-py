@@ -82,6 +82,8 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.INT4,
         _enums.DataType.UINT4,
         _enums.DataType.FLOAT4E2M1,
+        _enums.DataType.INT2,
+        _enums.DataType.UINT2,
     )
 )
 
@@ -300,6 +302,16 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
                 raise TypeError(
                     f"The numpy array dtype must be uint8 or ml_dtypes.float4_e2m1fn (not {array.dtype}) for IR data type {dtype}."
                 )
+        if dtype == _enums.DataType.INT2:
+            if array.dtype not in (np.int8, np.uint8, ml_dtypes.int2):
+                raise TypeError(
+                    f"The numpy array dtype must be int8 or uint8 or ml_dtypes.int2 (not {array.dtype}) for IR data type {dtype}."
+                )
+        if dtype == _enums.DataType.UINT2:
+            if array.dtype not in (np.uint8, ml_dtypes.uint2):
+                raise TypeError(
+                    f"The numpy array dtype must be uint8 or ml_dtypes.uint2 (not {array.dtype}) for IR data type {dtype}."
+                )
         return
 
     try:
@@ -347,6 +359,10 @@ def _maybe_view_np_array_with_ml_dtypes(
         return array.view(ml_dtypes.uint4)
     if dtype == _enums.DataType.FLOAT4E2M1:
         return array.view(ml_dtypes.float4_e2m1fn)
+    if dtype == _enums.DataType.INT2:
+        return array.view(ml_dtypes.int2)
+    if dtype == _enums.DataType.UINT2:
+        return array.view(ml_dtypes.uint2)
     return array
 
 
@@ -365,7 +381,7 @@ def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
     """Create a numpy array for the byte representation of the tensor.
 
     This function is used for serializing the tensor to bytes. It handles the
-    special cases for 4-bit data types and endianness.
+    special cases for 2-bit and 4-bit data types and endianness.
     """
     array = tensor.numpy()
     if tensor.dtype in {
@@ -375,6 +391,12 @@ def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
     }:
         # Pack the array into int4
         array = _type_casting.pack_4bitx2(array)
+    elif tensor.dtype in {
+        _enums.DataType.INT2,
+        _enums.DataType.UINT2,
+    }:
+        # Pack the array into int2
+        array = _type_casting.pack_2bitx4(array)
     else:
         assert tensor.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
     if not _IS_LITTLE_ENDIAN:
@@ -726,6 +748,8 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             _enums.DataType.INT4,
             _enums.DataType.UINT4,
             _enums.DataType.FLOAT4E2M1,
+            _enums.DataType.INT2,
+            _enums.DataType.UINT2,
         }:
             # Use uint8 to read in the full byte. Otherwise ml_dtypes.int4 will clip the values
             dt = np.dtype(np.uint8).newbyteorder("<")
@@ -1051,7 +1075,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
-    """A tensor that stores 4bit datatypes in packed format.
+    """A tensor that stores 2bit and 4bit datatypes in packed format.
 
     .. versionadded:: 0.1.2
     """
@@ -1077,7 +1101,7 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         Args:
             value: The backing data of the tensor. It can be a numpy array compatible object or a DLPack compatible object.
                 The value MUST be packed in an integer dtype.
-            dtype: The data type of the tensor. Must be one of INT4, UINT4, FLOAT4E2M1.
+            dtype: The data type of the tensor. Must be one of INT2, UINT2, INT4, UINT4, FLOAT4E2M1.
             shape: The shape of the tensor.
             name: The name of the tensor.
             doc_string: The documentation string.
@@ -1092,9 +1116,9 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             raise TypeError(f"Expected an array compatible object, got {type(value)}")
         self._shape = Shape(shape)
         self._shape.freeze()
-        if dtype.bitwidth != 4:
+        if dtype.bitwidth not in (2, 4):
             raise TypeError(
-                f"PackedTensor only supports INT4, UINT4, FLOAT4E2M1, but got {dtype}"
+                f"PackedTensor only supports INT2, UINT2, INT4, UINT4, FLOAT4E2M1, but got {dtype}"
             )
         self._dtype = dtype
         self._raw = value
@@ -1104,6 +1128,8 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
                 value.dtype == ml_dtypes.float4_e2m1fn
                 or value.dtype == ml_dtypes.uint4
                 or value.dtype == ml_dtypes.int4
+                or value.dtype == ml_dtypes.uint2
+                or value.dtype == ml_dtypes.int2
             ):
                 raise TypeError(
                     f"PackedTensor expects the value to be packed, but got {value.dtype} which is not packed. "
