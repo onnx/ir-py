@@ -31,8 +31,8 @@ class Tape:
         >>> a = tape.initializer(ir.tensor([1.0, 2.0, 3.0], name="a"))
         >>> b: ir.Value = ir.val("b", dtype=ir.DataType.FLOAT, shape=(3,))
         >>> c: ir.Value = ir.val("c", dtype=ir.DataType.FLOAT, shape=(3,))
-        >>> x = tape.op("Add", [a, b], attributes={"alpha": 1.0})
-        >>> y = tape.op("Mul", [x, c], attributes={"beta": 2.0})
+        >>> x = tape.op("Add", [a, b])
+        >>> y = tape.op("Elu", [x, c], attributes={"alpha": 2.0})
         >>> model = ir.Model(
         ...     ir.Graph(
         ...         inputs=[b, c],
@@ -67,9 +67,9 @@ class Tape:
             ),
         ) {
             0 |  # node_Add_0
-               %"val_0"<?,?> ⬅️ ::Add(%"a"{[1.0, 2.0, 3.0]}, %"b") {alpha=1.0}
-            1 |  # node_Mul_1
-               %"val_1"<?,?> ⬅️ ::Mul(%"val_0", %"c") {beta=2.0}
+                 %"val_0"<?,?> ⬅️ ::Add(%"a"{[1.0, 2.0, 3.0]}, %"b")
+            1 |  # node_Elu_1
+                 %"val_1"<?,?> ⬅️ ::Elu(%"val_0", %"c") {alpha=2.0}
             return %"val_1"<?,?>
         }
 
