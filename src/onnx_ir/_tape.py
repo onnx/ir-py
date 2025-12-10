@@ -25,24 +25,53 @@ class Tape:
 
     Example::
 
-        import onnx_ir as ir
+        >>> import onnx_ir as ir
 
-        tape = ir.tape.Tape()
-        a = tape.initializer(ir.tensor([1, 2, 3], name="a"))
-        b: ir.Value = ...
-        c: ir.Value = ...
-        x = tape.op("Add", [a, b], attributes={"alpha": 1.0})
-        y = tape.op("Mul", [x, c], attributes={"beta": 2.0})
-        model = ir.Model(
-            graph := ir.Graph(
-                inputs=[b, c],
-                outputs=[y],
-                nodes=tape.nodes,
-                initializers=tape.initializers
-                opset_imports={"": 20},
-            ),
+        >>> tape = ir.tape.Tape()
+        >>> a = tape.initializer(ir.tensor([1.0, 2.0, 3.0], name="a"))
+        >>> b: ir.Value = ir.val("b", dtype=ir.DataType.FLOAT, shape=(3,))
+        >>> c: ir.Value = ir.val("c", dtype=ir.DataType.FLOAT, shape=(3,))
+        >>> x = tape.op("Add", [a, b], attributes={"alpha": 1.0})
+        >>> y = tape.op("Mul", [x, c], attributes={"beta": 2.0})
+        >>> model = ir.Model(
+        ...     ir.Graph(
+        ...         inputs=[b, c],
+        ...         outputs=[y],
+        ...         nodes=tape.nodes,
+        ...         initializers=tape.initializers,
+        ...         opset_imports={"": 20},
+        ...         name="main_graph",
+        ...     ),
+        ...     ir_version=10,
+        ... )
+        >>> print(model)  # doctest: +NORMALIZE_WHITESPACE
+        <
             ir_version=10,
-        )
+            opset_imports={'': 20},
+            producer_name=None,
+            producer_version=None,
+            domain=None,
+            model_version=None,
+        >
+        graph(
+            name=main_graph,
+            inputs=(
+                %"b"<FLOAT,[3]>,
+                %"c"<FLOAT,[3]>
+            ),
+            outputs=(
+                %"val_1"<?,?>
+            ),
+            initializers=(
+                %"a"<FLOAT,[3]>{Tensor<FLOAT,[3]>(array([1., 2., 3.], dtype=float32), name='a')}
+            ),
+        ) {
+            0 |  # node_Add_0
+               %"val_0"<?,?> ⬅️ ::Add(%"a"{[1.0, 2.0, 3.0]}, %"b") {alpha=1.0}
+            1 |  # node_Mul_1
+               %"val_1"<?,?> ⬅️ ::Mul(%"val_0", %"c") {beta=2.0}
+            return %"val_1"<?,?>
+        }
 
     Attributes:
         graph_like: The graph to append the new nodes and initializers to. When
