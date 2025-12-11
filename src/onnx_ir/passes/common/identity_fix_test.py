@@ -298,7 +298,9 @@ class TestIdentityFixPass(unittest.TestCase):
         )
 
         # Create a condition input for If
-        condition = ir.val("condition", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.BOOL))
+        condition = ir.val(
+            "condition", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.BOOL)
+        )
 
         # Create then_branch subgraph with direct input->output
         then_input = ir.val(
@@ -352,7 +354,7 @@ class TestIdentityFixPass(unittest.TestCase):
         self.assertTrue(result.modified)
 
         # Verify Identity was added in then_branch
-        if_node = list(result.model.graph)[0]
+        if_node = next(iter(result.model.graph))
         then_branch_after = if_node.attributes["then_branch"].value
         then_nodes = list(then_branch_after)
         self.assertEqual(len(then_nodes), 1)
@@ -455,9 +457,7 @@ class TestIdentityFixPass(unittest.TestCase):
 
         # Verify outputs are now different Identity nodes' outputs
         self.assertEqual(len(result.model.graph.outputs), 2)
-        self.assertIsNot(
-            result.model.graph.outputs[0], result.model.graph.outputs[1]
-        )
+        self.assertIsNot(result.model.graph.outputs[0], result.model.graph.outputs[1])
 
     def test_nested_subgraphs(self):
         """Test: Handle nested subgraphs (subgraph within subgraph)."""
@@ -526,11 +526,11 @@ class TestIdentityFixPass(unittest.TestCase):
         self.assertTrue(result.modified)
 
         # Navigate to innermost graphs and verify Identity nodes were added
-        outer_if = list(result.model.graph)[0]
+        outer_if = next(iter(result.model.graph))
         outer_then = outer_if.attributes["then_branch"].value
-        middle_if_node = list(outer_then)[0]
+        middle_if_node = next(iter(outer_then))
         inner_then = middle_if_node.attributes["then_branch"].value
-        
+
         inner_nodes = list(inner_then)
         self.assertEqual(len(inner_nodes), 1)
         self.assertEqual(inner_nodes[0].op_type, "Identity")

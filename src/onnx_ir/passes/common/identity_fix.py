@@ -64,7 +64,7 @@ class IdentityFixPass(ir.passes.InPlacePass):
             # Create an Identity node
             identity_node = ir.Node("", "Identity", inputs=[output])
             identity_output = identity_node.outputs[0]
-            
+
             # Copy metadata from the original output
             identity_output.name = output.name
             identity_output.shape = output.shape
@@ -72,15 +72,15 @@ class IdentityFixPass(ir.passes.InPlacePass):
             if output.metadata_props:
                 identity_output.metadata_props.update(output.metadata_props)
             identity_output.doc_string = output.doc_string
-            
+
             # Add the node to the graph
             graph_like.append(identity_node)
-            
+
             # Replace the output with the Identity node's output
             # Find the index of the output in the graph outputs
             output_index = graph_like.outputs.index(output)
             graph_like.outputs[output_index] = identity_output
-            
+
             logger.debug(
                 "Added Identity node for graph input '%s' used as output", output.name
             )
