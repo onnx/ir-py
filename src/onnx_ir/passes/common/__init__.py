@@ -9,6 +9,7 @@ __all__ = [
     "DeduplicateHashedInitializersPass",
     "DeduplicateInitializersPass",
     "IdentityEliminationPass",
+    "IdentityFixPass",
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
@@ -35,6 +36,9 @@ from onnx_ir.passes.common.constant_manipulation import (
 )
 from onnx_ir.passes.common.identity_elimination import (
     IdentityEliminationPass,
+)
+from onnx_ir.passes.common.identity_fix import (
+    IdentityFixPass,
 )
 from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateHashedInitializersPass,
