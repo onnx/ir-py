@@ -69,8 +69,7 @@ class IdentityFixPass(ir.passes.InPlacePass):
             identity_output.name = output.name
             identity_output.shape = output.shape
             identity_output.type = output.type
-            if output.metadata_props:
-                identity_output.metadata_props.update(output.metadata_props)
+            identity_output.metadata_props.update(output.metadata_props)
             identity_output.doc_string = output.doc_string
 
             # Add the node to the graph
