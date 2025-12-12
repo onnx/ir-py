@@ -7,11 +7,11 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.passes.common import identity_fix
+from onnx_ir.passes.common import output_fix
 
 
-class TestIdentityFixPass(unittest.TestCase):
-    """Test cases for IdentityFixPass."""
+class TestOutputFixPass(unittest.TestCase):
+    """Test cases for OutputFixPass."""
 
     def test_add_identity_when_input_is_direct_output(self):
         """Test: Add Identity node when graph input is directly used as output."""
@@ -30,7 +30,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -74,7 +74,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass did NOT modify the model
@@ -107,7 +107,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass did NOT modify the model
@@ -144,7 +144,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -188,7 +188,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -216,7 +216,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass did not modify the model
@@ -247,7 +247,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass did not modify the model
@@ -276,7 +276,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -347,7 +347,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(main_graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -407,7 +407,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(main_graph, ir_version=10, functions=[function])
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -440,7 +440,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
@@ -519,7 +519,7 @@ class TestIdentityFixPass(unittest.TestCase):
         model = ir.Model(main_graph, ir_version=10)
 
         # Run the pass
-        pass_instance = identity_fix.IdentityFixPass()
+        pass_instance = output_fix.OutputFixPass()
         result = pass_instance(model)
 
         # Verify the pass was applied
