@@ -535,6 +535,268 @@ class TestOutputFixPass(unittest.TestCase):
         self.assertEqual(len(inner_nodes), 1)
         self.assertEqual(inner_nodes[0].op_type, "Identity")
 
+    def test_pass_is_idempotent(self):
+        """Test: Running the pass twice should not modify the model again."""
+        input_value = ir.val(
+            "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[input_value],
+            nodes=[],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass first time
+        pass_instance = output_fix.OutputFixPass()
+        result1 = pass_instance(model)
+        self.assertTrue(result1.modified)
+
+        # Run the pass second time on the result
+        result2 = pass_instance(result1.model)
+        self.assertFalse(result2.modified)
+
+        # Verify structure remains the same
+        nodes = list(result2.model.graph)
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0].op_type, "Identity")
+
+    def test_output_order_preserved(self):
+        """Test: The order of outputs is preserved after transformation."""
+        input1 = ir.val(
+            "input1", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        input2 = ir.val(
+            "input2", shape=ir.Shape([3, 3]), type=ir.TensorType(ir.DataType.INT32)
+        )
+        input3 = ir.val(
+            "input3", shape=ir.Shape([4, 4]), type=ir.TensorType(ir.DataType.INT64)
+        )
+
+        # Create a processing node for input2
+        add_node = ir.Node("", "Add", inputs=[input2, input2])
+        add_node.outputs[0].name = "processed_input2"
+        add_node.outputs[0].shape = input2.shape
+        add_node.outputs[0].type = input2.type
+
+        graph = ir.Graph(
+            inputs=[input1, input2, input3],
+            outputs=[input1, add_node.outputs[0], input3],  # input1 and input3 are direct
+            nodes=[add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify output order is preserved (by checking names)
+        output_names = [output.name for output in result.model.graph.outputs]
+        self.assertEqual(output_names, ["input1", "processed_input2", "input3"])
+
+        # Verify first and third outputs are now Identity outputs
+        self.assertEqual(result.model.graph.outputs[0].producer().op_type, "Identity")
+        self.assertEqual(result.model.graph.outputs[1].producer().op_type, "Add")
+        self.assertEqual(result.model.graph.outputs[2].producer().op_type, "Identity")
+
+    def test_name_collision_avoided(self):
+        """Test: Verify that renaming original inputs doesn't cause name collisions."""
+        input_value = ir.val(
+            "my_value", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create a node that produces a value with name that could collide
+        add_node = ir.Node("", "Add", inputs=[input_value, input_value])
+        add_node.outputs[0].name = "my_value_orig"  # This name could collide
+        add_node.outputs[0].shape = input_value.shape
+        add_node.outputs[0].type = input_value.type
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[input_value],  # Direct input as output
+            nodes=[add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify no assertion errors or issues occurred
+        # (The implementation should handle this gracefully)
+        self.assertEqual(len(list(result.model.graph)), 2)  # Add + Identity
+
+    def test_mixed_outputs_with_initializer_and_input(self):
+        """Test: Handle case where outputs include both inputs and computed values."""
+        input_value = ir.val(
+            "input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Create a Constant node (not from input)
+        const_node = ir.Node("", "Constant", inputs=[])
+        const_node.outputs[0].name = "constant"
+        const_node.outputs[0].shape = ir.Shape([2, 2])
+        const_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create an Add node
+        add_node = ir.Node("", "Add", inputs=[input_value, const_node.outputs[0]])
+        add_node.outputs[0].name = "sum"
+        add_node.outputs[0].shape = input_value.shape
+        add_node.outputs[0].type = input_value.type
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[
+                input_value,
+                const_node.outputs[0],
+                add_node.outputs[0],
+            ],  # Mixed outputs
+            nodes=[const_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied (only for the direct input)
+        self.assertTrue(result.modified)
+
+        # Verify only one Identity was added (for the direct input)
+        identity_nodes = [n for n in result.model.graph if n.op_type == "Identity"]
+        self.assertEqual(len(identity_nodes), 1)
+
+        # Verify the first output is now an Identity node output
+        self.assertEqual(result.model.graph.outputs[0].producer().op_type, "Identity")
+        # The second output should still be from Constant
+        self.assertEqual(result.model.graph.outputs[1].producer().op_type, "Constant")
+        # The third output should still be from Add
+        self.assertEqual(result.model.graph.outputs[2].producer().op_type, "Add")
+
+    def test_shape_metadata_types_preserved(self):
+        """Test: Various shape types (dynamic, symbolic) are preserved correctly."""
+        # Input with concrete shape
+        input_concrete = ir.val(
+            "concrete",
+            shape=ir.Shape([2, 3, 4]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        # Input with dynamic shape
+        input_dynamic = ir.val(
+            "dynamic",
+            shape=ir.Shape([None, 3, None]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        # Input with symbolic shape
+        input_symbolic = ir.val(
+            "symbolic",
+            shape=ir.Shape(["batch", "seq", "hidden"]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+
+        graph = ir.Graph(
+            inputs=[input_concrete, input_dynamic, input_symbolic],
+            outputs=[input_concrete, input_dynamic, input_symbolic],
+            nodes=[],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify shapes are preserved
+        outputs = result.model.graph.outputs
+        self.assertEqual(outputs[0].shape, ir.Shape([2, 3, 4]))
+        self.assertEqual(outputs[1].shape, ir.Shape([None, 3, None]))
+        self.assertEqual(outputs[2].shape, ir.Shape(["batch", "seq", "hidden"]))
+
+    def test_loop_subgraph_with_direct_input_output(self):
+        """Test: Add Identity in Loop node subgraphs."""
+        # Create loop body with direct input->output
+        iter_num = ir.val(
+            "iter_num", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.INT64)
+        )
+        cond_in = ir.val("cond_in", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.BOOL))
+        loop_var = ir.val(
+            "loop_var", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+
+        # Loop body with direct input->output for both cond_in and loop_var
+        loop_body = ir.Graph(
+            inputs=[iter_num, cond_in, loop_var],
+            outputs=[cond_in, loop_var],  # Both directly passed through
+            nodes=[],
+            name="loop_body",
+        )
+
+        # Create main graph with Loop node
+        main_input = ir.val(
+            "main_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        max_trip_count = ir.val(
+            "max_trip_count",
+            shape=ir.Shape([]),
+            type=ir.TensorType(ir.DataType.INT64),
+        )
+        condition = ir.val(
+            "condition", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.BOOL)
+        )
+
+        loop_node = ir.Node("", "Loop", inputs=[max_trip_count, condition, main_input])
+        loop_node.attributes["body"] = ir.AttrGraph("body", loop_body)
+        loop_node.outputs[0].name = "loop_output"
+        loop_node.outputs[0].shape = main_input.shape
+        loop_node.outputs[0].type = main_input.type
+
+        main_graph = ir.Graph(
+            inputs=[main_input, max_trip_count, condition],
+            outputs=[loop_node.outputs[0]],
+            nodes=[loop_node],
+            name="main_graph",
+        )
+
+        model = ir.Model(main_graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity was added in loop body for direct pass-throughs
+        loop_node_after = next(iter(result.model.graph))
+        loop_body_after = loop_node_after.attributes["body"].value
+        loop_body_nodes = list(loop_body_after)
+
+        # Should have two Identity nodes (one for cond_in, one for loop_var)
+        identity_nodes = [n for n in loop_body_nodes if n.op_type == "Identity"]
+        self.assertEqual(len(identity_nodes), 2)
+
+        # Verify both outputs are now from Identity nodes
+        self.assertEqual(loop_body_after.outputs[0].producer().op_type, "Identity")
+        self.assertEqual(loop_body_after.outputs[1].producer().op_type, "Identity")
+
 
 if __name__ == "__main__":
     unittest.main()
