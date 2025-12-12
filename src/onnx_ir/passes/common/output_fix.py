@@ -32,7 +32,7 @@ class OutputFixPass(ir.passes.InPlacePass):
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
-        """Main entry point for the identity fix pass."""
+        """Main entry point for the output fix pass."""
         modified = False
 
         # Process the main graph
