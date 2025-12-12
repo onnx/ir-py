@@ -1,6 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the identity fix pass."""
+"""Tests for the output fix pass."""
 
 from __future__ import annotations
 
