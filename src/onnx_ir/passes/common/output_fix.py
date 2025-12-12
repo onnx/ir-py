@@ -51,7 +51,6 @@ class OutputFixPass(ir.passes.InPlacePass):
         modified = False
 
         for graph in (graph_like, *graph_like.subgraphs()):
-
             # Check each output to see if it's directly a graph input
             outputs_to_fix: list[tuple[ir.Value, int]] = []
             for i, output in enumerate(graph.outputs):
@@ -79,9 +78,7 @@ class OutputFixPass(ir.passes.InPlacePass):
                 graph.append(identity_node)
                 graph.outputs[index] = identity_output
 
-                logger.debug(
-                    "Added Identity node for graph input '%s' used as output", output
-                )
+                logger.debug("Added Identity node for graph input '%s' used as output", output)
                 modified = True
 
         return modified
