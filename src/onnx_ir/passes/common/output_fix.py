@@ -1,6 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Identity fix pass for adding Identity nodes when graph inputs are directly used as outputs."""
+"""Output fix pass for adding Identity nodes when graph inputs are directly used as outputs."""
 
 from __future__ import annotations
 
