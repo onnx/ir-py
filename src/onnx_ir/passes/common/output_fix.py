@@ -61,7 +61,7 @@ class OutputFixPass(ir.passes.InPlacePass):
 
 
 def _alias_multi_used_outputs(graph_like: ir.Graph | ir.Function) -> bool:
-    """Insert Identity nodes for graph outputs that are used multiple times."""
+    """Insert Identity nodes for values that appear in the graph output list multiple times."""
     modified = False
 
     for graph in (graph_like, *graph_like.subgraphs()):
