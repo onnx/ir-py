@@ -44,9 +44,7 @@ from onnx_ir.passes.common.initializer_deduplication import (
 from onnx_ir.passes.common.inliner import InlinePass
 from onnx_ir.passes.common.naming import NameFixPass
 from onnx_ir.passes.common.onnx_checker import CheckerPass
-from onnx_ir.passes.common.output_fix import (
-    OutputFixPass,
-)
+from onnx_ir.passes.common.output_fix import OutputFixPass
 from onnx_ir.passes.common.shape_inference import ShapeInferencePass
 from onnx_ir.passes.common.topological_sort import TopologicalSortPass
 from onnx_ir.passes.common.unused_removal import (
