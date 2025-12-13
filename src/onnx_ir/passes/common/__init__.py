@@ -34,9 +34,7 @@ from onnx_ir.passes.common.constant_manipulation import (
     LiftSubgraphInitializersToMainGraphPass,
     RemoveInitializersFromInputsPass,
 )
-from onnx_ir.passes.common.identity_elimination import (
-    IdentityEliminationPass,
-)
+from onnx_ir.passes.common.identity_elimination import IdentityEliminationPass
 from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateHashedInitializersPass,
     DeduplicateInitializersPass,
