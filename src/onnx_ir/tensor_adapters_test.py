@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import sys
 import tempfile
 import unittest
 
@@ -20,8 +21,17 @@ from onnx_ir import tensor_adapters
 
 def skip_if_no(module_name: str):
     """Decorator to skip a test if a module is not installed or cannot be imported."""
-    if importlib.util.find_spec(module_name) is None:
+    # Special handling for MLX: skip on Windows as it's not supported
+    if module_name == "mlx.core" and sys.platform == "win32":
+        return unittest.skip("mlx is not available on Windows")
+
+    try:
+        spec = importlib.util.find_spec(module_name)
+        if spec is None:
+            return unittest.skip(f"{module_name} not installed")
+    except (ModuleNotFoundError, ImportError, ValueError):
         return unittest.skip(f"{module_name} not installed")
+
     # Try to actually import the module to check if it works
     try:
         __import__(module_name)
