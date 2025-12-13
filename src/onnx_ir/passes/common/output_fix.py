@@ -17,24 +17,27 @@ logger = logging.getLogger(__name__)
 
 
 class OutputFixPass(ir.passes.InPlacePass):
-    """Pass for adding Identity nodes when graph inputs are directly used as outputs.
+    """Pass for adding Identity nodes to fix invalid output configurations.
 
     This pass adds Identity nodes according to the following rules:
 
-    If a graph input is directly used as a graph output (without any intermediate nodes),
-    insert an Identity node between them.
+    - If a graph input is directly used as a graph output (without any intermediate nodes),
+      insert an Identity node between them. The ONNX specification does not allow a graph
+      input to be directly used as a graph output without any processing nodes in between.
+    - If a value is used multiple times as graph outputs, insert Identity nodes for each
+      duplicate usage (keeping the first usage unchanged). This ensures each output value
+      is unique, as required by the ONNX specification.
 
-    If a value is used multiple times as graph outputs, insert Identity nodes for each usage
-    except the first one.
+    This pass processes both the main graph and all subgraphs (e.g., in control flow operators).
 
-    This turns an invalid ONNX graph into a valid one.
+    Example transformations:
+        Direct input-to-output:
+            Before: input -> (direct connection) -> output
+            After:  input -> Identity -> output
 
-    Example transformation:
-        Before: input -> (direct connection) -> output
-        After:  input -> Identity -> output
-
-    This is required because ONNX specification does not allow a graph input to be
-    directly used as a graph output without any processing nodes in between.
+        Duplicate outputs:
+            Before: value -> [output1, output2]
+            After:  value -> output1, value -> Identity -> output2
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
@@ -78,6 +81,7 @@ def _alias_multi_used_outputs(graph_like: ir.Graph | ir.Function) -> bool:
                 identity_output = identity_node.outputs[0]
 
                 # Copy metadata from the original output
+                # TODO: Use a better unique naming strategy if needed
                 identity_output.name = f"{output.name}_alias_{i}"
                 identity_output.shape = output.shape
                 identity_output.type = output.type
@@ -112,13 +116,14 @@ def _alias_direct_outputs(graph_like: ir.Graph | ir.Function) -> bool:
             identity_output = identity_node.outputs[0]
 
             # Copy metadata from the original output
+            # Preserve the original output name
             identity_output.name = output.name
             identity_output.shape = output.shape
             identity_output.type = output.type
             identity_output.metadata_props.update(output.metadata_props)
             identity_output.doc_string = output.doc_string
 
-            # Create a unique name for the old output to avoid name conflicts
+            # Create a new name for the old output
             # TODO: Use a better unique naming strategy if needed
             output.name = f"{output.name}_orig"
 
