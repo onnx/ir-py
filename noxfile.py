@@ -28,6 +28,7 @@ COMMON_TEST_DEPENDENCIES = (
     "types-PyYAML",
     "typing_extensions>=4.10",
     "ml-dtypes",
+    "mlx",
     "onnxruntime",
 )
 ONNX = "onnx==1.18"
