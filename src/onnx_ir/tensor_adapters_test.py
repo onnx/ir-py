@@ -19,9 +19,14 @@ from onnx_ir import tensor_adapters
 
 
 def skip_if_no(module_name: str):
-    """Decorator to skip a test if a module is not installed."""
+    """Decorator to skip a test if a module is not installed or cannot be imported."""
     if importlib.util.find_spec(module_name) is None:
         return unittest.skip(f"{module_name} not installed")
+    # Try to actually import the module to check if it works
+    try:
+        __import__(module_name)
+    except Exception as e:
+        return unittest.skip(f"{module_name} cannot be imported: {e}")
     return lambda func: func
 
 
@@ -207,6 +212,171 @@ class TorchDtypeConversionTest(unittest.TestCase):
             data = tmp.read()
         self.assertEqual(data, expected_manual)
         self.assertEqual(tensor.tobytes(), expected_manual)
+
+
+@skip_if_no("mlx.core")
+class MlxArrayTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("mlx.core.bool_", np.bool_),
+            ("mlx.core.uint8", np.uint8),
+            ("mlx.core.uint16", np.uint16),
+            ("mlx.core.uint32", np.uint32),
+            ("mlx.core.uint64", np.uint64),
+            ("mlx.core.int8", np.int8),
+            ("mlx.core.int16", np.int16),
+            ("mlx.core.int32", np.int32),
+            ("mlx.core.int64", np.int64),
+            ("mlx.core.float16", np.float16),
+            ("mlx.core.float32", np.float32),
+            ("mlx.core.bfloat16", ml_dtypes.bfloat16),
+            ("mlx.core.complex64", np.complex64),
+        ],
+    )
+    def test_numpy_returns_correct_dtype(self, mlx_dtype_str: str, np_dtype):
+        import mlx.core as mx
+
+        # Get the actual mlx dtype from string like "mlx.core.float32"
+        dtype_name = mlx_dtype_str.split(".")[-1]
+        mlx_dtype = getattr(mx, dtype_name)
+
+        mlx_array = mx.array([1], dtype=mlx_dtype)
+        tensor = tensor_adapters.MlxArray(mlx_array)
+        self.assertEqual(tensor.numpy().dtype, np_dtype)
+        self.assertEqual(tensor.__array__().dtype, np_dtype)
+        self.assertEqual(np.array(tensor).dtype, np_dtype)
+
+    @parameterized.parameterized.expand(
+        [
+            ("mlx.core.bool_",),
+            ("mlx.core.uint8",),
+            ("mlx.core.uint16",),
+            ("mlx.core.uint32",),
+            ("mlx.core.uint64",),
+            ("mlx.core.int8",),
+            ("mlx.core.int16",),
+            ("mlx.core.int32",),
+            ("mlx.core.int64",),
+            ("mlx.core.float16",),
+            ("mlx.core.float32",),
+            ("mlx.core.bfloat16",),
+            ("mlx.core.complex64",),
+        ],
+    )
+    def test_tobytes(self, mlx_dtype_str: str):
+        import mlx.core as mx
+
+        dtype_name = mlx_dtype_str.split(".")[-1]
+        mlx_dtype = getattr(mx, dtype_name)
+
+        mlx_array = mx.array([1], dtype=mlx_dtype)
+        tensor = tensor_adapters.MlxArray(mlx_array)
+        self.assertEqual(tensor.tobytes(), tensor.numpy().tobytes())
+
+    def test_tofile_method_exists_and_works(self):
+        """Test that tofile() method exists and works correctly."""
+        import mlx.core as mx
+
+        mlx_array = mx.array([1.0, 2.0, 3.0], dtype=mx.float32)
+        tensor = tensor_adapters.MlxArray(mlx_array)
+
+        # Test with BytesIO buffer
+        buffer = io.BytesIO()
+        tensor.tofile(buffer)
+        result_bytes = buffer.getvalue()
+
+        expected_bytes = tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+    @parameterized.parameterized.expand(
+        [
+            ("mlx.core.bool_",),
+            ("mlx.core.uint8",),
+            ("mlx.core.uint16",),
+            ("mlx.core.uint32",),
+            ("mlx.core.uint64",),
+            ("mlx.core.int8",),
+            ("mlx.core.int16",),
+            ("mlx.core.int32",),
+            ("mlx.core.int64",),
+            ("mlx.core.float16",),
+            ("mlx.core.float32",),
+            ("mlx.core.bfloat16",),
+            ("mlx.core.complex64",),
+        ],
+    )
+    def test_tofile(self, mlx_dtype_str: str):
+        """Test tofile() method for various data types."""
+        import mlx.core as mx
+
+        dtype_name = mlx_dtype_str.split(".")[-1]
+        mlx_dtype = getattr(mx, dtype_name)
+
+        mlx_array = mx.array([1], dtype=mlx_dtype)
+        tensor = tensor_adapters.MlxArray(mlx_array)
+
+        with tempfile.NamedTemporaryFile() as temp_file:
+            tensor.tofile(temp_file)
+            temp_file.seek(0)
+            result_bytes = temp_file.read()
+
+        expected_bytes = tensor.tobytes()
+        self.assertEqual(result_bytes, expected_bytes)
+
+
+@skip_if_no("mlx.core")
+class MlxDtypeConversionTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            (ir.DataType.BOOL, "mlx.core.bool_"),
+            (ir.DataType.UINT8, "mlx.core.uint8"),
+            (ir.DataType.UINT16, "mlx.core.uint16"),
+            (ir.DataType.UINT32, "mlx.core.uint32"),
+            (ir.DataType.UINT64, "mlx.core.uint64"),
+            (ir.DataType.INT8, "mlx.core.int8"),
+            (ir.DataType.INT16, "mlx.core.int16"),
+            (ir.DataType.INT32, "mlx.core.int32"),
+            (ir.DataType.INT64, "mlx.core.int64"),
+            (ir.DataType.FLOAT16, "mlx.core.float16"),
+            (ir.DataType.FLOAT, "mlx.core.float32"),
+            (ir.DataType.BFLOAT16, "mlx.core.bfloat16"),
+            (ir.DataType.COMPLEX64, "mlx.core.complex64"),
+        ]
+    )
+    def test_to_mlx_dtype(self, onnx_dtype: ir.DataType, expected_mlx_dtype_str: str):
+        import mlx.core as mx
+
+        dtype_name = expected_mlx_dtype_str.split(".")[-1]
+        expected_mlx_dtype = getattr(mx, dtype_name)
+
+        actual = tensor_adapters.to_mlx_dtype(onnx_dtype)
+        self.assertEqual(actual, expected_mlx_dtype)
+
+    @parameterized.parameterized.expand(
+        [
+            ("mlx.core.bool_", ir.DataType.BOOL),
+            ("mlx.core.uint8", ir.DataType.UINT8),
+            ("mlx.core.uint16", ir.DataType.UINT16),
+            ("mlx.core.uint32", ir.DataType.UINT32),
+            ("mlx.core.uint64", ir.DataType.UINT64),
+            ("mlx.core.int8", ir.DataType.INT8),
+            ("mlx.core.int16", ir.DataType.INT16),
+            ("mlx.core.int32", ir.DataType.INT32),
+            ("mlx.core.int64", ir.DataType.INT64),
+            ("mlx.core.float16", ir.DataType.FLOAT16),
+            ("mlx.core.float32", ir.DataType.FLOAT),
+            ("mlx.core.bfloat16", ir.DataType.BFLOAT16),
+            ("mlx.core.complex64", ir.DataType.COMPLEX64),
+        ]
+    )
+    def test_from_mlx_dtype(self, mlx_dtype_str: str, expected_onnx_dtype: ir.DataType):
+        import mlx.core as mx
+
+        dtype_name = mlx_dtype_str.split(".")[-1]
+        mlx_dtype = getattr(mx, dtype_name)
+
+        actual = tensor_adapters.from_mlx_dtype(mlx_dtype)
+        self.assertEqual(actual, expected_onnx_dtype)
 
 
 if __name__ == "__main__":
