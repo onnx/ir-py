@@ -459,6 +459,67 @@ class TestOutputFixPass(unittest.TestCase):
         self.assertEqual(len(result.model.graph.outputs), 2)
         self.assertIsNot(result.model.graph.outputs[0], result.model.graph.outputs[1])
 
+        # Verify that output names are unique
+        # First occurrence keeps original name, second gets _alias suffix
+        output_names = [output.name for output in result.model.graph.outputs]
+        self.assertEqual(output_names[0], "input")
+        self.assertEqual(output_names[1], "input_alias_1")
+        # Ensure names are unique
+        self.assertEqual(len(set(output_names)), 2)
+
+    def test_mixed_multiple_usage_and_single_usage(self):
+        """Test: Mix of inputs used once and multiple times as outputs."""
+        input1 = ir.val(
+            "input1", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        input2 = ir.val(
+            "input2", shape=ir.Shape([3, 3]), type=ir.TensorType(ir.DataType.INT32)
+        )
+        input3 = ir.val(
+            "input3", shape=ir.Shape([4, 4]), type=ir.TensorType(ir.DataType.INT64)
+        )
+
+        # Create outputs: input1 (once), input2 (three times), input3 (twice)
+        graph = ir.Graph(
+            inputs=[input1, input2, input3],
+            outputs=[input1, input2, input3, input2, input3, input2],
+            nodes=[],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Run the pass
+        pass_instance = output_fix.OutputFixPass()
+        result = pass_instance(model)
+
+        # Verify the pass was applied
+        self.assertTrue(result.modified)
+
+        # Verify Identity nodes were added
+        # All outputs are graph inputs, so _alias_direct_outputs adds Identity for each
+        # Additionally, multi-used outputs get extra Identity nodes from _alias_multi_used_outputs
+        # input1: 1 Identity (direct output)
+        # input2: 1 (direct) + 2 (for 2nd & 3rd occurrence) = 3 Identity nodes
+        # input3: 1 (direct) + 1 (for 2nd occurrence) = 2 Identity nodes
+        # Total: 1 + 3 + 2 = 6 Identity nodes
+        nodes = list(result.model.graph)
+        identity_nodes = [n for n in nodes if n.op_type == "Identity"]
+        self.assertEqual(len(identity_nodes), 6)
+
+        # Verify output names
+        output_names = [output.name for output in result.model.graph.outputs]
+        # First occurrences keep original names: input1, input2, input3
+        # Subsequent occurrences of multi-used values get _alias suffixes
+        self.assertEqual(output_names[0], "input1")  # input1 first occurrence
+        self.assertEqual(output_names[1], "input2")  # input2 first occurrence
+        self.assertEqual(output_names[2], "input3")  # input3 first occurrence
+        self.assertEqual(output_names[3], "input2_alias_3")  # input2 second
+        self.assertEqual(output_names[4], "input3_alias_4")  # input3 second
+        self.assertEqual(output_names[5], "input2_alias_5")  # input2 third
+        # Verify all names are unique
+        self.assertEqual(len(set(output_names)), 6)
+
     def test_nested_subgraphs(self):
         """Test: Handle nested subgraphs (subgraph within subgraph)."""
         # Create innermost graph with direct input->output
