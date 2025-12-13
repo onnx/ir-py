@@ -19,3 +19,19 @@
 .. autofunction:: onnx_ir.tensor_adapters.from_torch_dtype
 .. autofunction:: onnx_ir.tensor_adapters.to_torch_dtype
 ```
+
+## Adapters for MLX
+
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :template: classtemplate.rst
+    :nosignatures:
+
+    onnx_ir.tensor_adapters.MlxArray
+```
+
+```{eval-rst}
+.. autofunction:: onnx_ir.tensor_adapters.from_mlx_dtype
+.. autofunction:: onnx_ir.tensor_adapters.to_mlx_dtype
+```
