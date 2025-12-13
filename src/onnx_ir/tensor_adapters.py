@@ -300,7 +300,6 @@ class MlxArray(_core.Tensor):
     def numpy(self) -> npt.NDArray:
         import numpy as np
 
-        self.raw: mx.array
         # MLX arrays support __dlpack__ for efficient zero-copy conversion
         # We use numpy's from_dlpack to convert
         return np.asarray(self.raw)
