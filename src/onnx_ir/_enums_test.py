@@ -127,6 +127,8 @@ class DataTypeTest(unittest.TestCase):
         self.assertEqual(_enums.DataType["FLOAT8E5M2FNUZ"], _enums.DataType.FLOAT8E5M2FNUZ)
         self.assertEqual(_enums.DataType["UINT4"], _enums.DataType.UINT4)
         self.assertEqual(_enums.DataType["INT4"], _enums.DataType.INT4)
+        self.assertEqual(_enums.DataType["INT2"], _enums.DataType.INT2)
+        self.assertEqual(_enums.DataType["UINT2"], _enums.DataType.UINT2)
         self.assertEqual(_enums.DataType["FLOAT4E2M1"], _enums.DataType.FLOAT4E2M1)
         self.assertEqual(_enums.DataType["UNDEFINED"], _enums.DataType.UNDEFINED)
 

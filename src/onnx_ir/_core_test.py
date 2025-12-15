@@ -2928,15 +2928,18 @@ class PackedTensorTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "PackedTensor expects the value to be packed"):
             _core.PackedTensor(array, dtype=dtype, shape=shape)
 
-    def test_initialize_raises_when_dtype_not_4bit(self):
-        """Test that PackedTensor raises error for non-4bit data types."""
+    def test_initialize_raises_when_dtype_not_packed(self):
+        """Test that PackedTensor raises error for non-packed data types."""
         array = np.array([1, 2, 3, 4], dtype=np.uint8)
         shape = _core.Shape([4])
 
         with self.assertRaises(TypeError) as cm:
             _core.PackedTensor(array, dtype=ir.DataType.FLOAT, shape=shape)
 
-        self.assertIn("PackedTensor only supports INT4, UINT4, FLOAT4E2M1", str(cm.exception))
+        self.assertIn(
+            "PackedTensor only supports INT2, UINT2, INT4, UINT4, FLOAT4E2M1",
+            str(cm.exception),
+        )
 
     def test_initialize_raises_when_value_not_array_compatible(self):
         """Test that PackedTensor raises error for non-array compatible values."""

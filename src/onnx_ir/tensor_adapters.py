@@ -167,6 +167,8 @@ class TorchTensor(_core.Tensor):
             ir.DataType.FLOAT8E8M0,
         }:
             return self.raw.view(torch.uint8).numpy(force=True).view(self.dtype.numpy())
+        if self.dtype in {ir.DataType.INT2, ir.DataType.UINT2}:
+            return self.raw.view(torch.uint8).numpy(force=True).view(self.dtype.numpy())
 
         return self.raw.numpy(force=True)
 

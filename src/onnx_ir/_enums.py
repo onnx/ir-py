@@ -67,8 +67,8 @@ class DataType(enum.IntEnum):
     INT4 = 22
     FLOAT4E2M1 = 23
     FLOAT8E8M0 = 24
-    INT2 = 25
-    UINT2 = 26
+    UINT2 = 25
+    INT2 = 26
 
     @classmethod
     def from_numpy(cls, dtype: np.dtype) -> DataType:

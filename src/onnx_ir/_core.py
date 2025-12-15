@@ -264,8 +264,8 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
 
     When the dtype is not one of the numpy native dtypes, the value needs need to be:
 
-    - ``int8`` or ``uint8`` for int4, with the sign bit extended to 8 bits.
-    - ``uint8`` for uint4 or float4.
+    - ``int8`` or ``uint8`` for int2, int4, with the sign bit extended to 8 bits.
+    - ``uint8`` for uint2, uint4 or float4.
     - ``uint8`` for 8-bit data types.
     - ``uint16`` for bfloat16
 
@@ -512,7 +512,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             # when value is not a numpy array
             self._dtype = dtype
 
-        # View the bfloat16, float8 and int4 types using ml_dtypes
+        # View the bfloat16, float8 and int2, int4 types using ml_dtypes
         if isinstance(value, np.ndarray):
             value = _maybe_view_np_array_with_ml_dtypes(value, self._dtype)  # type: ignore[assignment]
 

@@ -282,21 +282,10 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("INT32", onnx.TensorProto.INT32),
             ("INT64", onnx.TensorProto.INT64),
             ("INT4", onnx.TensorProto.INT4),
-            ("INT2", 25),  # INT2 value
+            ("INT2", onnx.TensorProto.INT2),
         ]
     )
     def test_tensor_proto_tensor_int(self, _: str, dtype: int):
-        # INT2 is not yet supported in ONNX numpy_helper, so we handle it specially
-        if dtype == 25:  # INT2
-            # Create tensor proto manually since ONNX helper might not support this type yet
-            data_array = np.array([[-1, 0, 1]], dtype=ml_dtypes.int2)
-            # Create an IR tensor which will pack the data correctly
-            ir_tensor = ir.Tensor(data_array)
-            tensor_proto = serde.to_proto(ir_tensor)
-            tensor = serde.TensorProtoTensor(tensor_proto)
-            np.testing.assert_array_equal(tensor.numpy().view(ml_dtypes.int2), data_array)
-            return  # Skip remaining tests for INT2 as ONNX doesn't support it yet
-
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 4], [-1, 0, 1, 8])
         tensor = serde.TensorProtoTensor(tensor_proto)
         expected_array = onnx.numpy_helper.to_array(
@@ -312,8 +301,8 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype == onnx.TensorProto.INT4:
-            return  # DL Pack does not support int4
+        if dtype in (onnx.TensorProto.INT4, onnx.TensorProto.INT2):
+            return  # DL Pack does not support int4/int2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
     @parameterized.parameterized.expand(
@@ -323,21 +312,10 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("UINT32", onnx.TensorProto.UINT32),
             ("UINT64", onnx.TensorProto.UINT64),
             ("UINT4", onnx.TensorProto.UINT4),
-            ("UINT2", 26),  # UINT2 value
+            ("UINT2", onnx.TensorProto.UINT2),
         ]
     )
     def test_tensor_proto_tensor_uint(self, _: str, dtype: int):
-        # UINT2 is not yet supported in ONNX numpy_helper, so we handle it specially
-        if dtype == 26:  # UINT2
-            # Create tensor proto manually since ONNX helper might not support this type yet
-            data_array = np.array([[0, 1, 2, 3]], dtype=ml_dtypes.uint2)
-            # Create an IR tensor which will pack the data correctly
-            ir_tensor = ir.Tensor(data_array)
-            tensor_proto = serde.to_proto(ir_tensor)
-            tensor = serde.TensorProtoTensor(tensor_proto)
-            np.testing.assert_array_equal(tensor.numpy().view(ml_dtypes.uint2), data_array)
-            return  # Skip remaining tests for UINT2 as ONNX doesn't support it yet
-
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 3], [0, 1, 8])
         tensor = serde.TensorProtoTensor(tensor_proto)
         expected_array = onnx.numpy_helper.to_array(tensor_proto)
@@ -351,8 +329,8 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype == onnx.TensorProto.UINT4:
-            return  # DL Pack does not support uint4
+        if dtype in (onnx.TensorProto.UINT4, onnx.TensorProto.UINT2):
+            return  # DL Pack does not support uint4/uint2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
     @parameterized.parameterized.expand(
@@ -420,10 +398,10 @@ class TensorProtoTensorTest(unittest.TestCase):
                     ("FLOAT8E5M2", ir.DataType.FLOAT8E5M2),
                     ("FLOAT8E5M2FNUZ", ir.DataType.FLOAT8E5M2FNUZ),
                     ("FLOAT8E8M0", ir.DataType.FLOAT8E8M0),
-                    ("UINT2", ir.DataType.UINT2),
                     ("UINT4", ir.DataType.UINT4),
-                    ("INT2", ir.DataType.INT2),
                     ("INT4", ir.DataType.INT4),
+                    ("UINT2", ir.DataType.UINT2),
+                    ("INT2", ir.DataType.INT2),
                     ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
                 ],
                 [
