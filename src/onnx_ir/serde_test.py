@@ -282,8 +282,9 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("INT32", onnx.TensorProto.INT32),
             ("INT64", onnx.TensorProto.INT64),
             ("INT4", onnx.TensorProto.INT4),
+        ] + [
             ("INT2", onnx.TensorProto.INT2),
-        ]
+        ] if hasattr(onnx.TensorProto, "INT2") else []
     )
     def test_tensor_proto_tensor_int(self, _: str, dtype: int):
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 4], [-1, 0, 1, 8])
@@ -301,7 +302,7 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype in (onnx.TensorProto.INT4, onnx.TensorProto.INT2):
+        if dtype in (onnx.TensorProto.INT4, 26):
             return  # DL Pack does not support int4/int2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
@@ -312,8 +313,9 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("UINT32", onnx.TensorProto.UINT32),
             ("UINT64", onnx.TensorProto.UINT64),
             ("UINT4", onnx.TensorProto.UINT4),
-            ("UINT2", onnx.TensorProto.UINT2),
-        ]
+        ] + [
+            ("INT2", onnx.TensorProto.INT2),
+        ] if hasattr(onnx.TensorProto, "INT2") else []
     )
     def test_tensor_proto_tensor_uint(self, _: str, dtype: int):
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 3], [0, 1, 8])
@@ -329,7 +331,7 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype in (onnx.TensorProto.UINT4, onnx.TensorProto.UINT2):
+        if dtype in (onnx.TensorProto.UINT4, 25):
             return  # DL Pack does not support uint4/uint2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
