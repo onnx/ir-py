@@ -282,9 +282,14 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("INT32", onnx.TensorProto.INT32),
             ("INT64", onnx.TensorProto.INT64),
             ("INT4", onnx.TensorProto.INT4),
-        ] + [
-            ("INT2", onnx.TensorProto.INT2),
-        ] if hasattr(onnx.TensorProto, "INT2") else []
+            *(
+                [
+                    ("INT2", onnx.TensorProto.INT2),
+                ]
+                if hasattr(onnx.TensorProto, "INT2")
+                else []
+            ),
+        ]
     )
     def test_tensor_proto_tensor_int(self, _: str, dtype: int):
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 4], [-1, 0, 1, 8])
@@ -313,9 +318,14 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("UINT32", onnx.TensorProto.UINT32),
             ("UINT64", onnx.TensorProto.UINT64),
             ("UINT4", onnx.TensorProto.UINT4),
-        ] + [
-            ("INT2", onnx.TensorProto.INT2),
-        ] if hasattr(onnx.TensorProto, "INT2") else []
+            *(
+                [
+                    ("INT2", onnx.TensorProto.INT2),
+                ]
+                if hasattr(onnx.TensorProto, "INT2")
+                else []
+            ),
+        ]
     )
     def test_tensor_proto_tensor_uint(self, _: str, dtype: int):
         tensor_proto = onnx.helper.make_tensor("test_tensor", dtype, [1, 3], [0, 1, 8])
