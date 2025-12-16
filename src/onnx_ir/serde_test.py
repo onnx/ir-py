@@ -307,7 +307,10 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype in (onnx.TensorProto.INT4, onnx.TensorProto.INT2 if hasattr(onnx.TensorProto, "INT2") else 26):
+        if dtype in (
+            onnx.TensorProto.INT4,
+            onnx.TensorProto.INT2 if hasattr(onnx.TensorProto, "INT2") else 26,
+        ):
             return  # DL Pack does not support int4/int2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
@@ -341,7 +344,10 @@ class TensorProtoTensorTest(unittest.TestCase):
         array_from_raw_data = onnx.numpy_helper.to_array(tensor_proto_from_raw_data)
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
         # Test dlpack
-        if dtype in (onnx.TensorProto.UINT4, onnx.TensorProto.UINT2 if hasattr(onnx.TensorProto, "UINT2") else 25):
+        if dtype in (
+            onnx.TensorProto.UINT4,
+            onnx.TensorProto.UINT2 if hasattr(onnx.TensorProto, "UINT2") else 25,
+        ):
             return  # DL Pack does not support uint4/uint2
         np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
 
