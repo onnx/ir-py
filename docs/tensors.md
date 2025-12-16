@@ -139,16 +139,16 @@ In the following scenario, we show how to go from a `TensorProto` to an `onnx_ir
     print("tensor_mean.raw:", tensor_mean.raw)
 ```
 
-## Working with non-native NumPy dtypes: bfloat16, float8, int4
+## Working with non-native NumPy dtypes: bfloat16, float8, int4, int2
 
-`onnx_ir.Tensor.numpy()` produces a NumPy array representation of the tensor's value. When the tensor has dtype `BFLOAT16`, `FLOAT8[...]` or `[U]INT4` which are not supported by NumPy, we use dtypes from the `ml_dtypes` package.
+`onnx_ir.Tensor.numpy()` produces a NumPy array representation of the tensor's value. When the tensor has dtype `BFLOAT16`, `FLOAT8[...]`, `[U]INT4`, or `[U]INT2` which are not supported by NumPy, we use dtypes from the `ml_dtypes` package.
 
-`uint4`/`int4` is always unpacked; **`tobyte()` produces a packed representation** as expected.
+`uint4`/`int4` and `uint2`/`int2` are always unpacked; **`tobyte()` produces a packed representation** as expected.
 
 Initialization of `onnx_ir.Tensor` requires the NumPy array to follow the following typing constraints, or have a `ml_dtypes` dtype.
 
-- `int8` for (unpacked) int4, with the sign bit extended to 8 bits.
-- `uint8` for (unpacked) uint4.
+- `int8` for (unpacked) int4 or int2, with the sign bit extended to 8 bits.
+- `uint8` for (unpacked) uint4 or uint2.
 - `uint8` for 8-bit data types like float8.
 - `uint16` for bfloat16.
 

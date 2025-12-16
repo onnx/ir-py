@@ -55,8 +55,11 @@ class TensorTest(unittest.TestCase):
             ("float8e5m2", np.uint8, ir.DataType.FLOAT8E5M2),
             ("float8e5m2fnuz", np.uint8, ir.DataType.FLOAT8E5M2FNUZ),
             ("float8e8m0", np.uint8, ir.DataType.FLOAT8E8M0),
+            ("int2", np.int8, ir.DataType.INT2),
+            ("int2_uint8", np.uint8, ir.DataType.INT2),
             ("int4", np.int8, ir.DataType.INT4),
             ("int4_uint8", np.uint8, ir.DataType.INT4),
+            ("uint2", np.uint8, ir.DataType.UINT2),
             ("uint4", np.uint8, ir.DataType.UINT4),
             ("float4e2m1", np.uint8, ir.DataType.FLOAT4E2M1),
         ]
@@ -145,6 +148,38 @@ class TensorTest(unittest.TestCase):
         torch_tensor = torch.tensor(array)
         tensor = _core.Tensor(torch_tensor, dtype=ir.DataType.FLOAT)
         self.assertEqual(tensor.tobytes(), array.tobytes())
+
+    def test_tobytes_returns_packed_data_for_int2(self):
+        array = np.array([-2, -1, 0, 1, 1, -2, 1], dtype=np.int8)
+        # Test array size not divisible by 4
+        assert len(array) % 4 != 0
+        tensor = _core.Tensor(array, dtype=ir.DataType.INT2)
+        # -2, -1, 0, 1 => [0b10, 0b11, 0b00, 0b01] => 0b01001110 = 0x4E
+        # 1, -2, 1, 0 (padding) => [0b01, 0b10, 0b01, 0b00] => 0b00011001 = 0x19
+        self.assertEqual(tensor.tobytes(), b"\x4e\x19")
+
+    def test_tobytes_returns_packed_data_for_int2_ml_dtypes(self):
+        array = np.array([-2, -1, 0, 1, 1, -2, 1], dtype=ml_dtypes.int2)
+        # Test array size not divisible by 4
+        assert len(array) % 4 != 0
+        tensor = _core.Tensor(array, dtype=ir.DataType.INT2)
+        self.assertEqual(tensor.tobytes(), b"\x4e\x19")
+
+    def test_tobytes_returns_packed_data_for_uint2(self):
+        array = np.array([0, 1, 2, 3, 3, 2, 1], dtype=np.uint8)
+        # Test array size not divisible by 4
+        assert len(array) % 4 != 0
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT2)
+        # 0, 1, 2, 3 => 0b11100100 = 0xE4
+        # 3, 2, 1, 0 (padding) => 0b00011011 = 0x1B
+        self.assertEqual(tensor.tobytes(), b"\xe4\x1b")
+
+    def test_tobytes_returns_packed_data_for_uint2_ml_dtypes(self):
+        array = np.array([0, 1, 2, 3, 3, 2, 1], dtype=ml_dtypes.uint2)
+        # Test array size not divisible by 4
+        assert len(array) % 4 != 0
+        tensor = _core.Tensor(array, dtype=ir.DataType.UINT2)
+        self.assertEqual(tensor.tobytes(), b"\xe4\x1b")
 
     def test_tobytes_returns_packed_data_for_int4(self):
         array = np.array([-8, -1, 0, 1, 2, 7, 1], dtype=np.int8)
@@ -2893,15 +2928,18 @@ class PackedTensorTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "PackedTensor expects the value to be packed"):
             _core.PackedTensor(array, dtype=dtype, shape=shape)
 
-    def test_initialize_raises_when_dtype_not_4bit(self):
-        """Test that PackedTensor raises error for non-4bit data types."""
+    def test_initialize_raises_when_dtype_not_packed(self):
+        """Test that PackedTensor raises error for non-packed data types."""
         array = np.array([1, 2, 3, 4], dtype=np.uint8)
         shape = _core.Shape([4])
 
         with self.assertRaises(TypeError) as cm:
             _core.PackedTensor(array, dtype=ir.DataType.FLOAT, shape=shape)
 
-        self.assertIn("PackedTensor only supports INT4, UINT4, FLOAT4E2M1", str(cm.exception))
+        self.assertIn(
+            "PackedTensor only supports INT2, UINT2, INT4, UINT4, FLOAT4E2M1",
+            str(cm.exception),
+        )
 
     def test_initialize_raises_when_value_not_array_compatible(self):
         """Test that PackedTensor raises error for non-array compatible values."""
