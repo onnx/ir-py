@@ -39,6 +39,10 @@ class DataTypeTest(unittest.TestCase):
             self.assertEqual(_enums.DataType.FLOAT4E2M1, onnx.TensorProto.FLOAT4E2M1)
         if hasattr(onnx.TensorProto, "FLOAT8E8M0"):
             self.assertEqual(_enums.DataType.FLOAT8E8M0, onnx.TensorProto.FLOAT8E8M0)
+        if hasattr(onnx.TensorProto, "INT2"):
+            self.assertEqual(_enums.DataType.INT2, onnx.TensorProto.INT2)
+        if hasattr(onnx.TensorProto, "UINT2"):
+            self.assertEqual(_enums.DataType.UINT2, onnx.TensorProto.UINT2)
         self.assertEqual(_enums.DataType.UNDEFINED, onnx.TensorProto.UNDEFINED)
 
     @parameterized.parameterized.expand(
@@ -75,6 +79,8 @@ class DataTypeTest(unittest.TestCase):
             ("int4", np.dtype(ml_dtypes.int4), _enums.DataType.INT4),
             ("float4e2m1", np.dtype(ml_dtypes.float4_e2m1fn), _enums.DataType.FLOAT4E2M1),
             ("float8e8m0", np.dtype(ml_dtypes.float8_e8m0fnu), _enums.DataType.FLOAT8E8M0),
+            ("int2", np.dtype(ml_dtypes.int2), _enums.DataType.INT2),
+            ("uint2", np.dtype(ml_dtypes.uint2), _enums.DataType.UINT2),
         ]
     )
     def test_from_numpy_takes_np_dtype_and_returns_data_type(
@@ -121,6 +127,8 @@ class DataTypeTest(unittest.TestCase):
         self.assertEqual(_enums.DataType["FLOAT8E5M2FNUZ"], _enums.DataType.FLOAT8E5M2FNUZ)
         self.assertEqual(_enums.DataType["UINT4"], _enums.DataType.UINT4)
         self.assertEqual(_enums.DataType["INT4"], _enums.DataType.INT4)
+        self.assertEqual(_enums.DataType["INT2"], _enums.DataType.INT2)
+        self.assertEqual(_enums.DataType["UINT2"], _enums.DataType.UINT2)
         self.assertEqual(_enums.DataType["FLOAT4E2M1"], _enums.DataType.FLOAT4E2M1)
         self.assertEqual(_enums.DataType["UNDEFINED"], _enums.DataType.UNDEFINED)
 
