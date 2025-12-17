@@ -2073,7 +2073,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         The operator identifier is a tuple of the domain, op_type and overload.
         """
-        return self.domain, self.op_type, self.overload
+        return self._domain, self._op_type, self._overload
 
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
