@@ -1,6 +1,12 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Output fix pass for adding Identity nodes when graph inputs are directly used as outputs."""
+"""Output fix pass for adding Identity nodes.
+
+- Graph inputs are directly used as outputs (without any intermediate nodes).
+- A value is used multiple times as a graph output (ensuring each output is unique).
+
+This ensures compliance with the ONNX specification for valid output configurations.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,6 @@ __all__ = [
     "OutputFixPass",
 ]
 
-import collections
 import logging
 
 import onnx_ir as ir
@@ -66,7 +71,6 @@ def _alias_multi_used_outputs(graph_like: ir.Graph | ir.Function) -> bool:
 
     for graph in (graph_like, *graph_like.subgraphs()):
         # Count usage of each output
-        output_usages = collections.Counter(graph.outputs)
         seen: set[ir.Value] = set()
 
         # Add Identity nodes for outputs used multiple times
@@ -75,26 +79,26 @@ def _alias_multi_used_outputs(graph_like: ir.Graph | ir.Function) -> bool:
                 # Skip the first occurrence
                 seen.add(output)
                 continue
-            if output_usages[output] > 1:
-                # Create an Identity node
-                identity_node = ir.node("Identity", inputs=[output])
-                identity_output = identity_node.outputs[0]
 
-                # Copy metadata from the original output
-                # TODO: Use a better unique naming strategy if needed
-                identity_output.name = f"{output.name}_alias_{i}"
-                identity_output.shape = output.shape
-                identity_output.type = output.type
-                identity_output.metadata_props.update(output.metadata_props)
-                identity_output.doc_string = output.doc_string
+            # Create an Identity node
+            identity_node = ir.node("Identity", inputs=[output])
+            identity_output = identity_node.outputs[0]
 
-                # Add the node to the graph
-                graph.append(identity_node)
-                graph.outputs[i] = identity_output
-                logger.debug(
-                    "Added Identity node for graph output '%s' used multiple times", output
-                )
-                modified = True
+            # Copy metadata from the original output
+            # TODO: Use a better unique naming strategy if needed
+            identity_output.name = f"{output.name}_alias_{i}"
+            identity_output.shape = output.shape
+            identity_output.type = output.type
+            identity_output.metadata_props.update(output.metadata_props)
+            identity_output.doc_string = output.doc_string
+
+            # Add the node to the graph
+            graph.append(identity_node)
+            graph.outputs[i] = identity_output
+            logger.debug(
+                "Added Identity node for graph output '%s' used multiple times", output
+            )
+            modified = True
     return modified
 
 
