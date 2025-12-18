@@ -20,19 +20,21 @@ def topologically_equal(
     - Same connectivity pattern between nodes
     - Same number of inputs and outputs
     - Matching node attributes (including values for scalar and list types)
-    - Optionally, same tensor attributes and initializers (controlled by compare_tensors parameter)
+    - Tensor attributes and initializers are always compared by shape and dtype
 
     The comparison is done by building a mapping between nodes of both graphs
     based on their topological position and verifying that corresponding nodes
     have matching properties.
 
-    When compare_tensors is False (default), tensor attributes and initializers are not
-    compared. Initializers are mapped dynamically based on their usage position in the
-    graph topology, allowing graphs with different initializer names but identical
-    structure to be considered equal.
+    Tensor attributes and initializers are always compared by their shape and dtype.
+    The compare_tensors parameter controls how initializers are mapped:
 
-    When compare_tensors is True, both tensor attributes and initializers are compared
-    by their properties (shape and dtype) after sorting by name.
+    When compare_tensors is False (default), initializers are mapped dynamically
+    based on their usage position in the graph topology, allowing graphs with
+    different initializer names but identical structure to be considered equal.
+
+    When compare_tensors is True, initializers are pre-mapped by sorting by name,
+    providing stricter comparison that requires matching names and counts.
 
     Note:
         For tensor attributes and initializers, only shape and dtype are compared,
@@ -42,7 +44,8 @@ def topologically_equal(
     Args:
         graph1: The first graph to compare.
         graph2: The second graph to compare.
-        compare_tensors: Whether to compare tensor attributes and initializers. Defaults to False.
+        compare_tensors: Whether to pre-map initializers by name (True) or
+            map them dynamically by usage position (False). Defaults to False.
 
     Returns:
         True if the graphs are topologically equal, False otherwise.
@@ -70,8 +73,9 @@ def topologically_equal(
     # Map graph inputs
     value_map.update(zip(graph1.inputs, graph2.inputs))
 
-    # When comparing tensors, verify initializers have the same count and properties
-    # The actual mapping will be done dynamically as we encounter them in nodes
+    # When comparing tensors, verify initializers have the same count and pre-map them by name
+    # Otherwise, they will be mapped dynamically as we encounter them in nodes
+    # Always compare shapes and dtypes of initializers regardless of compare_tensors flag
     if compare_tensors:
         if len(graph1.initializers) != len(graph2.initializers):
             return False
@@ -86,10 +90,9 @@ def topologically_equal(
                 if v1.const_value != v2.const_value:
                     return False
             else:
-                # Compare shapes
+                # Compare shapes and dtypes
                 if v1.const_value.shape != v2.const_value.shape:
                     return False
-                # Compare dtypes
                 if v1.const_value.dtype != v2.const_value.dtype:
                     return False
 
@@ -140,6 +143,16 @@ def topologically_equal(
                     # One is initializer, the other is not - graphs are different
                     return False
 
+                # Always compare shapes and dtypes of initializers
+                if inp1.const_value is None or inp2.const_value is None:
+                    if inp1.const_value != inp2.const_value:
+                        return False
+                else:
+                    if inp1.const_value.shape != inp2.const_value.shape:
+                        return False
+                    if inp1.const_value.dtype != inp2.const_value.dtype:
+                        return False
+
                 # Map this initializer dynamically based on its usage position
                 value_map[inp1] = inp2
 
@@ -178,30 +191,23 @@ def topologically_equal(
                 _enums.AttributeType.TENSOR,
                 _enums.AttributeType.SPARSE_TENSOR,
             ):
-                # For tensor attributes, only compare when compare_tensors is True
-                if compare_tensors:
-                    # Compare shapes and dtypes, not values
-                    if hasattr(attr1.value, "shape") and hasattr(attr2.value, "shape"):
-                        if attr1.value.shape != attr2.value.shape:
-                            return False
-                    if hasattr(attr1.value, "dtype") and hasattr(attr2.value, "dtype"):
-                        if attr1.value.dtype != attr2.value.dtype:
-                            return False
+                # For tensor attributes, always compare shapes and dtypes
+                if attr1.value.shape != attr2.value.shape:
+                    return False
+                if attr1.value.dtype != attr2.value.dtype:
+                    return False
             elif attr1.type in (
                 _enums.AttributeType.TENSORS,
                 _enums.AttributeType.SPARSE_TENSORS,
             ):
-                # For tensor list attributes, only compare when compare_tensors is True
-                if compare_tensors:
-                    if len(attr1.value) != len(attr2.value):
+                # For tensor list attributes, always compare shapes and dtypes
+                if len(attr1.value) != len(attr2.value):
+                    return False
+                for t1, t2 in zip(attr1.value, attr2.value):
+                    if t1.shape != t2.shape:
                         return False
-                    for t1, t2 in zip(attr1.value, attr2.value):
-                        if hasattr(t1, "shape") and hasattr(t2, "shape"):
-                            if t1.shape != t2.shape:
-                                return False
-                        if hasattr(t1, "dtype") and hasattr(t2, "dtype"):
-                            if t1.dtype != t2.dtype:
-                                return False
+                    if t1.dtype != t2.dtype:
+                        return False
             else:
                 # For scalar and list attributes (INT, FLOAT, STRING, INTS, FLOATS, STRINGS, TYPE_PROTO, TYPE_PROTOS)
                 # Compare values directly
