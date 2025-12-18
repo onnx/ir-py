@@ -6,6 +6,8 @@ from __future__ import annotations
 
 __all__ = [
     "assert_onnx_proto_equal",
+    "topologically_equal",
+    "assert_topologically_equal",
 ]
 
 import difflib
@@ -195,3 +197,7 @@ def assert_onnx_proto_equal(
         raise AssertionError(
             f"Protos not equal: {type(actual)} != {type(expected)}\n" + "\n".join(errors)
         )
+
+
+# Import graph comparison functions
+from onnx_ir._graph_comparison import assert_topologically_equal, topologically_equal

@@ -177,7 +177,7 @@ class TopologicallyEqualTest(unittest.TestCase):
         self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
 
     def test_without_initializers_by_default(self):
-        """Test that initializers are not compared by default."""
+        """Test that initializer data comparison can be skipped with tensor_size_limit=0."""
         # Graph 1 with initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -186,7 +186,7 @@ class TopologicallyEqualTest(unittest.TestCase):
         node1 = _core.Node("", "Add", inputs=(v1, init1), num_outputs=1)
         graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,), initializers=(init1,))
 
-        # Graph 2 with different initializer
+        # Graph 2 with different initializer data but same shape/dtype
         v2 = _core.Value(name="v2")
         init2 = _core.Value(
             name="init2", const_value=_core.Tensor(np.array([3.0, 4.0], dtype=np.float32))
@@ -194,11 +194,14 @@ class TopologicallyEqualTest(unittest.TestCase):
         node2 = _core.Node("", "Add", inputs=(v2, init2), num_outputs=1)
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
-        # Should be equal because initializers are not compared by default
-        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+        # Should be equal when using tensor_size_limit=0 (skip data comparison for tensors > size 0)
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2, tensor_size_limit=0))
+        
+        # Should NOT be equal with default (None) - data is compared
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
 
     def test_with_initializers_when_enabled(self):
-        """Test that initializers are compared when compare_tensors=True."""
+        """Test that initializers data is compared when tensor_size_limit=None."""
         # Graph 1 with initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -215,13 +218,13 @@ class TopologicallyEqualTest(unittest.TestCase):
         node2 = _core.Node("", "Add", inputs=(v2, init2), num_outputs=1)
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
-        # Should be equal when comparing initializers
+        # Should be equal when comparing initializer data (tensor_size_limit=None means compare all)
         self.assertTrue(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
+            _graph_comparison.topologically_equal(graph1, graph2, tensor_size_limit=None)
         )
 
     def test_with_different_initializer_shapes(self):
-        """Test that graphs with different initializer shapes are not equal when comparing."""
+        """Test that graphs with different initializer shapes are not equal."""
         # Graph 1 with initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -238,13 +241,13 @@ class TopologicallyEqualTest(unittest.TestCase):
         node2 = _core.Node("", "Add", inputs=(v2, init2), num_outputs=1)
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
-        # Should not be equal when comparing initializers
+        # Should not be equal - shapes are always compared
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
+            _graph_comparison.topologically_equal(graph1, graph2)
         )
 
     def test_with_different_initializer_dtypes(self):
-        """Test that graphs with different initializer dtypes are not equal when comparing."""
+        """Test that graphs with different initializer dtypes are not equal."""
         # Graph 1 with float32 initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -261,13 +264,13 @@ class TopologicallyEqualTest(unittest.TestCase):
         node2 = _core.Node("", "Add", inputs=(v2, init2), num_outputs=1)
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
-        # Should not be equal when comparing initializers
+        # Should not be equal - dtypes are always compared
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
+            _graph_comparison.topologically_equal(graph1, graph2)
         )
 
     def test_with_different_number_of_initializers(self):
-        """Test that graphs with different numbers of initializers are not equal when comparing."""
+        """Test that graphs with different numbers of initializers are not equal."""
         # Graph 1 with one initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -282,9 +285,9 @@ class TopologicallyEqualTest(unittest.TestCase):
         node2 = _core.Node("", "Add", inputs=(v2, v3), num_outputs=1)
         graph2 = _core.Graph((v2, v3), node2.outputs, nodes=(node2,))
 
-        # Should not be equal when comparing initializers
+        # Should not be equal - different number of inputs (one has initializer, one doesn't)
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
+            _graph_comparison.topologically_equal(graph1, graph2, )
         )
 
     def test_with_subgraph_attributes(self):
