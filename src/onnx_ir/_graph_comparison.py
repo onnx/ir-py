@@ -235,7 +235,7 @@ def _compare_graphs(
                 if not (inp1.is_initializer() and inp2.is_initializer()):
                     differences.append(
                         f"Node {node1_desc}, input {input_idx}: "
-                        f"One is initializer, the other is not"
+                        f"{inp1.name} ({inp1.is_initializer()}) or {inp2.name} ({inp2.is_initializer()}) is not an initializer"
                     )
                     return False
 
