@@ -11,7 +11,7 @@ from onnx_ir import _core, _enums
 
 
 def topologically_equal(
-    graph1: _core.Graph, graph2: _core.Graph, *, compare_initializers: bool = False
+    graph1: _core.Graph, graph2: _core.Graph, *, compare_tensors: bool = False
 ) -> bool:
     """Return true if the two graphs are topologically equivalent.
 
@@ -20,27 +20,29 @@ def topologically_equal(
     - Same connectivity pattern between nodes
     - Same number of inputs and outputs
     - Matching node attributes (including values for scalar and list types)
-    - Optionally, same initializers (controlled by compare_initializers parameter)
+    - Optionally, same tensor attributes and initializers (controlled by compare_tensors parameter)
 
     The comparison is done by building a mapping between nodes of both graphs
     based on their topological position and verifying that corresponding nodes
     have matching properties.
 
-    When compare_initializers is False (default), initializers are mapped dynamically
-    based on their usage position in the graph topology, allowing graphs with different
-    initializer names but identical structure to be considered equal.
+    When compare_tensors is False (default), tensor attributes and initializers are not
+    compared. Initializers are mapped dynamically based on their usage position in the
+    graph topology, allowing graphs with different initializer names but identical
+    structure to be considered equal.
 
-    When compare_initializers is True, initializers are compared by their properties
-    (shape and dtype) after sorting by name.
+    When compare_tensors is True, both tensor attributes and initializers are compared
+    by their properties (shape and dtype) after sorting by name.
 
     Note:
-        For tensor attributes, only shape and dtype are compared, not the actual values.
+        For tensor attributes and initializers, only shape and dtype are compared,
+        not the actual values.
         Complex attribute types like TYPE_PROTO may use simple equality comparison.
 
     Args:
         graph1: The first graph to compare.
         graph2: The second graph to compare.
-        compare_initializers: Whether to compare initializers. Defaults to False.
+        compare_tensors: Whether to compare tensor attributes and initializers. Defaults to False.
 
     Returns:
         True if the graphs are topologically equal, False otherwise.
@@ -68,9 +70,9 @@ def topologically_equal(
     # Map graph inputs
     value_map.update(zip(graph1.inputs, graph2.inputs))
 
-    # When comparing initializers, verify they have the same count and properties
+    # When comparing tensors, verify initializers have the same count and properties
     # The actual mapping will be done dynamically as we encounter them in nodes
-    if compare_initializers:
+    if compare_tensors:
         if len(graph1.initializers) != len(graph2.initializers):
             return False
 
@@ -127,10 +129,10 @@ def topologically_equal(
             else:
                 # If not mapped yet, it should be an initializer
                 # Map it dynamically based on usage (not by name)
-                # When not comparing initializers, we allow this dynamic mapping
-                # When comparing initializers, they should have been pre-mapped
-                if compare_initializers:
-                    # If comparing initializers, they should already be mapped
+                # When not comparing tensors, we allow this dynamic mapping
+                # When comparing tensors, they should have been pre-mapped
+                if compare_tensors:
+                    # If comparing tensors, they should already be mapped
                     return False
 
                 # Check both are initializers
@@ -163,43 +165,43 @@ def topologically_equal(
             # For graph attributes, recursively compare
             if attr1.type == _enums.AttributeType.GRAPH:
                 if not topologically_equal(
-                    attr1.value, attr2.value, compare_initializers=compare_initializers
+                    attr1.value, attr2.value, compare_tensors=compare_tensors
                 ):
                     return False
             elif attr1.type == _enums.AttributeType.GRAPHS:
                 if len(attr1.value) != len(attr2.value):
                     return False
                 for g1, g2 in zip(attr1.value, attr2.value):
-                    if not topologically_equal(
-                        g1, g2, compare_initializers=compare_initializers
-                    ):
+                    if not topologically_equal(g1, g2, compare_tensors=compare_tensors):
                         return False
             elif attr1.type in (
                 _enums.AttributeType.TENSOR,
                 _enums.AttributeType.SPARSE_TENSOR,
             ):
-                # For tensor attributes, compare shapes and dtypes, not values
-                # (similar to initializers when not comparing them)
-                if hasattr(attr1.value, "shape") and hasattr(attr2.value, "shape"):
-                    if attr1.value.shape != attr2.value.shape:
-                        return False
-                if hasattr(attr1.value, "dtype") and hasattr(attr2.value, "dtype"):
-                    if attr1.value.dtype != attr2.value.dtype:
-                        return False
+                # For tensor attributes, only compare when compare_tensors is True
+                if compare_tensors:
+                    # Compare shapes and dtypes, not values
+                    if hasattr(attr1.value, "shape") and hasattr(attr2.value, "shape"):
+                        if attr1.value.shape != attr2.value.shape:
+                            return False
+                    if hasattr(attr1.value, "dtype") and hasattr(attr2.value, "dtype"):
+                        if attr1.value.dtype != attr2.value.dtype:
+                            return False
             elif attr1.type in (
                 _enums.AttributeType.TENSORS,
                 _enums.AttributeType.SPARSE_TENSORS,
             ):
-                # For tensor list attributes
-                if len(attr1.value) != len(attr2.value):
-                    return False
-                for t1, t2 in zip(attr1.value, attr2.value):
-                    if hasattr(t1, "shape") and hasattr(t2, "shape"):
-                        if t1.shape != t2.shape:
-                            return False
-                    if hasattr(t1, "dtype") and hasattr(t2, "dtype"):
-                        if t1.dtype != t2.dtype:
-                            return False
+                # For tensor list attributes, only compare when compare_tensors is True
+                if compare_tensors:
+                    if len(attr1.value) != len(attr2.value):
+                        return False
+                    for t1, t2 in zip(attr1.value, attr2.value):
+                        if hasattr(t1, "shape") and hasattr(t2, "shape"):
+                            if t1.shape != t2.shape:
+                                return False
+                        if hasattr(t1, "dtype") and hasattr(t2, "dtype"):
+                            if t1.dtype != t2.dtype:
+                                return False
             else:
                 # For scalar and list attributes (INT, FLOAT, STRING, INTS, FLOATS, STRINGS, TYPE_PROTO, TYPE_PROTOS)
                 # Compare values directly

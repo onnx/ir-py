@@ -198,7 +198,7 @@ class TopologicallyEqualTest(unittest.TestCase):
         self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
 
     def test_with_initializers_when_enabled(self):
-        """Test that initializers are compared when compare_initializers=True."""
+        """Test that initializers are compared when compare_tensors=True."""
         # Graph 1 with initializer
         v1 = _core.Value(name="v1")
         init1 = _core.Value(
@@ -217,7 +217,7 @@ class TopologicallyEqualTest(unittest.TestCase):
 
         # Should be equal when comparing initializers
         self.assertTrue(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_initializers=True)
+            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
         )
 
     def test_with_different_initializer_shapes(self):
@@ -240,7 +240,7 @@ class TopologicallyEqualTest(unittest.TestCase):
 
         # Should not be equal when comparing initializers
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_initializers=True)
+            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
         )
 
     def test_with_different_initializer_dtypes(self):
@@ -263,7 +263,7 @@ class TopologicallyEqualTest(unittest.TestCase):
 
         # Should not be equal when comparing initializers
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_initializers=True)
+            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
         )
 
     def test_with_different_number_of_initializers(self):
@@ -284,7 +284,7 @@ class TopologicallyEqualTest(unittest.TestCase):
 
         # Should not be equal when comparing initializers
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, compare_initializers=True)
+            _graph_comparison.topologically_equal(graph1, graph2, compare_tensors=True)
         )
 
     def test_with_subgraph_attributes(self):
