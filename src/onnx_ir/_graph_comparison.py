@@ -56,15 +56,15 @@ def topologically_equal(
     # Map graph inputs
     value_map.update(zip(graph1.inputs, graph2.inputs))
 
-    # Map initializers - always map them (as they can be node inputs)
-    # but only compare their properties if compare_initializers is True
-    init_values1 = sorted(graph1.initializers.values(), key=lambda v: v.name or "")
-    init_values2 = sorted(graph2.initializers.values(), key=lambda v: v.name or "")
-
+    # When comparing initializers, verify they have the same count and properties
+    # The actual mapping will be done dynamically as we encounter them in nodes
     if compare_initializers:
-        # When comparing initializers, check their count and properties
-        if len(init_values1) != len(init_values2):
+        if len(graph1.initializers) != len(graph2.initializers):
             return False
+
+        # Sort initializers by name for consistent comparison
+        init_values1 = sorted(graph1.initializers.values(), key=lambda v: v.name or "")
+        init_values2 = sorted(graph2.initializers.values(), key=lambda v: v.name or "")
 
         for v1, v2 in zip(init_values1, init_values2):
             # Check if initializers have the same properties
@@ -79,9 +79,8 @@ def topologically_equal(
                 if v1.const_value.dtype != v2.const_value.dtype:
                     return False
 
-    # Map initializers regardless of whether we compared them
-    # They need to be mapped as they can be used as node inputs
-    value_map.update(zip(init_values1, init_values2))
+            # Map the initializer for later use
+            value_map[v1] = v2
 
     # Traverse both graphs in parallel and compare nodes
     for node1, node2 in zip(nodes1, nodes2):
@@ -114,10 +113,21 @@ def topologically_equal(
                 if value_map[inp1] != inp2:
                     return False
             else:
-                # This shouldn't happen in a valid topological comparison
-                # as all inputs should have been seen as outputs of previous nodes
-                # or as graph inputs/initializers
-                return False
+                # If not mapped yet, it should be an initializer
+                # Map it dynamically based on usage (not by name)
+                # When not comparing initializers, we allow this dynamic mapping
+                # When comparing initializers, they should have been pre-mapped
+                if compare_initializers:
+                    # If comparing initializers, they should already be mapped
+                    return False
+
+                # Check both are initializers
+                if not (inp1.is_initializer() and inp2.is_initializer()):
+                    # One is initializer, the other is not - graphs are different
+                    return False
+
+                # Map this initializer dynamically based on its usage position
+                value_map[inp1] = inp2
 
         # Map outputs
         value_map.update(zip(node1.outputs, node2.outputs))
