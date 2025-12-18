@@ -43,16 +43,13 @@ def topologically_equal(
     Returns:
         True if the graphs are topologically equal, False otherwise.
     """
-    differences = []
+    differences: list[str] = []
     result = _compare_graphs(graph1, graph2, tensor_size_limit, differences)
     return result
 
 
 def assert_topologically_equal(
-    graph1: _core.Graph,
-    graph2: _core.Graph,
-    *,
-    tensor_size_limit: int | None = None
+    graph1: _core.Graph, graph2: _core.Graph, *, tensor_size_limit: int | None = None
 ) -> None:
     """Assert that two graphs are topologically equivalent.
 
@@ -71,7 +68,7 @@ def assert_topologically_equal(
         AssertionError: If the graphs are not topologically equal, with detailed
             error messages describing the differences.
     """
-    differences = []
+    differences: list[str] = []
     result = _compare_graphs(graph1, graph2, tensor_size_limit, differences)
 
     if not result or differences:
@@ -101,7 +98,7 @@ def _should_compare_tensor_data(tensor, tensor_size_limit: int | None) -> bool:
     if tensor is None:
         return False
     # Calculate total size
-    size = np.prod(tensor.shape) if hasattr(tensor, 'shape') else 0
+    size = np.prod(tensor.shape) if hasattr(tensor, "shape") else 0
     return size <= tensor_size_limit
 
 
@@ -132,6 +129,9 @@ def _compare_graphs(
 ) -> bool:
     """Internal function to compare two graphs and collect differences."""
     topologically_equal = True
+
+    # Queue to store subgraphs to compare: (graph1, graph2, context_string)
+    subgraph_queue = []
 
     # Quick checks: number of nodes, inputs, outputs
     if len(list(graph1)) != len(list(graph2)):
@@ -253,13 +253,17 @@ def _compare_graphs(
 
                     # Compare tensor data if within size limit
                     if _should_compare_tensor_data(inp1.const_value, tensor_size_limit):
-                        if not _tensors_equal(inp1.const_value, inp2.const_value, tensor_size_limit):
+                        if not _tensors_equal(
+                            inp1.const_value, inp2.const_value, tensor_size_limit
+                        ):
                             # This is a tensor data difference, not topological
                             differences.append(
                                 f"Tensor data difference: Node {node_idx} ({node1.op_type}), "
                                 f"input {input_idx} initializer data differs"
                             )
-                            topologically_equal = False  # Mark that we found a difference but continue
+                            topologically_equal = (
+                                False  # Mark that we found a difference but continue
+                            )
 
                 # Map this initializer dynamically based on its usage position
                 value_map[inp1] = inp2
@@ -295,22 +299,12 @@ def _compare_graphs(
                 return False
 
             # Compare attribute values
-            # For graph attributes, recursively compare
+            # For graph attributes, queue for later comparison
             if attr1.type == _enums.AttributeType.GRAPH:
-                sub_diffs = []
-                if not _compare_graphs(attr1.value, attr2.value, tensor_size_limit, sub_diffs):
-                    differences.extend([
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph: {d}"
-                        for d in sub_diffs
-                    ])
-                    return False
-                elif sub_diffs:
-                    # There are tensor data differences in subgraph
-                    differences.extend([
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph: {d}"
-                        for d in sub_diffs
-                    ])
-                    topologically_equal = False
+                context = (
+                    f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph"
+                )
+                subgraph_queue.append((attr1.value, attr2.value, context))
             elif attr1.type == _enums.AttributeType.GRAPHS:
                 if len(attr1.value) != len(attr2.value):
                     differences.append(
@@ -319,19 +313,8 @@ def _compare_graphs(
                     )
                     return False
                 for g_idx, (g1, g2) in enumerate(zip(attr1.value, attr2.value)):
-                    sub_diffs = []
-                    if not _compare_graphs(g1, g2, tensor_size_limit, sub_diffs):
-                        differences.extend([
-                            f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph {g_idx}: {d}"
-                            for d in sub_diffs
-                        ])
-                        return False
-                    elif sub_diffs:
-                        differences.extend([
-                            f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph {g_idx}: {d}"
-                            for d in sub_diffs
-                        ])
-                        topologically_equal = False
+                    context = f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph {g_idx}"
+                    subgraph_queue.append((g1, g2, context))
             elif attr1.type in (
                 _enums.AttributeType.TENSOR,
                 _enums.AttributeType.SPARSE_TENSOR,
@@ -404,9 +387,20 @@ def _compare_graphs(
     # Verify that graph outputs are properly mapped
     for out_idx, (out1, out2) in enumerate(zip(graph1.outputs, graph2.outputs)):
         if out1 not in value_map or value_map[out1] != out2:
-            differences.append(
-                f"Graph output {out_idx}: Mapping mismatch"
-            )
+            differences.append(f"Graph output {out_idx}: Mapping mismatch")
             return False
+
+    # Now compare all queued subgraphs
+    for subgraph1, subgraph2, context in subgraph_queue:
+        sub_diffs: list[str] = []
+        sub_result = _compare_graphs(subgraph1, subgraph2, tensor_size_limit, sub_diffs)
+        if not sub_result:
+            # Topological difference in subgraph
+            differences.extend([f"{context}: {d}" for d in sub_diffs])
+            return False
+        elif sub_diffs:
+            # Only tensor data differences in subgraph
+            differences.extend([f"{context}: {d}" for d in sub_diffs])
+            topologically_equal = False
 
     return topologically_equal
