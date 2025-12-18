@@ -8,9 +8,6 @@ import numpy as np
 
 from onnx_ir import _core, _enums
 
-# NOTE(justinchuby): We need to ensure a graph has valid inputs and outputs
-# NOTE(justinchuby): A graph may be specified with a set of inputs and outputs
-
 
 def topologically_equal(
     graph1: _core.Graph, graph2: _core.Graph, *, tensor_size_limit: int | None = None
@@ -128,28 +125,29 @@ def _compare_graphs(
     differences: list[str],
 ) -> bool:
     """Internal function to compare two graphs and collect differences."""
-    topologically_equal = True
+    are_equal = True
 
     # Queue to store subgraphs to compare: (graph1, graph2, context_string)
     subgraph_queue = []
 
     # Quick checks: number of nodes, inputs, outputs
+    # Accumulate quick check differences before returning
     if len(list(graph1)) != len(list(graph2)):
         differences.append(
             f"Different number of nodes: {len(list(graph1))} vs {len(list(graph2))}"
         )
-        return False
 
     if len(graph1.inputs) != len(graph2.inputs):
         differences.append(
             f"Different number of inputs: {len(graph1.inputs)} vs {len(graph2.inputs)}"
         )
-        return False
 
     if len(graph1.outputs) != len(graph2.outputs):
         differences.append(
             f"Different number of outputs: {len(graph1.outputs)} vs {len(graph2.outputs)}"
         )
+
+    if differences:
         return False
 
     # If both graphs are empty, they are equal
@@ -167,35 +165,38 @@ def _compare_graphs(
     # Traverse both graphs in parallel and compare nodes
     for node_idx, (node1, node2) in enumerate(zip(nodes1, nodes2)):
         # Compare node properties
+        node1_desc = f"{node_idx} ({node1.op_type}, name='{node1.name}')"
+        node2_desc = f"{node_idx} ({node2.op_type}, name='{node2.name}')"
+
         if node1.domain != node2.domain:
             differences.append(
-                f"Node {node_idx}: Different domain: '{node1.domain}' vs '{node2.domain}'"
+                f"Node {node1_desc}: Different domain: '{node1.domain}' vs '{node2.domain}'"
             )
             return False
 
         if node1.op_type != node2.op_type:
             differences.append(
-                f"Node {node_idx}: Different op_type: '{node1.op_type}' vs '{node2.op_type}'"
+                f"Node {node1_desc} vs {node2_desc}: Different op_type: '{node1.op_type}' vs '{node2.op_type}'"
             )
             return False
 
         if node1.overload != node2.overload:
             differences.append(
-                f"Node {node_idx}: Different overload: '{node1.overload}' vs '{node2.overload}'"
+                f"Node {node1_desc}: Different overload: '{node1.overload}' vs '{node2.overload}'"
             )
             return False
 
         # Check number of inputs and outputs
         if len(node1.inputs) != len(node2.inputs):
             differences.append(
-                f"Node {node_idx} ({node1.op_type}): Different number of inputs: "
+                f"Node {node1_desc}: Different number of inputs: "
                 f"{len(node1.inputs)} vs {len(node2.inputs)}"
             )
             return False
 
         if len(node1.outputs) != len(node2.outputs):
             differences.append(
-                f"Node {node_idx} ({node1.op_type}): Different number of outputs: "
+                f"Node {node1_desc}: Different number of outputs: "
                 f"{len(node1.outputs)} vs {len(node2.outputs)}"
             )
             return False
@@ -206,7 +207,7 @@ def _compare_graphs(
                 continue
             if inp1 is None or inp2 is None:
                 differences.append(
-                    f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
+                    f"Node {node1_desc}, input {input_idx}: "
                     f"One input is None, the other is not"
                 )
                 return False
@@ -215,8 +216,7 @@ def _compare_graphs(
             if inp1 in value_map:
                 if value_map[inp1] != inp2:
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
-                        f"Value mapping mismatch"
+                        f"Node {node1_desc}, input {input_idx}: Value mapping mismatch"
                     )
                     return False
             else:
@@ -224,7 +224,7 @@ def _compare_graphs(
                 # Map it dynamically based on usage (not by name)
                 if not (inp1.is_initializer() and inp2.is_initializer()):
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
+                        f"Node {node1_desc}, input {input_idx}: "
                         f"One is initializer, the other is not"
                     )
                     return False
@@ -233,20 +233,20 @@ def _compare_graphs(
                 if inp1.const_value is None or inp2.const_value is None:
                     if inp1.const_value != inp2.const_value:
                         differences.append(
-                            f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
+                            f"Node {node1_desc}, input {input_idx}: "
                             f"Initializer const_value mismatch"
                         )
                         return False
                 else:
                     if inp1.const_value.shape != inp2.const_value.shape:
                         differences.append(
-                            f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
+                            f"Node {node1_desc}, input {input_idx}: "
                             f"Initializer shape mismatch: {inp1.const_value.shape} vs {inp2.const_value.shape}"
                         )
                         return False
                     if inp1.const_value.dtype != inp2.const_value.dtype:
                         differences.append(
-                            f"Node {node_idx} ({node1.op_type}), input {input_idx}: "
+                            f"Node {node1_desc}, input {input_idx}: "
                             f"Initializer dtype mismatch: {inp1.const_value.dtype} vs {inp2.const_value.dtype}"
                         )
                         return False
@@ -258,12 +258,10 @@ def _compare_graphs(
                         ):
                             # This is a tensor data difference, not topological
                             differences.append(
-                                f"Tensor data difference: Node {node_idx} ({node1.op_type}), "
+                                f"Tensor data difference: Node {node1_desc}, "
                                 f"input {input_idx} initializer data differs"
                             )
-                            topologically_equal = (
-                                False  # Mark that we found a difference but continue
-                            )
+                            are_equal = False  # Mark that we found a difference but continue
 
                 # Map this initializer dynamically based on its usage position
                 value_map[inp1] = inp2
@@ -274,7 +272,7 @@ def _compare_graphs(
         # Compare attributes
         if len(node1.attributes) != len(node2.attributes):
             differences.append(
-                f"Node {node_idx} ({node1.op_type}): Different number of attributes: "
+                f"Node {node1_desc}: Different number of attributes: "
                 f"{len(node1.attributes)} vs {len(node2.attributes)}"
             )
             return False
@@ -282,7 +280,7 @@ def _compare_graphs(
         # Check attribute names and types match
         if set(node1.attributes.keys()) != set(node2.attributes.keys()):
             differences.append(
-                f"Node {node_idx} ({node1.op_type}): Different attribute names: "
+                f"Node {node1_desc}: Different attribute names: "
                 f"{set(node1.attributes.keys())} vs {set(node2.attributes.keys())}"
             )
             return False
@@ -293,7 +291,7 @@ def _compare_graphs(
 
             if attr1.type != attr2.type:
                 differences.append(
-                    f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                    f"Node {node1_desc}, attribute '{attr_name}': "
                     f"Different types: {attr1.type} vs {attr2.type}"
                 )
                 return False
@@ -301,19 +299,17 @@ def _compare_graphs(
             # Compare attribute values
             # For graph attributes, queue for later comparison
             if attr1.type == _enums.AttributeType.GRAPH:
-                context = (
-                    f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph"
-                )
+                context = f"Node {node1_desc}, attribute '{attr_name}' subgraph"
                 subgraph_queue.append((attr1.value, attr2.value, context))
             elif attr1.type == _enums.AttributeType.GRAPHS:
                 if len(attr1.value) != len(attr2.value):
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                        f"Node {node1_desc}, attribute '{attr_name}': "
                         f"Different number of subgraphs: {len(attr1.value)} vs {len(attr2.value)}"
                     )
                     return False
                 for g_idx, (g1, g2) in enumerate(zip(attr1.value, attr2.value)):
-                    context = f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' subgraph {g_idx}"
+                    context = f"Node {node1_desc}, attribute '{attr_name}' subgraph {g_idx}"
                     subgraph_queue.append((g1, g2, context))
             elif attr1.type in (
                 _enums.AttributeType.TENSOR,
@@ -322,13 +318,13 @@ def _compare_graphs(
                 # For tensor attributes, always compare shapes and dtypes
                 if attr1.value.shape != attr2.value.shape:
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                        f"Node {node1_desc}, attribute '{attr_name}': "
                         f"Tensor shape mismatch: {attr1.value.shape} vs {attr2.value.shape}"
                     )
                     return False
                 if attr1.value.dtype != attr2.value.dtype:
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                        f"Node {node1_desc}, attribute '{attr_name}': "
                         f"Tensor dtype mismatch: {attr1.value.dtype} vs {attr2.value.dtype}"
                     )
                     return False
@@ -337,10 +333,10 @@ def _compare_graphs(
                 if _should_compare_tensor_data(attr1.value, tensor_size_limit):
                     if not _tensors_equal(attr1.value, attr2.value, tensor_size_limit):
                         differences.append(
-                            f"Tensor data difference: Node {node_idx} ({node1.op_type}), "
+                            f"Tensor data difference: Node {node1_desc}, "
                             f"attribute '{attr_name}' tensor data differs"
                         )
-                        topologically_equal = False
+                        are_equal = False
             elif attr1.type in (
                 _enums.AttributeType.TENSORS,
                 _enums.AttributeType.SPARSE_TENSORS,
@@ -348,20 +344,20 @@ def _compare_graphs(
                 # For tensor list attributes, always compare shapes and dtypes
                 if len(attr1.value) != len(attr2.value):
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                        f"Node {node1_desc}, attribute '{attr_name}': "
                         f"Different number of tensors: {len(attr1.value)} vs {len(attr2.value)}"
                     )
                     return False
                 for t_idx, (t1, t2) in enumerate(zip(attr1.value, attr2.value)):
                     if t1.shape != t2.shape:
                         differences.append(
-                            f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' tensor {t_idx}: "
+                            f"Node {node1_desc}, attribute '{attr_name}' tensor {t_idx}: "
                             f"Shape mismatch: {t1.shape} vs {t2.shape}"
                         )
                         return False
                     if t1.dtype != t2.dtype:
                         differences.append(
-                            f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}' tensor {t_idx}: "
+                            f"Node {node1_desc}, attribute '{attr_name}' tensor {t_idx}: "
                             f"Dtype mismatch: {t1.dtype} vs {t2.dtype}"
                         )
                         return False
@@ -370,16 +366,16 @@ def _compare_graphs(
                     if _should_compare_tensor_data(t1, tensor_size_limit):
                         if not _tensors_equal(t1, t2, tensor_size_limit):
                             differences.append(
-                                f"Tensor data difference: Node {node_idx} ({node1.op_type}), "
+                                f"Tensor data difference: Node {node1_desc}, "
                                 f"attribute '{attr_name}' tensor {t_idx} data differs"
                             )
-                            topologically_equal = False
+                            are_equal = False
             else:
                 # For scalar and list attributes (INT, FLOAT, STRING, INTS, FLOATS, STRINGS, TYPE_PROTO, TYPE_PROTOS)
                 # Compare values directly
                 if attr1.value != attr2.value:
                     differences.append(
-                        f"Node {node_idx} ({node1.op_type}), attribute '{attr_name}': "
+                        f"Node {node1_desc}, attribute '{attr_name}': "
                         f"Value mismatch: {attr1.value} vs {attr2.value}"
                     )
                     return False
@@ -401,6 +397,6 @@ def _compare_graphs(
         elif sub_diffs:
             # Only tensor data differences in subgraph
             differences.extend([f"{context}: {d}" for d in sub_diffs])
-            topologically_equal = False
+            are_equal = False
 
-    return topologically_equal
+    return are_equal

@@ -195,8 +195,10 @@ class TopologicallyEqualTest(unittest.TestCase):
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
         # Should be equal when using tensor_size_limit=0 (skip data comparison for tensors > size 0)
-        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2, tensor_size_limit=0))
-        
+        self.assertTrue(
+            _graph_comparison.topologically_equal(graph1, graph2, tensor_size_limit=0)
+        )
+
         # Should NOT be equal with default (None) - data is compared
         self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
 
@@ -242,9 +244,7 @@ class TopologicallyEqualTest(unittest.TestCase):
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
         # Should not be equal - shapes are always compared
-        self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2)
-        )
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
 
     def test_with_different_initializer_dtypes(self):
         """Test that graphs with different initializer dtypes are not equal."""
@@ -265,9 +265,7 @@ class TopologicallyEqualTest(unittest.TestCase):
         graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,), initializers=(init2,))
 
         # Should not be equal - dtypes are always compared
-        self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2)
-        )
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
 
     def test_with_different_number_of_initializers(self):
         """Test that graphs with different numbers of initializers are not equal."""
@@ -287,7 +285,10 @@ class TopologicallyEqualTest(unittest.TestCase):
 
         # Should not be equal - different number of inputs (one has initializer, one doesn't)
         self.assertFalse(
-            _graph_comparison.topologically_equal(graph1, graph2, )
+            _graph_comparison.topologically_equal(
+                graph1,
+                graph2,
+            )
         )
 
     def test_with_subgraph_attributes(self):
