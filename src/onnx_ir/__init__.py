@@ -84,6 +84,8 @@ __all__ = [
     # IO
     "load",
     "save",
+    # Graph comparison
+    "topologically_equal",
     # Flags
     "DEBUG",
 ]
@@ -92,6 +94,7 @@ import types
 
 from onnx_ir import convenience, external_data, passes, serde, tape, traversal
 from onnx_ir._convenience._constructors import node, tensor, val
+from onnx_ir._graph_comparison import topologically_equal
 from onnx_ir._core import (
     Attr,
     AttrFloat32,
