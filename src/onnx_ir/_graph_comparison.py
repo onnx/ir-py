@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
-from onnx_ir import _core, _enums
+from onnx_ir import _core, _enums, _protocols
 
 
 def topologically_equal(
@@ -88,34 +90,40 @@ def assert_topologically_equal(
         raise AssertionError("\n".join(error_messages))
 
 
-def _should_compare_tensor_data(tensor, tensor_size_limit: int | None) -> bool:
+def _should_compare_tensor_data(
+    tensor: _protocols.TensorProtocol, tensor_size_limit: int | None
+) -> bool:
     """Determine if tensor data should be compared based on size limit."""
     if tensor_size_limit is None:
         return True
     if tensor is None:
         return False
     # Calculate total size
-    size = np.prod(tensor.shape) if hasattr(tensor, "shape") else 0
+    size = math.prod(tensor.shape.numpy())
     return size <= tensor_size_limit
 
 
-def _tensors_equal(tensor1, tensor2, tensor_size_limit: int | None) -> bool:
+def _tensors_not_equal(
+    tensor1: _protocols.TensorProtocol,
+    tensor2: _protocols.TensorProtocol,
+    tensor_size_limit: int | None,
+) -> str:
     """Compare two tensors for equality."""
     # Always compare shape and dtype
     if tensor1.shape != tensor2.shape:
-        return False
+        return f"tensor 1 shape {tensor1.shape} != tensor 2 shape {tensor2.shape}"
     if tensor1.dtype != tensor2.dtype:
-        return False
+        return f"tensor 1 dtype {tensor1.dtype} != tensor 2 dtype {tensor2.dtype}"
 
     # Compare data if within size limit
     if _should_compare_tensor_data(tensor1, tensor_size_limit):
         try:
-            return np.array_equal(tensor1.numpy(), tensor2.numpy(), equal_nan=True)
-        except Exception:
+            np.testing.assert_array_almost_equal(tensor1.numpy(), tensor2.numpy())
+        except Exception as e:
             # If comparison fails, consider them not equal
-            return False
+            return str(e)
 
-    return True
+    return ""
 
 
 def _compare_graphs(
@@ -123,6 +131,7 @@ def _compare_graphs(
     graph2: _core.Graph,
     tensor_size_limit: int | None,
     differences: list[str],
+    value_map: dict[_core.Value | None, _core.Value | None] | None = None,
 ) -> bool:
     """Internal function to compare two graphs and collect differences."""
     are_equal = True
@@ -157,7 +166,8 @@ def _compare_graphs(
         return True
 
     # Build a mapping from graph1 values to graph2 values
-    value_map: dict[_core.Value | None, _core.Value | None] = {None: None}
+    if value_map is None:
+        value_map = {None: None}
 
     # Map graph inputs
     value_map.update(zip(graph1.inputs, graph2.inputs))
@@ -253,13 +263,13 @@ def _compare_graphs(
 
                     # Compare tensor data if within size limit
                     if _should_compare_tensor_data(inp1.const_value, tensor_size_limit):
-                        if not _tensors_equal(
+                        if comp_result := _tensors_not_equal(
                             inp1.const_value, inp2.const_value, tensor_size_limit
                         ):
                             # This is a tensor data difference, not topological
                             differences.append(
                                 f"Tensor data difference: Node {node1_desc}, "
-                                f"input {input_idx} initializer data differs"
+                                f"input {input_idx} initializer data differs: {comp_result}"
                             )
                             are_equal = False  # Mark that we found a difference but continue
 
@@ -331,10 +341,12 @@ def _compare_graphs(
 
                 # Compare tensor data if within size limit
                 if _should_compare_tensor_data(attr1.value, tensor_size_limit):
-                    if not _tensors_equal(attr1.value, attr2.value, tensor_size_limit):
+                    if comp_result := _tensors_not_equal(
+                        attr1.value, attr2.value, tensor_size_limit
+                    ):
                         differences.append(
                             f"Tensor data difference: Node {node1_desc}, "
-                            f"attribute '{attr_name}' tensor data differs"
+                            f"attribute '{attr_name}' tensor data differs: {comp_result}"
                         )
                         are_equal = False
             elif attr1.type in (
@@ -364,10 +376,10 @@ def _compare_graphs(
 
                     # Compare tensor data if within size limit
                     if _should_compare_tensor_data(t1, tensor_size_limit):
-                        if not _tensors_equal(t1, t2, tensor_size_limit):
+                        if comp_result := _tensors_not_equal(t1, t2, tensor_size_limit):
                             differences.append(
                                 f"Tensor data difference: Node {node1_desc}, "
-                                f"attribute '{attr_name}' tensor {t_idx} data differs"
+                                f"attribute '{attr_name}' tensor {t_idx} data differs: {comp_result}"
                             )
                             are_equal = False
             else:
@@ -389,7 +401,9 @@ def _compare_graphs(
     # Now compare all queued subgraphs
     for subgraph1, subgraph2, context in subgraph_queue:
         sub_diffs: list[str] = []
-        sub_result = _compare_graphs(subgraph1, subgraph2, tensor_size_limit, sub_diffs)
+        sub_result = _compare_graphs(
+            subgraph1, subgraph2, tensor_size_limit, sub_diffs, value_map=value_map
+        )
         if not sub_result:
             # Topological difference in subgraph
             differences.extend([f"{context}: {d}" for d in sub_diffs])
