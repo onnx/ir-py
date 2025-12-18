@@ -147,6 +147,7 @@ def topologically_equal(
             if attr1.type != attr2.type:
                 return False
 
+            # Compare attribute values
             # For graph attributes, recursively compare
             if attr1.type == _enums.AttributeType.GRAPH:
                 if not topologically_equal(
@@ -161,6 +162,37 @@ def topologically_equal(
                         g1, g2, compare_initializers=compare_initializers
                     ):
                         return False
+            elif attr1.type in (
+                _enums.AttributeType.TENSOR,
+                _enums.AttributeType.SPARSE_TENSOR,
+            ):
+                # For tensor attributes, compare shapes and dtypes, not values
+                # (similar to initializers when not comparing them)
+                if hasattr(attr1.value, "shape") and hasattr(attr2.value, "shape"):
+                    if attr1.value.shape != attr2.value.shape:
+                        return False
+                if hasattr(attr1.value, "dtype") and hasattr(attr2.value, "dtype"):
+                    if attr1.value.dtype != attr2.value.dtype:
+                        return False
+            elif attr1.type in (
+                _enums.AttributeType.TENSORS,
+                _enums.AttributeType.SPARSE_TENSORS,
+            ):
+                # For tensor list attributes
+                if len(attr1.value) != len(attr2.value):
+                    return False
+                for t1, t2 in zip(attr1.value, attr2.value):
+                    if hasattr(t1, "shape") and hasattr(t2, "shape"):
+                        if t1.shape != t2.shape:
+                            return False
+                    if hasattr(t1, "dtype") and hasattr(t2, "dtype"):
+                        if t1.dtype != t2.dtype:
+                            return False
+            else:
+                # For scalar and list attributes (INT, FLOAT, STRING, INTS, FLOATS, STRINGS, TYPE_PROTO, TYPE_PROTOS)
+                # Compare values directly
+                if attr1.value != attr2.value:
+                    return False
 
     # Verify that graph outputs are properly mapped
     for out1, out2 in zip(graph1.outputs, graph2.outputs):
