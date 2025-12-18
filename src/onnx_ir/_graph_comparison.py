@@ -79,11 +79,9 @@ def topologically_equal(
                 if v1.const_value.dtype != v2.const_value.dtype:
                     return False
 
-            value_map.update(zip(init_values1, init_values2))
-    else:
-        # When not comparing initializers, just create a simple mapping
-        # Map them by position (sorted by name)
-        value_map.update(zip(init_values1, init_values2))
+    # Map initializers regardless of whether we compared them
+    # They need to be mapped as they can be used as node inputs
+    value_map.update(zip(init_values1, init_values2))
 
     # Traverse both graphs in parallel and compare nodes
     for node1, node2 in zip(nodes1, nodes2):
