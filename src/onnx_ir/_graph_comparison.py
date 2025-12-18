@@ -19,11 +19,23 @@ def topologically_equal(
     - Same number of nodes with matching operations and domains
     - Same connectivity pattern between nodes
     - Same number of inputs and outputs
+    - Matching node attributes (including values for scalar and list types)
     - Optionally, same initializers (controlled by compare_initializers parameter)
 
     The comparison is done by building a mapping between nodes of both graphs
     based on their topological position and verifying that corresponding nodes
     have matching properties.
+
+    When compare_initializers is False (default), initializers are mapped dynamically
+    based on their usage position in the graph topology, allowing graphs with different
+    initializer names but identical structure to be considered equal.
+
+    When compare_initializers is True, initializers are compared by their properties
+    (shape and dtype) after sorting by name.
+
+    Note:
+        For tensor attributes, only shape and dtype are compared, not the actual values.
+        Complex attribute types like TYPE_PROTO may use simple equality comparison.
 
     Args:
         graph1: The first graph to compare.
