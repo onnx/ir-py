@@ -18,6 +18,8 @@ from typing import Any
 import google.protobuf.message
 import onnx
 
+from onnx_ir._graph_comparison import assert_topologically_equal, topologically_equal
+
 
 def _opset_import_key(opset_import: onnx.OperatorSetIdProto) -> tuple[str, int]:
     return (opset_import.domain, opset_import.version)
@@ -197,7 +199,3 @@ def assert_onnx_proto_equal(
         raise AssertionError(
             f"Protos not equal: {type(actual)} != {type(expected)}\n" + "\n".join(errors)
         )
-
-
-# Import graph comparison functions
-from onnx_ir._graph_comparison import assert_topologically_equal, topologically_equal
