@@ -718,5 +718,152 @@ class AssertTopologicallyEqualTest(unittest.TestCase):
         self.assertIn("Tensor shape mismatch", error_msg)
 
 
+class NodeOrderingTest(unittest.TestCase):
+    """Tests to ensure that node ordering does not affect topological equivalence."""
+
+    def test_simple_chain_different_order(self):
+        """Test that a simple chain with nodes in different order is still equal."""
+        # Graph 1: Add then Mul (in order)
+        v1 = _core.Value(name="v1")
+        v2 = _core.Value(name="v2")
+        add_node1 = _core.Node("", "Add", inputs=(v1, v2), num_outputs=1)
+        mul_node1 = _core.Node("", "Mul", inputs=(add_node1.outputs[0], v2), num_outputs=1)
+        graph1 = _core.Graph((v1, v2), mul_node1.outputs, nodes=(add_node1, mul_node1))
+
+        # Graph 2: Mul then Add (reversed order)
+        v3 = _core.Value(name="v3")
+        v4 = _core.Value(name="v4")
+        mul_node2 = _core.Node("", "Mul", inputs=(None, v4), num_outputs=1)
+        add_node2 = _core.Node("", "Add", inputs=(v3, v4), num_outputs=1)
+        mul_node2._inputs = (add_node2.outputs[0], v4)
+        graph2 = _core.Graph((v3, v4), mul_node2.outputs, nodes=(mul_node2, add_node2))
+
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_diamond_pattern_different_order(self):
+        """Test diamond pattern (one input, two branches, merge) with different node order."""
+        # Graph 1: Linear order (input -> add -> mul -> concat)
+        v1 = _core.Value(name="v1")
+        add_node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        mul_node1 = _core.Node("", "Mul", inputs=(v1, v1), num_outputs=1)
+        concat_node1 = _core.Node(
+            "", "Concat", inputs=(add_node1.outputs[0], mul_node1.outputs[0]), num_outputs=1
+        )
+        graph1 = _core.Graph(
+            (v1,), concat_node1.outputs, nodes=(add_node1, mul_node1, concat_node1)
+        )
+
+        # Graph 2: Different order (input -> mul -> concat -> add)
+        v2 = _core.Value(name="v2")
+        mul_node2 = _core.Node("", "Mul", inputs=(v2, v2), num_outputs=1)
+        concat_node2 = _core.Node(
+            "", "Concat", inputs=(None, mul_node2.outputs[0]), num_outputs=1
+        )
+        add_node2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        concat_node2._inputs = (add_node2.outputs[0], mul_node2.outputs[0])
+        graph2 = _core.Graph(
+            (v2,), concat_node2.outputs, nodes=(mul_node2, concat_node2, add_node2)
+        )
+
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_complex_dag_different_order(self):
+        """Test a more complex DAG with completely different node ordering."""
+        # Graph 1: Create a DAG: v1 -> add1 -> mul1 \
+        #                         v2 -> add2 -> mul2 -> sub -> output
+        v1 = _core.Value(name="v1")
+        v2 = _core.Value(name="v2")
+        add1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        add2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        mul1 = _core.Node("", "Mul", inputs=(add1.outputs[0], v1), num_outputs=1)
+        mul2 = _core.Node("", "Mul", inputs=(add2.outputs[0], v2), num_outputs=1)
+        sub = _core.Node("", "Sub", inputs=(mul1.outputs[0], mul2.outputs[0]), num_outputs=1)
+        graph1 = _core.Graph((v1, v2), sub.outputs, nodes=(add1, add2, mul1, mul2, sub))
+
+        # Graph 2: Same structure but completely different order
+        v3 = _core.Value(name="v3")
+        v4 = _core.Value(name="v4")
+        # Create in reverse order
+        sub2 = _core.Node("", "Sub", inputs=(None, None), num_outputs=1)
+        mul2_2 = _core.Node("", "Mul", inputs=(None, v4), num_outputs=1)
+        mul1_2 = _core.Node("", "Mul", inputs=(None, v3), num_outputs=1)
+        add2_2 = _core.Node("", "Add", inputs=(v4, v4), num_outputs=1)
+        add1_2 = _core.Node("", "Add", inputs=(v3, v3), num_outputs=1)
+        # Fix connections
+        mul1_2._inputs = (add1_2.outputs[0], v3)
+        mul2_2._inputs = (add2_2.outputs[0], v4)
+        sub2._inputs = (mul1_2.outputs[0], mul2_2.outputs[0])
+        graph2 = _core.Graph(
+            (v3, v4), sub2.outputs, nodes=(sub2, mul2_2, mul1_2, add2_2, add1_2)
+        )
+
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_different_order_with_initializers(self):
+        """Test that graphs with initializers and different node order are equal."""
+        # Graph 1: Add with initializer, then Mul
+        v1 = _core.Value(name="v1")
+        init1 = _core.Value(
+            name="weight1", const_value=ir.tensor(np.array([1.0, 2.0], dtype=np.float32))
+        )
+        add_node1 = _core.Node("", "Add", inputs=(v1, init1), num_outputs=1)
+        mul_node1 = _core.Node("", "Mul", inputs=(add_node1.outputs[0], v1), num_outputs=1)
+        graph1 = _core.Graph(
+            (v1,), mul_node1.outputs, nodes=(add_node1, mul_node1), initializers=(init1,)
+        )
+
+        # Graph 2: Mul then Add (reversed order)
+        v2 = _core.Value(name="v2")
+        init2 = _core.Value(
+            name="weight2", const_value=ir.tensor(np.array([1.0, 2.0], dtype=np.float32))
+        )
+        mul_node2 = _core.Node("", "Mul", inputs=(None, v2), num_outputs=1)
+        add_node2 = _core.Node("", "Add", inputs=(v2, init2), num_outputs=1)
+        mul_node2._inputs = (add_node2.outputs[0], v2)
+        graph2 = _core.Graph(
+            (v2,), mul_node2.outputs, nodes=(mul_node2, add_node2), initializers=(init2,)
+        )
+
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_multiple_outputs_different_order(self):
+        """Test graphs with multiple outputs and different node ordering."""
+        # Graph 1: Two parallel branches with different ops
+        v1 = _core.Value(name="v1")
+        add_node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        mul_node1 = _core.Node("", "Mul", inputs=(v1, v1), num_outputs=1)
+        graph1 = _core.Graph(
+            (v1,), (add_node1.outputs[0], mul_node1.outputs[0]), nodes=(add_node1, mul_node1)
+        )
+
+        # Graph 2: Same structure but reversed node order
+        v2 = _core.Value(name="v2")
+        mul_node2 = _core.Node("", "Mul", inputs=(v2, v2), num_outputs=1)
+        add_node2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph(
+            (v2,), (add_node2.outputs[0], mul_node2.outputs[0]), nodes=(mul_node2, add_node2)
+        )
+
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_assert_equal_with_different_order(self):
+        """Test that assert_topologically_equal doesn't raise for different node orders."""
+        # Graph 1: Sequential order
+        v1 = _core.Value(name="v1")
+        add1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        relu1 = _core.Node("", "Relu", inputs=(add1.outputs[0],), num_outputs=1)
+        graph1 = _core.Graph((v1,), relu1.outputs, nodes=(add1, relu1))
+
+        # Graph 2: Reversed order
+        v2 = _core.Value(name="v2")
+        relu2 = _core.Node("", "Relu", inputs=(None,), num_outputs=1)
+        add2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        relu2._inputs = (add2.outputs[0],)
+        graph2 = _core.Graph((v2,), relu2.outputs, nodes=(relu2, add2))
+
+        # Should not raise
+        _graph_comparison.assert_topologically_equal(graph1, graph2)
+
+
 if __name__ == "__main__":
     unittest.main()
