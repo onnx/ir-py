@@ -17,16 +17,17 @@ def topologically_equal(
     """Return true if the two graphs are topologically equivalent.
 
     Two graphs are topologically equivalent if they have the same structure:
-    - Same number of nodes with matching operations and domains
-    - Same connectivity pattern between nodes
     - Same number of inputs and outputs
+    - Corresponding outputs are produced by equivalent nodes
+    - Node equivalence is checked recursively through their inputs
     - Matching node attributes (including values for scalar and list types)
     - Tensor attributes and initializers are always compared by shape and dtype
     - Tensor data is compared only if size is within the limit
 
-    The comparison is done by building a mapping between nodes of both graphs
-    based on their topological position and verifying that corresponding nodes
-    have matching properties.
+    The comparison is done by starting from the outputs and working backwards,
+    building a mapping between equivalent values in both graphs. This allows
+    comparison of graphs with nodes in different orders as long as they are
+    topologically equivalent.
 
     Tensor attributes and initializers are always compared by their shape and dtype.
     If tensor_size_limit is specified, tensor data is also compared for tensors
@@ -131,221 +132,232 @@ def _compare_graphs(
     graph2: _core.Graph,
     tensor_size_limit: int | None,
     differences: list[str],
-    value_map: dict[_core.Value | None, _core.Value | None] | None = None,
 ) -> bool:
-    """Internal function to compare two graphs and collect differences."""
+    """Internal function to compare two graphs and collect differences.
+
+    Uses backward traversal from outputs to compare graphs topologically.
+    """
     are_equal = True
 
-    # Queue to store subgraphs to compare: (graph1, graph2, context_string)
-    subgraph_queue = []
-
-    # Quick checks: number of nodes, inputs, outputs
-    # Accumulate quick check differences before returning
-    if len(list(graph1)) != len(list(graph2)):
-        differences.append(
-            f"Different number of nodes: {len(list(graph1))} vs {len(list(graph2))}"
-        )
-
+    # Quick checks: number of inputs, outputs
     if len(graph1.inputs) != len(graph2.inputs):
         differences.append(
             f"Different number of inputs: {len(graph1.inputs)} vs {len(graph2.inputs)}"
         )
+        return False
 
     if len(graph1.outputs) != len(graph2.outputs):
         differences.append(
             f"Different number of outputs: {len(graph1.outputs)} vs {len(graph2.outputs)}"
         )
-
-    if differences:
         return False
 
-    # If both graphs are empty, they are equal
-    nodes1 = list(graph1)
-    nodes2 = list(graph2)
-    if not nodes1 and not nodes2:
-        return True
+    # Mapping from values in graph1 to values in graph2
+    # Also tracks which values have been compared
+    value_map: dict[_core.Value | None, _core.Value | None] = {None: None}
 
-    # Build a mapping from graph1 values to graph2 values
-    if value_map is None:
-        value_map = {None: None}
+    # Map graph inputs first
+    for inp1, inp2 in zip(graph1.inputs, graph2.inputs):
+        value_map[inp1] = inp2
 
-    # Map graph inputs
-    value_map.update(zip(graph1.inputs, graph2.inputs))
+    # Queue for values to compare (backward traversal from outputs)
+    # Contains tuples of (value1, value2, context_string)
+    value_queue = []
 
-    # Traverse both graphs in parallel and compare nodes
-    for node_idx, (node1, node2) in enumerate(zip(nodes1, nodes2)):
-        # Compare node properties
-        node1_desc = f"{node_idx} ({node1.op_type}, name='{node1.name}')"
-        node2_desc = f"{node_idx} ({node2.op_type}, name='{node2.name}')"
+    # Start with graph outputs
+    for out_idx, (out1, out2) in enumerate(zip(graph1.outputs, graph2.outputs)):
+        value_queue.append((out1, out2, f"output {out_idx}"))
 
-        if node1.domain != node2.domain:
+    # Queue for subgraphs to compare
+    subgraph_queue = []
+
+    # Process values backward from outputs
+    while value_queue:
+        val1, val2, context = value_queue.pop(0)
+
+        # Check if already compared
+        if val1 in value_map:
+            if value_map[val1] != val2:
+                differences.append(
+                    f"{context}: Value mapping conflict - "
+                    f"val1 already mapped to different val2"
+                )
+                return False
+            continue  # Already compared this value pair
+
+        # Map this value pair
+        value_map[val1] = val2
+
+        # Check if values are graph inputs (base case)
+        val1_is_input = val1 in graph1.inputs
+        val2_is_input = val2 in graph2.inputs
+
+        if val1_is_input != val2_is_input:
+            differences.append(f"{context}: One value is a graph input, the other is not")
+            return False
+
+        if val1_is_input:
+            # Both are inputs, already mapped
+            continue
+
+        # Check if values are initializers
+        if val1.is_initializer() and val2.is_initializer():
+            # Compare initializer properties
+            if val1.const_value is None or val2.const_value is None:
+                if val1.const_value != val2.const_value:
+                    differences.append(f"{context}: Initializer const_value mismatch")
+                    return False
+            else:
+                if comp_result := _tensors_not_equal(
+                    val1.const_value, val2.const_value, tensor_size_limit
+                ):
+                    # If the result explicitly contains "shape" or "dtype", it's a topological difference
+                    # Otherwise it's a data mismatch (from numpy comparison)
+                    if "tensor 1 shape" in comp_result or "tensor 1 dtype" in comp_result:
+                        # Shape/dtype mismatch is topological
+                        if "tensor 1 shape" in comp_result:
+                            differences.append(
+                                f"{context}: Initializer shape mismatch: {comp_result}"
+                            )
+                        else:
+                            differences.append(
+                                f"{context}: Initializer dtype mismatch: {comp_result}"
+                            )
+                        return False
+                    else:
+                        # Data mismatch only
+                        differences.append(
+                            f"Tensor data difference: {context}: initializer data differs: {comp_result}"
+                        )
+                        are_equal = False
+            continue
+        elif val1.is_initializer() != val2.is_initializer():
+            differences.append(f"{context}: One value is initializer, the other is not")
+            return False
+
+        # Values must be produced by nodes - get the producer nodes
+        producer1 = val1.producer()
+        producer2 = val2.producer()
+
+        if producer1 is None or producer2 is None:
+            if producer1 != producer2:
+                differences.append(f"{context}: One value has producer, the other doesn't")
+                return False
+            continue
+
+        # Compare the producer nodes
+        node1_desc = f"producer of {context} ({producer1.op_type}, name='{producer1.name}')"
+        node2_desc = f"producer of {context} ({producer2.op_type}, name='{producer2.name}')"
+
+        if producer1.domain != producer2.domain:
             differences.append(
-                f"Node {node1_desc}: Different domain: '{node1.domain}' vs '{node2.domain}'"
+                f"{node1_desc}: Different domain: '{producer1.domain}' vs '{producer2.domain}'"
             )
             return False
 
-        if node1.op_type != node2.op_type:
+        if producer1.op_type != producer2.op_type:
             differences.append(
-                f"Node {node1_desc} vs {node2_desc}: Different op_type: '{node1.op_type}' vs '{node2.op_type}'"
+                f"{node1_desc} vs {node2_desc}: Different op_type: '{producer1.op_type}' vs '{producer2.op_type}'"
             )
             return False
 
-        if node1.overload != node2.overload:
+        if producer1.overload != producer2.overload:
             differences.append(
-                f"Node {node1_desc}: Different overload: '{node1.overload}' vs '{node2.overload}'"
+                f"{node1_desc}: Different overload: '{producer1.overload}' vs '{producer2.overload}'"
             )
             return False
 
-        # Check number of inputs and outputs
-        if len(node1.inputs) != len(node2.inputs):
+        # Compare number of inputs and outputs
+        if len(producer1.inputs) != len(producer2.inputs):
             differences.append(
-                f"Node {node1_desc}: Different number of inputs: "
-                f"{len(node1.inputs)} vs {len(node2.inputs)}"
+                f"{node1_desc}: Different number of inputs: "
+                f"{len(producer1.inputs)} vs {len(producer2.inputs)}"
             )
             return False
 
-        if len(node1.outputs) != len(node2.outputs):
+        if len(producer1.outputs) != len(producer2.outputs):
             differences.append(
-                f"Node {node1_desc}: Different number of outputs: "
-                f"{len(node1.outputs)} vs {len(node2.outputs)}"
+                f"{node1_desc}: Different number of outputs: "
+                f"{len(producer1.outputs)} vs {len(producer2.outputs)}"
             )
             return False
 
-        # Check if inputs match according to our mapping
-        for input_idx, (inp1, inp2) in enumerate(zip(node1.inputs, node2.inputs)):
+        # Queue node inputs for comparison
+        for input_idx, (inp1, inp2) in enumerate(
+            zip(producer1.inputs, producer2.inputs)
+        ):  # type: ignore[assignment]
             if inp1 is None and inp2 is None:
                 continue
             if inp1 is None or inp2 is None:
                 differences.append(
-                    f"Node {node1_desc}, input {input_idx}: "
-                    f"One input is None, the other is not"
+                    f"{node1_desc}, input {input_idx}: One input is None, the other is not"
                 )
                 return False
 
-            # If inp1 is already mapped, verify the mapping matches
-            if inp1 in value_map:
-                if value_map[inp1] != inp2:
-                    differences.append(
-                        f"Node {node1_desc}, input {input_idx}: Value mapping mismatch"
-                    )
-                    return False
-            else:
-                # If not mapped yet, it should be an initializer
-                # Map it dynamically based on usage (not by name)
-                if not (inp1.is_initializer() and inp2.is_initializer()):
-                    differences.append(
-                        f"Node {node1_desc}, input {input_idx}: "
-                        f"{inp1.name} ({inp1.is_initializer()}) or {inp2.name} ({inp2.is_initializer()}) is not an initializer"
-                    )
-                    return False
-
-                # Always compare shapes and dtypes of initializers
-                if inp1.const_value is None or inp2.const_value is None:
-                    if inp1.const_value != inp2.const_value:
-                        differences.append(
-                            f"Node {node1_desc}, input {input_idx}: "
-                            f"Initializer const_value mismatch"
-                        )
-                        return False
-                else:
-                    if inp1.const_value.shape != inp2.const_value.shape:
-                        differences.append(
-                            f"Node {node1_desc}, input {input_idx}: "
-                            f"Initializer shape mismatch: {inp1.const_value.shape} vs {inp2.const_value.shape}"
-                        )
-                        return False
-                    if inp1.const_value.dtype != inp2.const_value.dtype:
-                        differences.append(
-                            f"Node {node1_desc}, input {input_idx}: "
-                            f"Initializer dtype mismatch: {inp1.const_value.dtype} vs {inp2.const_value.dtype}"
-                        )
-                        return False
-
-                    # Compare tensor data if within size limit
-                    if _should_compare_tensor_data(inp1.const_value, tensor_size_limit):
-                        if comp_result := _tensors_not_equal(
-                            inp1.const_value, inp2.const_value, tensor_size_limit
-                        ):
-                            # This is a tensor data difference, not topological
-                            differences.append(
-                                f"Tensor data difference: Node {node1_desc}, "
-                                f"input {input_idx} initializer data differs: {comp_result}"
-                            )
-                            are_equal = False  # Mark that we found a difference but continue
-
-                # Map this initializer dynamically based on its usage position
-                value_map[inp1] = inp2
-
-        # Map outputs
-        value_map.update(zip(node1.outputs, node2.outputs))
+            # Add to queue for backward traversal
+            input_context = f"{node1_desc}, input {input_idx}"
+            value_queue.append((inp1, inp2, input_context))
 
         # Compare attributes
-        if len(node1.attributes) != len(node2.attributes):
+        if len(producer1.attributes) != len(producer2.attributes):
             differences.append(
-                f"Node {node1_desc}: Different number of attributes: "
-                f"{len(node1.attributes)} vs {len(node2.attributes)}"
+                f"{node1_desc}: Different number of attributes: "
+                f"{len(producer1.attributes)} vs {len(producer2.attributes)}"
             )
             return False
 
-        # Check attribute names and types match
-        if set(node1.attributes.keys()) != set(node2.attributes.keys()):
+        if set(producer1.attributes.keys()) != set(producer2.attributes.keys()):
             differences.append(
-                f"Node {node1_desc}: Different attribute names: "
-                f"{set(node1.attributes.keys())} vs {set(node2.attributes.keys())}"
+                f"{node1_desc}: Different attribute names: "
+                f"{set(producer1.attributes.keys())} vs {set(producer2.attributes.keys())}"
             )
             return False
 
-        for attr_name in node1.attributes:
-            attr1 = node1.attributes[attr_name]
-            attr2 = node2.attributes[attr_name]
+        for attr_name in producer1.attributes:
+            attr1 = producer1.attributes[attr_name]
+            attr2 = producer2.attributes[attr_name]
 
             if attr1.type != attr2.type:
                 differences.append(
-                    f"Node {node1_desc}, attribute '{attr_name}': "
+                    f"{node1_desc}, attribute '{attr_name}': "
                     f"Different types: {attr1.type} vs {attr2.type}"
                 )
                 return False
 
             # Compare attribute values
-            # For graph attributes, queue for later comparison
             if attr1.type == _enums.AttributeType.GRAPH:
-                context = f"Node {node1_desc}, attribute '{attr_name}' subgraph"
-                subgraph_queue.append((attr1.value, attr2.value, context))
+                context_str = f"{node1_desc}, attribute '{attr_name}' subgraph"
+                subgraph_queue.append((attr1.value, attr2.value, context_str))
             elif attr1.type == _enums.AttributeType.GRAPHS:
                 if len(attr1.value) != len(attr2.value):
                     differences.append(
-                        f"Node {node1_desc}, attribute '{attr_name}': "
+                        f"{node1_desc}, attribute '{attr_name}': "
                         f"Different number of subgraphs: {len(attr1.value)} vs {len(attr2.value)}"
                     )
                     return False
                 for g_idx, (g1, g2) in enumerate(zip(attr1.value, attr2.value)):
-                    context = f"Node {node1_desc}, attribute '{attr_name}' subgraph {g_idx}"
-                    subgraph_queue.append((g1, g2, context))
+                    context_str = f"{node1_desc}, attribute '{attr_name}' subgraph {g_idx}"
+                    subgraph_queue.append((g1, g2, context_str))
             elif attr1.type in (
                 _enums.AttributeType.TENSOR,
                 _enums.AttributeType.SPARSE_TENSOR,
             ):
-                # For tensor attributes, always compare shapes and dtypes
-                if attr1.value.shape != attr2.value.shape:
-                    differences.append(
-                        f"Node {node1_desc}, attribute '{attr_name}': "
-                        f"Tensor shape mismatch: {attr1.value.shape} vs {attr2.value.shape}"
-                    )
-                    return False
-                if attr1.value.dtype != attr2.value.dtype:
-                    differences.append(
-                        f"Node {node1_desc}, attribute '{attr_name}': "
-                        f"Tensor dtype mismatch: {attr1.value.dtype} vs {attr2.value.dtype}"
-                    )
-                    return False
-
-                # Compare tensor data if within size limit
-                if _should_compare_tensor_data(attr1.value, tensor_size_limit):
-                    if comp_result := _tensors_not_equal(
-                        attr1.value, attr2.value, tensor_size_limit
-                    ):
+                if comp_result := _tensors_not_equal(
+                    attr1.value, attr2.value, tensor_size_limit
+                ):
+                    if "tensor 1 shape" in comp_result or "tensor 1 dtype" in comp_result:
+                        if "tensor 1 shape" in comp_result:
+                            differences.append(
+                                f"{node1_desc}, attribute '{attr_name}': Tensor shape mismatch: {comp_result}"
+                            )
+                        else:
+                            differences.append(
+                                f"{node1_desc}, attribute '{attr_name}': Tensor dtype mismatch: {comp_result}"
+                            )
+                        return False
+                    else:
                         differences.append(
-                            f"Tensor data difference: Node {node1_desc}, "
+                            f"Tensor data difference: {node1_desc}, "
                             f"attribute '{attr_name}' tensor data differs: {comp_result}"
                         )
                         are_equal = False
@@ -353,57 +365,38 @@ def _compare_graphs(
                 _enums.AttributeType.TENSORS,
                 _enums.AttributeType.SPARSE_TENSORS,
             ):
-                # For tensor list attributes, always compare shapes and dtypes
                 if len(attr1.value) != len(attr2.value):
                     differences.append(
-                        f"Node {node1_desc}, attribute '{attr_name}': "
+                        f"{node1_desc}, attribute '{attr_name}': "
                         f"Different number of tensors: {len(attr1.value)} vs {len(attr2.value)}"
                     )
                     return False
                 for t_idx, (t1, t2) in enumerate(zip(attr1.value, attr2.value)):
-                    if t1.shape != t2.shape:
-                        differences.append(
-                            f"Node {node1_desc}, attribute '{attr_name}' tensor {t_idx}: "
-                            f"Shape mismatch: {t1.shape} vs {t2.shape}"
-                        )
-                        return False
-                    if t1.dtype != t2.dtype:
-                        differences.append(
-                            f"Node {node1_desc}, attribute '{attr_name}' tensor {t_idx}: "
-                            f"Dtype mismatch: {t1.dtype} vs {t2.dtype}"
-                        )
-                        return False
-
-                    # Compare tensor data if within size limit
-                    if _should_compare_tensor_data(t1, tensor_size_limit):
-                        if comp_result := _tensors_not_equal(t1, t2, tensor_size_limit):
+                    if comp_result := _tensors_not_equal(t1, t2, tensor_size_limit):
+                        if "tensor 1 shape" in comp_result or "tensor 1 dtype" in comp_result:
                             differences.append(
-                                f"Tensor data difference: Node {node1_desc}, "
+                                f"{node1_desc}, attribute '{attr_name}' tensor {t_idx}: {comp_result}"
+                            )
+                            return False
+                        else:
+                            differences.append(
+                                f"Tensor data difference: {node1_desc}, "
                                 f"attribute '{attr_name}' tensor {t_idx} data differs: {comp_result}"
                             )
                             are_equal = False
             else:
-                # For scalar and list attributes (INT, FLOAT, STRING, INTS, FLOATS, STRINGS, TYPE_PROTO, TYPE_PROTOS)
-                # Compare values directly
+                # For scalar and list attributes
                 if attr1.value != attr2.value:
                     differences.append(
-                        f"Node {node1_desc}, attribute '{attr_name}': "
+                        f"{node1_desc}, attribute '{attr_name}': "
                         f"Value mismatch: {attr1.value} vs {attr2.value}"
                     )
                     return False
 
-    # Verify that graph outputs are properly mapped
-    for out_idx, (out1, out2) in enumerate(zip(graph1.outputs, graph2.outputs)):
-        if out1 not in value_map or value_map[out1] != out2:
-            differences.append(f"Graph output {out_idx}: Mapping mismatch")
-            return False
-
     # Now compare all queued subgraphs
     for subgraph1, subgraph2, context in subgraph_queue:
         sub_diffs: list[str] = []
-        sub_result = _compare_graphs(
-            subgraph1, subgraph2, tensor_size_limit, sub_diffs, value_map=value_map
-        )
+        sub_result = _compare_graphs(subgraph1, subgraph2, tensor_size_limit, sub_diffs)
         if not sub_result:
             # Topological difference in subgraph
             differences.extend([f"{context}: {d}" for d in sub_diffs])

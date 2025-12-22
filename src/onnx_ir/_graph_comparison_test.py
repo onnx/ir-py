@@ -413,8 +413,10 @@ class AssertTopologicallyEqualTest(unittest.TestCase):
             _graph_comparison.assert_topologically_equal(graph1, graph2)
 
         error_msg = str(cm.exception)
-        self.assertIn("Different number of nodes", error_msg)
-        self.assertIn("1 vs 0", error_msg)
+        # With backward traversal, the error manifests as one value being an input
+        # when the other is not (since graph1 has a node producing the output,
+        # but graph2's output is directly an input)
+        self.assertIn("One value is a graph input, the other is not", error_msg)
 
     def test_different_op_types_raises_with_node_name(self):
         """Test that graphs with different op types raise an error with node name."""
