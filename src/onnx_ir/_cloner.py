@@ -33,10 +33,11 @@ class Cloner:
 
     def __init__(
         self,
+        *,
         attr_map: Mapping[str, _core.Attr],
         value_map: dict[_core.Value, _core.Value | None],
         metadata_props: dict[str, str],
-        post_process: Callable[[_core.Node], None],
+        post_process: Callable[[_core.Node], None] = lambda _: None,
         resolve_ref_attrs: bool = False,
     ) -> None:
         """Initializes the cloner.

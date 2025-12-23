@@ -2908,6 +2908,28 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
+    def clone(self) -> Graph:
+        """Create a deep copy of this graph in O(#nodes + #values) time.
+
+        All nodes, values, and subgraphs are cloned. The cloned graph will have
+        the same structure as this graph, but all nodes and values will be different
+        objects.
+
+        Tensors in initializers and constant values will be shared.
+
+        Returns:
+            A deep copy of this graph.
+        """
+        from onnx_ir import _cloner
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={},
+            metadata_props={},
+            resolve_ref_attrs=False,
+        )
+        return cloner.clone_graph(self)
+
     # Mutation methods
     def append(self, node: Node, /) -> None:
         """Append a node to the graph in O(1) time.
@@ -3435,6 +3457,34 @@ Model(
         yield self.graph
         yield from self.graph.subgraphs()
 
+    def clone(self) -> Model:
+        """Create a deep copy of this model.
+
+        All graphs, nodes, values, and subgraphs are cloned. The cloned model will have
+        the same structure as this model, but all graphs, nodes, and values will be different
+        objects.
+
+        Tensors in initializers and constant values will be shared.
+
+        Returns:
+            A deep copy of this model.
+        """
+        new_graph = self.graph.clone()
+        new_functions = [func.clone() for func in self.functions.values()]
+        new_model = Model(
+            new_graph,
+            ir_version=self.ir_version,
+            producer_name=self.producer_name,
+            producer_version=self.producer_version,
+            domain=self.domain,
+            model_version=self.model_version,
+            doc_string=self.doc_string,
+            functions=new_functions,
+            metadata_props=dict(self.metadata_props),
+        )
+
+        return new_model
+
 
 class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrintable):
     """IR functions.
@@ -3621,6 +3671,38 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         for _ in onnx_ir.traversal.RecursiveGraphIterator(self, enter_graph=enter_subgraph):
             pass
         yield from seen_graphs.keys()
+
+    def clone(self) -> Function:
+        """Create a deep copy of this function in O(#nodes + #values) time.
+
+        All nodes, values, and subgraphs are cloned. The cloned function will have
+        the same structure as this function, but all nodes and values will be different
+        objects.
+
+        Tensors in initializers and constant values will be shared.
+
+        Returns:
+            A deep copy of this function.
+        """
+        from onnx_ir import _cloner
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={},
+            metadata_props={},
+            resolve_ref_attrs=False,
+        )
+        new_graph = cloner.clone_graph(self._graph)
+        new_attributes = [
+            cloner.clone_attr(attr.name, attr) for attr in self._attributes.values()
+        ]
+        return Function(
+            domain=self._domain,
+            name=self._name,
+            overload=self._overload,
+            graph=new_graph,
+            attributes=new_attributes,  # type: ignore
+        )
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
