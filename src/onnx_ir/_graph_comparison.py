@@ -156,9 +156,28 @@ def _compare_graphs(
     # Also tracks which values have been compared
     value_map: dict[_core.Value | None, _core.Value | None] = {None: None}
 
-    # Map graph inputs first
+    # Track which nodes have been visited during comparison
+    visited_nodes1: set[_core.Node] = set()
+    visited_nodes2: set[_core.Node] = set()
+
+    # Map graph inputs first - also check type and shape if known
     for inp1, inp2 in zip(graph1.inputs, graph2.inputs):
         value_map[inp1] = inp2
+        # Check type and shape match for inputs
+        if inp1.type is not None and inp2.type is not None:
+            if inp1.type != inp2.type:
+                differences.append(
+                    f"Input type mismatch: {inp1.name} has type {inp1.type}, "
+                    f"{inp2.name} has type {inp2.type}"
+                )
+                return False
+        if inp1.shape is not None and inp2.shape is not None:
+            if inp1.shape != inp2.shape:
+                differences.append(
+                    f"Input shape mismatch: {inp1.name} has shape {inp1.shape}, "
+                    f"{inp2.name} has shape {inp2.shape}"
+                )
+                return False
 
     # Queue for values to compare (backward traversal from outputs)
     # Contains tuples of (value1, value2, context_string)
@@ -188,12 +207,31 @@ def _compare_graphs(
         # Map this value pair
         value_map[val1] = val2
 
+        # Check type and shape match if known
+        if val1.type is not None and val2.type is not None:
+            if val1.type != val2.type:
+                differences.append(
+                    f"{context}: Type mismatch - {val1.name} has type {val1.type}, "
+                    f"{val2.name} has type {val2.type}"
+                )
+                return False
+        if val1.shape is not None and val2.shape is not None:
+            if val1.shape != val2.shape:
+                differences.append(
+                    f"{context}: Shape mismatch - {val1.name} has shape {val1.shape}, "
+                    f"{val2.name} has shape {val2.shape}"
+                )
+                return False
+
         # Check if values are graph inputs (base case)
         val1_is_input = val1 in graph1.inputs
         val2_is_input = val2 in graph2.inputs
 
         if val1_is_input != val2_is_input:
-            differences.append(f"{context}: One value is a graph input, the other is not")
+            differences.append(
+                f"{context}: One value is a graph input, the other is not "
+                f"({val1.name} vs {val2.name})"
+            )
             return False
 
         if val1_is_input:
@@ -203,36 +241,34 @@ def _compare_graphs(
         # Check if values are initializers
         if val1.is_initializer() and val2.is_initializer():
             # Compare initializer properties
-            if val1.const_value is None or val2.const_value is None:
-                if val1.const_value != val2.const_value:
-                    differences.append(f"{context}: Initializer const_value mismatch")
+            # Initializers should always have const_value available
+            if comp_result := _tensors_not_equal(
+                val1.const_value,  # type: ignore[arg-type]
+                val2.const_value,  # type: ignore[arg-type]
+                tensor_size_limit,
+            ):
+                # If the result explicitly contains "shape" or "dtype", it's a topological difference
+                # Otherwise it's a data mismatch (from numpy comparison)
+                if "tensor 1 shape" in comp_result:
+                    # Shape mismatch is topological
+                    differences.append(f"{context}: Initializer shape mismatch: {comp_result}")
                     return False
-            else:
-                if comp_result := _tensors_not_equal(
-                    val1.const_value, val2.const_value, tensor_size_limit
-                ):
-                    # If the result explicitly contains "shape" or "dtype", it's a topological difference
-                    # Otherwise it's a data mismatch (from numpy comparison)
-                    if "tensor 1 shape" in comp_result or "tensor 1 dtype" in comp_result:
-                        # Shape/dtype mismatch is topological
-                        if "tensor 1 shape" in comp_result:
-                            differences.append(
-                                f"{context}: Initializer shape mismatch: {comp_result}"
-                            )
-                        else:
-                            differences.append(
-                                f"{context}: Initializer dtype mismatch: {comp_result}"
-                            )
-                        return False
-                    else:
-                        # Data mismatch only
-                        differences.append(
-                            f"Tensor data difference: {context}: initializer data differs: {comp_result}"
-                        )
-                        are_equal = False
+                elif "tensor 1 dtype" in comp_result:
+                    # Dtype mismatch is topological
+                    differences.append(f"{context}: Initializer dtype mismatch: {comp_result}")
+                    return False
+                else:
+                    # Data mismatch only
+                    differences.append(
+                        f"Tensor data difference: {context}: initializer data differs: {comp_result}"
+                    )
+                    are_equal = False
             continue
         elif val1.is_initializer() != val2.is_initializer():
-            differences.append(f"{context}: One value is initializer, the other is not")
+            differences.append(
+                f"{context}: One value is initializer, the other is not "
+                f"({val1.name} vs {val2.name})"
+            )
             return False
 
         # Values must be produced by nodes - get the producer nodes
@@ -241,9 +277,24 @@ def _compare_graphs(
 
         if producer1 is None or producer2 is None:
             if producer1 != producer2:
-                differences.append(f"{context}: One value has producer, the other doesn't")
+                differences.append(
+                    f"{context}: One value has producer, the other doesn't "
+                    f"({val1.name} vs {val2.name})"
+                )
                 return False
             continue
+
+        # Check that output indices match
+        if val1.index() != val2.index():
+            differences.append(
+                f"{context}: Output index mismatch - {val1.name} is output {val1.index()} "
+                f"of its producer, {val2.name} is output {val2.index()} of its producer"
+            )
+            return False
+
+        # Track visited nodes
+        visited_nodes1.add(producer1)
+        visited_nodes2.add(producer2)
 
         # Compare the producer nodes
         node1_desc = f"producer of {context} ({producer1.op_type}, name='{producer1.name}')"
@@ -283,9 +334,7 @@ def _compare_graphs(
             return False
 
         # Queue node inputs for comparison
-        for input_idx, (inp1, inp2) in enumerate(
-            zip(producer1.inputs, producer2.inputs)
-        ):  # type: ignore[assignment]
+        for input_idx, (inp1, inp2) in enumerate(zip(producer1.inputs, producer2.inputs)):  # type: ignore[assignment]
             if inp1 is None and inp2 is None:
                 continue
             if inp1 is None or inp2 is None:
@@ -405,5 +454,21 @@ def _compare_graphs(
             # Only tensor data differences in subgraph
             differences.extend([f"{context}: {d}" for d in sub_diffs])
             are_equal = False
+
+    # Check that all nodes have been visited and matched
+    # This ensures no unused nodes exist in either graph
+    unvisited_nodes1 = set(graph1) - visited_nodes1
+    unvisited_nodes2 = set(graph2) - visited_nodes2
+
+    if unvisited_nodes1 or unvisited_nodes2:
+        error_parts = []
+        if unvisited_nodes1:
+            node_names1 = [f"{n.op_type}(name='{n.name}')" for n in unvisited_nodes1]
+            error_parts.append(f"Graph 1 has unvisited nodes: {', '.join(node_names1)}")
+        if unvisited_nodes2:
+            node_names2 = [f"{n.op_type}(name='{n.name}')" for n in unvisited_nodes2]
+            error_parts.append(f"Graph 2 has unvisited nodes: {', '.join(node_names2)}")
+        differences.append(" | ".join(error_parts))
+        return False
 
     return are_equal
