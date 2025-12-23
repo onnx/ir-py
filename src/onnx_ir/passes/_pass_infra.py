@@ -295,8 +295,7 @@ class _FunctionalPassWrapper(FunctionalPass):
         self._inner_pass = inner_pass
 
     def call(self, model: ir.Model) -> PassResult:
-        model_copy = model.clone()
-        return self._inner_pass(model_copy)
+        return self._inner_pass(model.clone())
 
 
 def functionalize(pass_instance: PassBase) -> FunctionalPass:
