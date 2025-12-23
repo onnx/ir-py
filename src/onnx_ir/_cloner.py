@@ -70,7 +70,7 @@ class Cloner:
         new_value = _core.Value(
             name=value.name,
             type=value.type,
-            shape=value.shape,
+            shape=_core.Shape(value.shape) if value.shape is not None else None,
             doc_string=value.doc_string,
             const_value=value.const_value,
         )
