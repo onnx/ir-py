@@ -1030,14 +1030,18 @@ class ValidationFeaturesTest(unittest.TestCase):
         # Graph 1 with chain of operations
         v1 = _core.Value(name="v1")
         node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
-        node2 = _core.Node("", "Mul", inputs=(node1.outputs[0], node1.outputs[0]), num_outputs=1)
+        node2 = _core.Node(
+            "", "Mul", inputs=(node1.outputs[0], node1.outputs[0]), num_outputs=1
+        )
         node3 = _core.Node("", "Relu", inputs=(node2.outputs[0],), num_outputs=1)
         graph1 = _core.Graph((v1,), node3.outputs, nodes=(node1, node2, node3))
 
         # Graph 2 with same structure
         v2 = _core.Value(name="v2")
         node4 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
-        node5 = _core.Node("", "Mul", inputs=(node4.outputs[0], node4.outputs[0]), num_outputs=1)
+        node5 = _core.Node(
+            "", "Mul", inputs=(node4.outputs[0], node4.outputs[0]), num_outputs=1
+        )
         node6 = _core.Node("", "Relu", inputs=(node5.outputs[0],), num_outputs=1)
         graph2 = _core.Graph((v2,), node6.outputs, nodes=(node4, node5, node6))
 
