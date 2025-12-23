@@ -865,5 +865,206 @@ class NodeOrderingTest(unittest.TestCase):
         _graph_comparison.assert_topologically_equal(graph1, graph2)
 
 
+class ValidationFeaturesTest(unittest.TestCase):
+    """Test validation features added in commit 8d60d40."""
+
+    def test_input_type_mismatch_detected(self):
+        """Test that mismatched input types are detected."""
+        # Graph 1 with input of type INT32
+        v1 = _core.Value(name="v1")
+        v1._type = ir.TensorType(ir.DataType.INT32)
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 with input of type FLOAT
+        v2 = _core.Value(name="v2")
+        v2._type = ir.TensorType(ir.DataType.FLOAT)
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect type mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_input_shape_mismatch_detected(self):
+        """Test that mismatched input shapes are detected."""
+        # Graph 1 with input of shape (2, 3)
+        v1 = _core.Value(name="v1")
+        v1._type = ir.TensorType(ir.DataType.FLOAT)
+        v1._shape = (2, 3)
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 with input of shape (3, 2)
+        v2 = _core.Value(name="v2")
+        v2._type = ir.TensorType(ir.DataType.FLOAT)
+        v2._shape = (3, 2)
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect shape mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_value_type_mismatch_detected(self):
+        """Test that type mismatches in intermediate values are detected."""
+        # Graph 1 - Add produces INT32
+        v1 = _core.Value(name="v1")
+        v1._type = ir.TensorType(ir.DataType.INT32)
+        node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        # Manually set output type to INT32
+        node1.outputs[0]._type = ir.TensorType(ir.DataType.INT32)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 - Add produces FLOAT
+        v2 = _core.Value(name="v2")
+        v2._type = ir.TensorType(ir.DataType.INT32)
+        node2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        # Manually set output type to FLOAT
+        node2.outputs[0]._type = ir.TensorType(ir.DataType.FLOAT)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect type mismatch in intermediate value
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_value_shape_mismatch_detected(self):
+        """Test that shape mismatches in intermediate values are detected."""
+        # Graph 1 - produces shape (2,)
+        v1 = _core.Value(name="v1")
+        v1._type = ir.TensorType(ir.DataType.FLOAT)
+        v1._shape = (2,)
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        node1.outputs[0]._shape = (2,)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 - produces shape (3,)
+        v2 = _core.Value(name="v2")
+        v2._type = ir.TensorType(ir.DataType.FLOAT)
+        v2._shape = (3,)
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        node2.outputs[0]._shape = (3,)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect shape mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_output_index_mismatch_detected(self):
+        """Test that output index mismatches are detected."""
+        # Graph 1 - node with 2 outputs, use first output
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Op", inputs=(v1,), num_outputs=2)
+        graph1 = _core.Graph((v1,), (node1.outputs[0],), nodes=(node1,))
+
+        # Graph 2 - node with 2 outputs, use second output
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Op", inputs=(v2,), num_outputs=2)
+        graph2 = _core.Graph((v2,), (node2.outputs[1],), nodes=(node2,))
+
+        # Should detect output index mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_output_index_match_accepted(self):
+        """Test that matching output indices are accepted."""
+        # Graph 1 - node with 2 outputs, use second output
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Op", inputs=(v1,), num_outputs=2)
+        graph1 = _core.Graph((v1,), (node1.outputs[1],), nodes=(node1,))
+
+        # Graph 2 - node with 2 outputs, use second output
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Op", inputs=(v2,), num_outputs=2)
+        graph2 = _core.Graph((v2,), (node2.outputs[1],), nodes=(node2,))
+
+        # Should be equal - both use second output
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_unused_nodes_detected_in_graph1(self):
+        """Test that unused nodes in graph1 are detected."""
+        # Graph 1 with an unused node
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        unused_node = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1, unused_node))
+
+        # Graph 2 without unused node
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect unused node
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_unused_nodes_detected_in_graph2(self):
+        """Test that unused nodes in graph2 are detected."""
+        # Graph 1 without unused node
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 with an unused node
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        unused_node = _core.Node("", "Mul", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2, unused_node))
+
+        # Should detect unused node
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_unused_nodes_detected_in_both_graphs(self):
+        """Test that unused nodes in both graphs are detected."""
+        # Graph 1 with unused node
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        unused1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1, unused1))
+
+        # Graph 2 with different unused node
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        unused2 = _core.Node("", "Mul", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2, unused2))
+
+        # Should detect unused nodes in both
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_all_nodes_visited_when_equal(self):
+        """Test that all nodes are visited when graphs are equal."""
+        # Graph 1 with chain of operations
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        node2 = _core.Node("", "Mul", inputs=(node1.outputs[0], node1.outputs[0]), num_outputs=1)
+        node3 = _core.Node("", "Relu", inputs=(node2.outputs[0],), num_outputs=1)
+        graph1 = _core.Graph((v1,), node3.outputs, nodes=(node1, node2, node3))
+
+        # Graph 2 with same structure
+        v2 = _core.Value(name="v2")
+        node4 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        node5 = _core.Node("", "Mul", inputs=(node4.outputs[0], node4.outputs[0]), num_outputs=1)
+        node6 = _core.Node("", "Relu", inputs=(node5.outputs[0],), num_outputs=1)
+        graph2 = _core.Graph((v2,), node6.outputs, nodes=(node4, node5, node6))
+
+        # Should be equal - all nodes visited
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_error_messages_include_value_names(self):
+        """Test that error messages include value names for clarity."""
+        # Graph 1
+        v1 = _core.Value(name="input_a")
+        node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2 with different op
+        v2 = _core.Value(name="input_b")
+        node2 = _core.Node("", "Mul", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Get error message using assert function
+        try:
+            _graph_comparison.assert_topologically_equal(graph1, graph2)
+            self.fail("Should have raised AssertionError")
+        except AssertionError as e:
+            error_msg = str(e)
+            # Error message should contain information about the op type mismatch
+            self.assertTrue("Add" in error_msg or "Mul" in error_msg)
+
+
 if __name__ == "__main__":
     unittest.main()
