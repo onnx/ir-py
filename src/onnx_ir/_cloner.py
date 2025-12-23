@@ -14,7 +14,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def capture_error_context(
+def _capture_error_context(
     func: Callable[Concatenate[Cloner, P], R],
 ) -> Callable[Concatenate[Cloner, P], R]:
     """Decorator to capture error context during cloning."""
@@ -61,7 +61,7 @@ class Cloner:
         self._post_process = post_process
         self._resolve_ref_attrs = resolve_ref_attrs
 
-    @capture_error_context
+    @_capture_error_context
     def clone_value(self, value: _core.Value) -> _core.Value:
         if value in self._value_map:
             known_value = self._value_map[value]
@@ -84,13 +84,13 @@ class Cloner:
     @typing.overload
     def clone_optional_value(self, value: None) -> None: ...
 
-    @capture_error_context  # type: ignore[misc]
+    @_capture_error_context  # type: ignore[misc]
     def clone_optional_value(self, value):
         if value is None:
             return None
         return self.clone_value(value)
 
-    @capture_error_context
+    @_capture_error_context
     def clone_attr(self, key: str, attr: _core.Attr) -> _core.Attr | None:
         if not attr.is_ref():
             if attr.type == _enums.AttributeType.GRAPH:
@@ -130,7 +130,7 @@ class Cloner:
         # removed. This is just the ONNX representation of optional-attributes.
         return None
 
-    @capture_error_context
+    @_capture_error_context
     def clone_node(self, node: _core.Node) -> _core.Node:
         new_inputs = [self.clone_optional_value(input) for input in node.inputs]
         new_attributes = [
@@ -163,7 +163,7 @@ class Cloner:
         self._post_process(new_node)
         return new_node
 
-    @capture_error_context
+    @_capture_error_context
     def clone_graph(self, graph: _core.Graph) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
         input_values = [self.clone_value(v) for v in graph.inputs]
