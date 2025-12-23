@@ -303,7 +303,7 @@ class _FunctionalPassWrapper(FunctionalPass):
 def functionalize(pass_instance: PassBase) -> FunctionalPass:
     """Produce a functional pass from a given pass.
 
-    A new functional pass is created that clones the input model before running the in-place pass.
+    A new functional pass is created that clones the input model before running the pass.
 
     Args:
         pass_instance: The pass to convert.
