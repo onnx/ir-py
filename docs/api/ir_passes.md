@@ -40,5 +40,5 @@ Alternatively, inherent the base class `onnx_ir.passes.PassBase <onnx_ir.passes.
 ## Utilities
 
 ```{eval-rst}
-.. autofunction:: functionalize
+.. autofunction:: onnx_ir.passes.functionalize
 ```
