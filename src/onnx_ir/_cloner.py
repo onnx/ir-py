@@ -1,3 +1,5 @@
+# Copyright (c) ONNX Project Contributors
+# SPDX-License-Identifier: Apache-2.0
 """Logic for cloning graphs."""
 
 from __future__ import annotations
@@ -82,7 +84,7 @@ class Cloner:
     @typing.overload
     def clone_optional_value(self, value: None) -> None: ...
 
-    @capture_error_context
+    @capture_error_context  # type: ignore[misc]
     def clone_optional_value(self, value):
         if value is None:
             return None
