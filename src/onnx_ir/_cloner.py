@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 import typing
 from collections.abc import Callable, Mapping
 from typing import Concatenate, ParamSpec, TypeVar
@@ -19,6 +20,7 @@ def _capture_error_context(
 ) -> Callable[Concatenate[Cloner, P], R]:
     """Decorator to capture error context during cloning."""
 
+    @functools.wraps(func)
     def wrapper(self: Cloner, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
             return func(self, *args, **kwargs)
