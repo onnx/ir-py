@@ -291,7 +291,7 @@ class PassManager(Sequential):
 
 
 class _FunctionalPassWrapper(FunctionalPass):
-    def __init__(self, inner_pass) -> None:
+    def __init__(self, inner_pass: PassBase) -> None:
         self._inner_pass = inner_pass
 
     def call(self, model: ir.Model) -> PassResult:
