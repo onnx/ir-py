@@ -1069,6 +1069,101 @@ class ValidationFeaturesTest(unittest.TestCase):
             # Error message should contain information about the op type mismatch
             self.assertTrue("Add" in error_msg or "Mul" in error_msg)
 
+    def test_input_type_none_vs_defined_mismatch(self):
+        """Test that having type=None in one input and type defined in other is detected."""
+        # Graph 1: input with type defined
+        v1 = _core.Value(name="input1")
+        v1._type = ir.TensorType(ir.DataType.FLOAT)
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: input with type=None
+        v2 = _core.Value(name="input2")  # type is None by default
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect type presence mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_input_shape_none_vs_defined_mismatch(self):
+        """Test that having shape=None in one input and shape defined in other is detected."""
+        # Graph 1: input with shape defined
+        v1 = _core.Value(name="input1", shape=ir.Shape([1, 2, 3]))
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: input with shape=None
+        v2 = _core.Value(name="input2")  # shape is None by default
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect shape presence mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_value_type_none_vs_defined_mismatch(self):
+        """Test that having type=None vs defined for intermediate values is detected."""
+        # Graph 1: node output with type defined
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        # Manually set type on output
+        node1.outputs[0]._type = ir.TensorType(ir.DataType.FLOAT)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: node output with type=None (default)
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect type presence mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_value_shape_none_vs_defined_mismatch(self):
+        """Test that having shape=None vs defined for intermediate values is detected."""
+        # Graph 1: node output with shape defined
+        v1 = _core.Value(name="v1")
+        node1 = _core.Node("", "Add", inputs=(v1, v1), num_outputs=1)
+        # Manually set shape on output
+        node1.outputs[0]._shape = ir.Shape([1, 2])
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: node output with shape=None (default)
+        v2 = _core.Value(name="v2")
+        node2 = _core.Node("", "Add", inputs=(v2, v2), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Should detect shape presence mismatch
+        self.assertFalse(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_both_type_none_accepted(self):
+        """Test that both values having type=None is accepted as matching."""
+        # Graph 1: input with type=None
+        v1 = _core.Value(name="input1")
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: input with type=None
+        v2 = _core.Value(name="input2")
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Both have type=None, should be equal
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
+    def test_both_shape_none_accepted(self):
+        """Test that both values having shape=None is accepted as matching."""
+        # Graph 1: input with shape=None
+        v1 = _core.Value(name="input1")
+        node1 = _core.Node("", "Identity", inputs=(v1,), num_outputs=1)
+        graph1 = _core.Graph((v1,), node1.outputs, nodes=(node1,))
+
+        # Graph 2: input with shape=None
+        v2 = _core.Value(name="input2")
+        node2 = _core.Node("", "Identity", inputs=(v2,), num_outputs=1)
+        graph2 = _core.Graph((v2,), node2.outputs, nodes=(node2,))
+
+        # Both have shape=None, should be equal
+        self.assertTrue(_graph_comparison.topologically_equal(graph1, graph2))
+
 
 if __name__ == "__main__":
     unittest.main()

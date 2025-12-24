@@ -11,6 +11,65 @@ import numpy as np
 from onnx_ir import _core, _enums, _protocols
 
 
+def _check_type_shape_match(
+    val1: _core.Value,
+    val2: _core.Value,
+    context: str,
+    differences: list[str],
+) -> bool:
+    """Check if two values have matching type and shape.
+    
+    Returns True if types and shapes match (or are both None), False otherwise.
+    Appends error messages to differences list when there's a mismatch.
+    
+    Args:
+        val1: First value to compare.
+        val2: Second value to compare.
+        context: Context string for error messages (e.g., "input 0", "output 1").
+        differences: List to append error messages to.
+        
+    Returns:
+        True if type and shape match, False otherwise.
+    """
+    # Check type match - one being None and the other not is a mismatch
+    if (val1.type is None) != (val2.type is None):
+        differences.append(
+            f"{context}: Type presence mismatch - {val1.name} type is "
+            f"{'None' if val1.type is None else 'defined'}, "
+            f"{val2.name} type is {'None' if val2.type is None else 'defined'}"
+        )
+        return False
+    
+    # If both types are defined, check they match
+    if val1.type is not None and val2.type is not None:
+        if val1.type != val2.type:
+            differences.append(
+                f"{context}: Type mismatch - {val1.name} has type {val1.type}, "
+                f"{val2.name} has type {val2.type}"
+            )
+            return False
+    
+    # Check shape match - one being None and the other not is a mismatch
+    if (val1.shape is None) != (val2.shape is None):
+        differences.append(
+            f"{context}: Shape presence mismatch - {val1.name} shape is "
+            f"{'None' if val1.shape is None else 'defined'}, "
+            f"{val2.name} shape is {'None' if val2.shape is None else 'defined'}"
+        )
+        return False
+    
+    # If both shapes are defined, check they match
+    if val1.shape is not None and val2.shape is not None:
+        if val1.shape != val2.shape:
+            differences.append(
+                f"{context}: Shape mismatch - {val1.name} has shape {val1.shape}, "
+                f"{val2.name} has shape {val2.shape}"
+            )
+            return False
+    
+    return True
+
+
 def topologically_equal(
     graph1: _core.Graph, graph2: _core.Graph, *, tensor_size_limit: int | None = None
 ) -> bool:
@@ -160,24 +219,12 @@ def _compare_graphs(
     visited_nodes1: set[_core.Node] = set()
     visited_nodes2: set[_core.Node] = set()
 
-    # Map graph inputs first - also check type and shape if known
-    for inp1, inp2 in zip(graph1.inputs, graph2.inputs):
+    # Map graph inputs first - also check type and shape
+    for inp_idx, (inp1, inp2) in enumerate(zip(graph1.inputs, graph2.inputs)):
         value_map[inp1] = inp2
         # Check type and shape match for inputs
-        if inp1.type is not None and inp2.type is not None:
-            if inp1.type != inp2.type:
-                differences.append(
-                    f"Input type mismatch: {inp1.name} has type {inp1.type}, "
-                    f"{inp2.name} has type {inp2.type}"
-                )
-                return False
-        if inp1.shape is not None and inp2.shape is not None:
-            if inp1.shape != inp2.shape:
-                differences.append(
-                    f"Input shape mismatch: {inp1.name} has shape {inp1.shape}, "
-                    f"{inp2.name} has shape {inp2.shape}"
-                )
-                return False
+        if not _check_type_shape_match(inp1, inp2, f"input {inp_idx}", differences):
+            return False
 
     # Queue for values to compare (backward traversal from outputs)
     # Contains tuples of (value1, value2, context_string)
@@ -207,21 +254,9 @@ def _compare_graphs(
         # Map this value pair
         value_map[val1] = val2
 
-        # Check type and shape match if known
-        if val1.type is not None and val2.type is not None:
-            if val1.type != val2.type:
-                differences.append(
-                    f"{context}: Type mismatch - {val1.name} has type {val1.type}, "
-                    f"{val2.name} has type {val2.type}"
-                )
-                return False
-        if val1.shape is not None and val2.shape is not None:
-            if val1.shape != val2.shape:
-                differences.append(
-                    f"{context}: Shape mismatch - {val1.name} has shape {val1.shape}, "
-                    f"{val2.name} has shape {val2.shape}"
-                )
-                return False
+        # Check type and shape match
+        if not _check_type_shape_match(val1, val2, context, differences):
+            return False
 
         # Check if values are graph inputs (base case)
         val1_is_input = val1 in graph1.inputs
