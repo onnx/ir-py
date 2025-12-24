@@ -18,16 +18,16 @@ def _check_type_shape_match(
     differences: list[str],
 ) -> bool:
     """Check if two values have matching type and shape.
-    
+
     Returns True if types and shapes match (or are both None), False otherwise.
     Appends error messages to differences list when there's a mismatch.
-    
+
     Args:
         val1: First value to compare.
         val2: Second value to compare.
         context: Context string for error messages (e.g., "input 0", "output 1").
         differences: List to append error messages to.
-        
+
     Returns:
         True if type and shape match, False otherwise.
     """
@@ -39,7 +39,7 @@ def _check_type_shape_match(
             f"{val2.name} type is {'None' if val2.type is None else 'defined'}"
         )
         return False
-    
+
     # If both types are defined, check they match
     if val1.type is not None and val2.type is not None:
         if val1.type != val2.type:
@@ -48,7 +48,7 @@ def _check_type_shape_match(
                 f"{val2.name} has type {val2.type}"
             )
             return False
-    
+
     # Check shape match - one being None and the other not is a mismatch
     if (val1.shape is None) != (val2.shape is None):
         differences.append(
@@ -57,7 +57,7 @@ def _check_type_shape_match(
             f"{val2.name} shape is {'None' if val2.shape is None else 'defined'}"
         )
         return False
-    
+
     # If both shapes are defined, check they match
     if val1.shape is not None and val2.shape is not None:
         if val1.shape != val2.shape:
@@ -66,7 +66,7 @@ def _check_type_shape_match(
                 f"{val2.name} has shape {val2.shape}"
             )
             return False
-    
+
     return True
 
 
