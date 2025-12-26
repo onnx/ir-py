@@ -394,6 +394,41 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         self.assertNotIn("strides", conv_node.attributes)
         self.assertNotIn("group", conv_node.attributes)
 
+    def test_node_version_takes_precedence(self):
+        """Test that node.version takes precedence over graph opset version."""
+        # Create a node with a specific version set
+        input_val = ir.Value(
+            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((2, 3, 4))
+        )
+        axes = ir.tensor(np.array([1], dtype=np.int64))
+        axes_const = ir.node("Constant", inputs=[], attributes={"value": axes}, num_outputs=1)
+        
+        # Create ReduceSum node with keepdims=1 (default) and explicit version
+        reduce_node = ir.node(
+            "ReduceSum",
+            inputs=[input_val, axes_const.outputs[0]],
+            attributes={"keepdims": 1},  # Default value in opset 20
+            num_outputs=1,
+            version=20,  # Explicit version
+        )
+        model = ir.Model(
+            graph=ir.Graph(
+                inputs=[input_val],
+                outputs=reduce_node.outputs,
+                nodes=[axes_const, reduce_node],
+                opset_imports={"": 18},  # Different graph opset version
+            ),
+            ir_version=10,
+        )
+        
+        # Apply the pass
+        pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
+        result = pass_instance(model)
+        
+        # keepdims=1 should still be removed because node.version=20 is used
+        self.assertTrue(result.modified)
+        self.assertNotIn("keepdims", reduce_node.attributes)
+
 
 if __name__ == "__main__":
     unittest.main()

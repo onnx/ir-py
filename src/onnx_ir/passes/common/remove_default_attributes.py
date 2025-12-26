@@ -34,18 +34,25 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
     def _process_graph_or_function(self, graph_or_function: ir.Graph | ir.Function) -> bool:
         """Process all nodes in the graph or function."""
         modified = False
-        onnx_opset_version = graph_or_function.opset_imports.get("", None)
-        if onnx_opset_version is None:
-            logger.debug("No ONNX opset version found, skipping default attribute removal")
-            return False
+        graph_opset_version = graph_or_function.opset_imports.get("", None)
         
         for node in ir.traversal.RecursiveGraphIterator(graph_or_function):
-            modified = self._process_node(node, onnx_opset_version) or modified
+            modified = self._process_node(node, graph_opset_version) or modified
         return modified
 
-    def _process_node(self, node: ir.Node, onnx_opset_version: int) -> bool:
+    def _process_node(self, node: ir.Node, graph_opset_version: int | None) -> bool:
         """Process a single node to remove default attributes."""
         if node.domain not in {"", "onnx.ai"}:
+            return False
+        
+        # Use node.version if defined, otherwise use graph opset version
+        onnx_opset_version = node.version if node.version is not None else graph_opset_version
+        
+        if onnx_opset_version is None:
+            logger.debug(
+                "No ONNX opset version found for node %s, skipping default attribute removal",
+                node.name,
+            )
             return False
         
         try:
