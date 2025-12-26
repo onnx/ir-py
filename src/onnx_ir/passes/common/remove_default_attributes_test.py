@@ -407,7 +407,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         reduce_node = ir.node(
             "ReduceSum",
             inputs=[input_val, axes_const.outputs[0]],
-            attributes={"keepdims": 1},  # Default value in opset 20
+            attributes={"keepdims": 1},  # keepdims=1 is the default for ReduceSum in opset 20
             num_outputs=1,
             version=20,  # Explicit version
         )
