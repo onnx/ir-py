@@ -96,7 +96,7 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
         schema_attr: onnx.defs.OpSchema.Attribute,
     ) -> bool:
         """Check if an attribute should be removed."""
-        # Special case for Conv node as per issue requirements:
+        # Special case for Conv node:
         # The schema doesn't specify defaults for pads/strides, but they have
         # implicit defaults (pads=all 0, strides=all 1) that should be removed
         if node.op_type == "Conv":
