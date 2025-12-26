@@ -19,7 +19,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         )
         axes = ir.tensor(np.array([1], dtype=np.int64))
         axes_const = ir.node("Constant", inputs=[], attributes={"value": axes}, num_outputs=1)
-        
+
         reduce_node = ir.node(
             "ReduceSum",
             inputs=[input_val, axes_const.outputs[0]],
@@ -35,11 +35,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that the pass was applied and the attribute was removed
         self.assertTrue(result.modified)
         self.assertNotIn("keepdims", reduce_node.attributes)
@@ -52,7 +52,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         )
         axes = ir.tensor(np.array([1], dtype=np.int64))
         axes_const = ir.node("Constant", inputs=[], attributes={"value": axes}, num_outputs=1)
-        
+
         reduce_node = ir.node(
             "ReduceSum",
             inputs=[input_val, axes_const.outputs[0]],
@@ -68,11 +68,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that the attribute was NOT removed
         self.assertFalse(result.modified)
         self.assertIn("keepdims", reduce_node.attributes)
@@ -81,12 +81,14 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_conv_pads_all_zeros(self):
         """Test removal of pads attribute when all zeros for Conv."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         conv_node = ir.node(
             "Conv",
             inputs=[input_val, weight],
@@ -102,11 +104,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that pads was removed
         self.assertTrue(result.modified)
         self.assertNotIn("pads", conv_node.attributes)
@@ -114,12 +116,14 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_conv_pads_not_all_zeros(self):
         """Test that pads attribute is kept when not all zeros for Conv."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         conv_node = ir.node(
             "Conv",
             inputs=[input_val, weight],
@@ -135,11 +139,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that pads was NOT removed
         self.assertFalse(result.modified)
         self.assertIn("pads", conv_node.attributes)
@@ -147,12 +151,14 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_conv_strides_all_ones(self):
         """Test removal of strides attribute when all ones for Conv."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         conv_node = ir.node(
             "Conv",
             inputs=[input_val, weight],
@@ -168,11 +174,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that strides was removed
         self.assertTrue(result.modified)
         self.assertNotIn("strides", conv_node.attributes)
@@ -180,12 +186,14 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_conv_strides_not_all_ones(self):
         """Test that strides attribute is kept when not all ones for Conv."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         conv_node = ir.node(
             "Conv",
             inputs=[input_val, weight],
@@ -201,11 +209,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that strides was NOT removed
         self.assertFalse(result.modified)
         self.assertIn("strides", conv_node.attributes)
@@ -213,12 +221,14 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_conv_group_default(self):
         """Test removal of group attribute when set to default value 1 for Conv."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         conv_node = ir.node(
             "Conv",
             inputs=[input_val, weight],
@@ -234,11 +244,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that group was removed
         self.assertTrue(result.modified)
         self.assertNotIn("group", conv_node.attributes)
@@ -248,7 +258,9 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         # BatchNormalization has epsilon with default 1e-5 and momentum with default 0.9
         # These should NOT be removed as they are not 0, 1, or -1
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         scale = ir.Value(
             name="scale", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
@@ -259,14 +271,15 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         mean = ir.Value(
             name="mean", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
         )
-        var = ir.Value(
-            name="var", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
-        )
-        
+        var = ir.Value(name="var", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,)))
+
         bn_node = ir.node(
             "BatchNormalization",
             inputs=[input_val, scale, bias, mean, var],
-            attributes={"epsilon": 1e-5, "momentum": 0.9},  # Float defaults - should NOT be removed
+            attributes={
+                "epsilon": 1e-5,
+                "momentum": 0.9,
+            },  # Float defaults - should NOT be removed
             num_outputs=1,
         )
         model = ir.Model(
@@ -278,11 +291,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Float defaults should be kept for clarity
         self.assertFalse(result.modified)
         self.assertIn("epsilon", bn_node.attributes)
@@ -291,7 +304,9 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
     def test_remove_training_mode_default(self):
         """Test removal of training_mode=0 default for BatchNormalization."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         scale = ir.Value(
             name="scale", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
@@ -302,10 +317,8 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         mean = ir.Value(
             name="mean", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
         )
-        var = ir.Value(
-            name="var", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,))
-        )
-        
+        var = ir.Value(name="var", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((3,)))
+
         bn_node = ir.node(
             "BatchNormalization",
             inputs=[input_val, scale, bias, mean, var],
@@ -321,11 +334,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that training_mode was removed
         self.assertTrue(result.modified)
         self.assertNotIn("training_mode", bn_node.attributes)
@@ -335,7 +348,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         input_val = ir.Value(
             name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((2, 3))
         )
-        
+
         relu_node = ir.node("Relu", inputs=[input_val], num_outputs=1)
         model = ir.Model(
             graph=ir.Graph(
@@ -346,23 +359,25 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # No modifications should be made
         self.assertFalse(result.modified)
 
     def test_multiple_nodes_with_mixed_attributes(self):
         """Test removal of default attributes across multiple nodes."""
         input_val = ir.Value(
-            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3, 224, 224))
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
         )
         weight = ir.Value(
             name="weight", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((64, 3, 3, 3))
         )
-        
+
         # Conv with default pads and strides
         conv_node = ir.node(
             "Conv",
@@ -370,10 +385,10 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             attributes={"pads": [0, 0, 0, 0], "strides": [1, 1], "group": 1},
             num_outputs=1,
         )
-        
+
         # Relu (no attributes)
         relu_node = ir.node("Relu", inputs=[conv_node.outputs[0]], num_outputs=1)
-        
+
         model = ir.Model(
             graph=ir.Graph(
                 inputs=[input_val, weight],
@@ -383,11 +398,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # Check that all default attributes were removed from Conv
         self.assertTrue(result.modified)
         self.assertNotIn("pads", conv_node.attributes)
@@ -402,7 +417,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         )
         axes = ir.tensor(np.array([1], dtype=np.int64))
         axes_const = ir.node("Constant", inputs=[], attributes={"value": axes}, num_outputs=1)
-        
+
         # Create ReduceSum node with keepdims=1 (default) and explicit version
         reduce_node = ir.node(
             "ReduceSum",
@@ -420,11 +435,11 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
             ),
             ir_version=10,
         )
-        
+
         # Apply the pass
         pass_instance = remove_default_attributes.RemoveDefaultAttributesPass()
         result = pass_instance(model)
-        
+
         # keepdims=1 should still be removed because node.version=20 is used
         self.assertTrue(result.modified)
         self.assertNotIn("keepdims", reduce_node.attributes)
