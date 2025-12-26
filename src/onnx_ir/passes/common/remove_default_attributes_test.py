@@ -74,6 +74,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         result = pass_instance(model)
         
         # Check that the attribute was NOT removed
+        self.assertFalse(result.modified)
         self.assertIn("keepdims", reduce_node.attributes)
         self.assertEqual(reduce_node.attributes["keepdims"].value, 0)
 
@@ -140,6 +141,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         result = pass_instance(model)
         
         # Check that pads was NOT removed
+        self.assertFalse(result.modified)
         self.assertIn("pads", conv_node.attributes)
 
     def test_conv_strides_all_ones(self):
@@ -205,6 +207,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         result = pass_instance(model)
         
         # Check that strides was NOT removed
+        self.assertFalse(result.modified)
         self.assertIn("strides", conv_node.attributes)
 
     def test_conv_group_default(self):
@@ -281,6 +284,7 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         result = pass_instance(model)
         
         # Float defaults should be kept for clarity
+        self.assertFalse(result.modified)
         self.assertIn("epsilon", bn_node.attributes)
         self.assertIn("momentum", bn_node.attributes)
 
