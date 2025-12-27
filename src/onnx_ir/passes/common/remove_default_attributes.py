@@ -72,6 +72,12 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
         # Check each attribute in the node
         for attr_name, attr_value in node.attributes.items():
             if attr_name not in op_schema.attributes:
+                logger.warning(
+                    "Attribute '%s' not found in schema for node '%s' (op_type=%s)",
+                    attr_name,
+                    node.name,
+                    node.op_type,
+                )
                 continue
 
             schema_attr = op_schema.attributes[attr_name]
@@ -113,11 +119,9 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
 
         # Check if the attribute has a default value in the schema
         has_int_default = schema_attr.default_value.HasField("i")
-        has_ints_default = len(list(schema_attr.default_value.ints)) > 0
         has_float_default = schema_attr.default_value.HasField("f")
-        has_floats_default = len(list(schema_attr.default_value.floats)) > 0
 
-        if not has_int_default and not has_ints_default and not has_float_default and not has_floats_default:
+        if not has_int_default and not has_float_default:
             return False
 
         # Check for int attributes with default values of 0, 1, or -1
@@ -129,16 +133,6 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
             if attr_value.type == ir.AttributeType.INT:
                 return attr_value.value == default_int
 
-        # Check for ints attributes with default values
-        if has_ints_default:
-            default_ints = list(schema_attr.default_value.ints)
-            # Only remove if all default values are 0, 1, or -1
-            if not all(v in {0, 1, -1} for v in default_ints):
-                return False
-
-            if attr_value.type == ir.AttributeType.INTS:
-                return tuple(attr_value.value) == tuple(default_ints)
-
         # Check for float attributes with default values of -1.0, 0.0, or 1.0
         if has_float_default:
             default_float = schema_attr.default_value.f
@@ -147,15 +141,5 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
 
             if attr_value.type == ir.AttributeType.FLOAT:
                 return attr_value.value == default_float
-
-        # Check for floats attributes with default values
-        if has_floats_default:
-            default_floats = list(schema_attr.default_value.floats)
-            # Only remove if all default values are -1.0, 0.0, or 1.0
-            if not all(v in {-1.0, 0.0, 1.0} for v in default_floats):
-                return False
-
-            if attr_value.type == ir.AttributeType.FLOATS:
-                return tuple(attr_value.value) == tuple(default_floats)
 
         return False
