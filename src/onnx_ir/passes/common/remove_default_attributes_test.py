@@ -519,7 +519,10 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         random_normal_node = ir.node(
             "RandomNormal",
             inputs=[input_shape],
-            attributes={"mean": 0.0, "scale": 1.0},  # mean=0.0 is default, scale=1.0 is default
+            attributes={
+                "mean": 0.0,
+                "scale": 1.0,
+            },  # mean=0.0 is default, scale=1.0 is default
             num_outputs=1,
         )
         model = ir.Model(
@@ -540,13 +543,6 @@ class TestRemoveDefaultAttributesPass(unittest.TestCase):
         self.assertTrue(result.modified)
         self.assertNotIn("mean", random_normal_node.attributes)
         self.assertNotIn("scale", random_normal_node.attributes)
-
-    def test_remove_float_default_attributes_minus_1_0(self):
-        """Test removal of float attributes with default value -1.0."""
-        # Currently, no ONNX operators have -1.0 as default for float attributes
-        # This test verifies that the logic works for -1.0 even if not commonly used
-        # We'll skip this test for now since there are no real examples
-        pass
 
 
 if __name__ == "__main__":
