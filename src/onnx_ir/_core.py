@@ -16,6 +16,7 @@ import abc
 import contextlib
 import dataclasses
 import heapq
+import logging
 import math
 import mmap
 import os
@@ -86,6 +87,8 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.UINT2,
     )
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _compatible_with_numpy(obj: Any) -> TypeGuard[_protocols.ArrayCompatible]:
@@ -1434,6 +1437,57 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
     def copy(self, frozen: bool = False):
         """Return a copy of the shape."""
         return Shape(self._dims, self._denotations, frozen=frozen)
+
+    def merge(self, other: Shape) -> Shape:
+        """Merge this shape with another shape to produce a new shape, with the current shape's dimensions taking precedence.
+
+        Two dimensions are merged as follows:
+        - If both dimensions are equal, the merged dimension is the same.
+        - If one dimension is SymbolicDim, the merged dimension is the other concrete dimension.
+        - If both dimensions are different, the current shape's dimension is taken.
+
+        .. versionadded:: 0.1.14
+
+        Args:
+            other: The other shape to merge with.
+
+        Returns:
+            A new shape that is the result of merging this shape with the other shape.
+
+        Raises:
+            ValueError: If the shapes have different ranks.
+        """
+
+        def merge_dims(dim1, dim2):
+            if dim1 == dim2:
+                return dim1
+            if isinstance(dim1, int) and isinstance(dim2, int):
+                logger.warning(
+                    "Conflicting dimensions %s and %s when merging shapes %s and %s. "
+                    "Taking the dimension from the current shape: %s.",
+                    dim1,
+                    dim2,
+                    self,
+                    other,
+                    dim1,
+                    stacklevel=3,
+                )
+                return dim1
+            if not isinstance(dim1, SymbolicDim):
+                return dim1  # Prefer int value over symbolic dim
+            if not isinstance(dim2, SymbolicDim):
+                return dim2
+            if dim1.value is None:
+                return dim2
+            return dim1
+
+        if self is None:
+            return other.copy()
+        if other is None:
+            return self.copy()
+        if len(self) != len(other):
+            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
+        return Shape([merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)])
 
     def rank(self) -> int:
         """The rank of the tensor this shape represents."""
