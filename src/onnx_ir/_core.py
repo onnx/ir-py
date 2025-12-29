@@ -2917,6 +2917,8 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         Tensors in initializers and constant values will be shared.
 
+        .. versionadded:: 0.1.14
+
         Returns:
             A deep copy of this graph.
         """
@@ -3466,6 +3468,8 @@ Model(
 
         Tensors in initializers and constant values will be shared.
 
+        .. versionadded:: 0.1.14
+
         Returns:
             A deep copy of this model.
         """
@@ -3680,6 +3684,8 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         objects.
 
         Tensors in initializers and constant values will be shared.
+
+        .. versionadded:: 0.1.14
 
         Returns:
             A deep copy of this function.

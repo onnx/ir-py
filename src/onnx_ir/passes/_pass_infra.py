@@ -303,6 +303,8 @@ def functionalize(pass_instance: PassBase) -> FunctionalPass:
 
     A new functional pass is created that clones the input model before running the pass.
 
+    .. versionadded:: 0.1.14
+
     Args:
         pass_instance: The pass to convert.
 
