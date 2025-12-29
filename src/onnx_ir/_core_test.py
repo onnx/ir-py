@@ -1255,6 +1255,13 @@ class ShapeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same rank"):
             shape1.merge(shape2)
 
+    def test_merge_when_other_is_none_returns_copy_of_self(self):
+        shape1 = _core.Shape([1, 2, 3])
+        merged = shape1.merge(None)
+        self.assertEqual(merged, [1, 2, 3])
+        # Verify it's a copy, not the same instance
+        self.assertIsNot(merged, shape1)
+
     def test_merge_returns_new_shape_instance(self):
         shape1 = _core.Shape([1, 2, 3])
         shape2 = _core.Shape([1, 2, 3])

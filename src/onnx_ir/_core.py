@@ -1438,7 +1438,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         """Return a copy of the shape."""
         return Shape(self._dims, self._denotations, frozen=frozen)
 
-    def merge(self, other: Shape) -> Shape:
+    def merge(self, other: Shape | None) -> Shape:
         """Merge this shape with another shape to produce a new shape, with the current shape's dimensions taking precedence.
 
         Two dimensions are merged as follows:
@@ -1457,6 +1457,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         Raises:
             ValueError: If the shapes have different ranks.
         """
+        if other is None:
+            return self.copy()
+
+        if len(self) != len(other):
+            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
 
         def merge_dims(dim1, dim2):
             if dim1 == dim2:
@@ -1481,12 +1486,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 return dim2
             return dim1
 
-        if self is None:
-            return other.copy()
-        if other is None:
-            return self.copy()
-        if len(self) != len(other):
-            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
         return Shape([merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)])
 
     def rank(self) -> int:
