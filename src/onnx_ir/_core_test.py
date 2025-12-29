@@ -1183,6 +1183,102 @@ class ShapeTest(unittest.TestCase):
         shape = _core.Shape(())
         self.assertFalse(shape.has_unknown_dim())
 
+    def test_merge_with_equal_dimensions(self):
+        shape1 = _core.Shape([1, 2, 3])
+        shape2 = _core.Shape([1, 2, 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, [1, 2, 3])
+
+    def test_merge_with_symbolic_dimensions_equal(self):
+        shape1 = _core.Shape(["batch", "seq_len", 3])
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, ["batch", "seq_len", 3])
+
+    def test_merge_prefers_concrete_over_symbolic_from_shape1(self):
+        shape1 = _core.Shape([64, 128, 3])
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, [64, 128, 3])
+
+    def test_merge_prefers_concrete_over_symbolic_from_shape2(self):
+        shape1 = _core.Shape(["batch", "seq_len", 3])
+        shape2 = _core.Shape([64, 128, 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, [64, 128, 3])
+
+    def test_merge_with_none_dimensions_prefers_named_symbolic(self):
+        shape1 = _core.Shape([None, 128, 3])
+        shape2 = _core.Shape(["batch", 128, 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, ["batch", 128, 3])
+
+    def test_merge_with_none_dimensions_keeps_named_symbolic_from_shape1(self):
+        shape1 = _core.Shape(["batch", 128, 3])
+        shape2 = _core.Shape([None, 128, 3])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, ["batch", 128, 3])
+
+    def test_merge_with_conflicting_concrete_dimensions_takes_shape1(self):
+        shape1 = _core.Shape([64, 128, 3])
+        shape2 = _core.Shape([32, 128, 3])
+        with unittest.mock.patch("onnx_ir._core.logger.warning") as mock_warning:
+            merged = shape1.merge(shape2)
+            self.assertEqual(merged, [64, 128, 3])
+            # Verify warning was called
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0]
+            self.assertIn("Conflicting dimensions", args[0])
+
+    def test_merge_with_mixed_dimensions(self):
+        shape1 = _core.Shape([64, "seq_len", 3, None])
+        shape2 = _core.Shape(["batch", 128, 3, "hidden"])
+        merged = shape1.merge(shape2)
+        # 64 (concrete) wins over "batch" (symbolic)
+        # 128 (concrete) wins over "seq_len" (symbolic)
+        # 3 (equal) stays the same
+        # "hidden" (named symbolic) wins over None
+        self.assertEqual(merged[0], 64)
+        self.assertEqual(merged[1], 128)
+        self.assertEqual(merged[2], 3)
+        self.assertEqual(merged[3], "hidden")
+
+    def test_merge_with_empty_shapes(self):
+        shape1 = _core.Shape([])
+        shape2 = _core.Shape([])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, [])
+
+    def test_merge_raises_on_different_ranks(self):
+        shape1 = _core.Shape([1, 2, 3])
+        shape2 = _core.Shape([1, 2])
+        with self.assertRaisesRegex(ValueError, "same rank"):
+            shape1.merge(shape2)
+
+    def test_merge_returns_new_shape_instance(self):
+        shape1 = _core.Shape([1, 2, 3])
+        shape2 = _core.Shape([1, 2, 3])
+        merged = shape1.merge(shape2)
+        # Verify it's a new instance, not the same object
+        self.assertIsNot(merged, shape1)
+        self.assertIsNot(merged, shape2)
+
+    def test_merge_with_symbolic_dim_objects(self):
+        sym1 = _core.SymbolicDim("batch")
+        sym2 = _core.SymbolicDim("batch")
+        shape1 = _core.Shape([sym1, 128])
+        shape2 = _core.Shape([sym2, 128])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, ["batch", 128])
+
+    def test_merge_with_none_symbolic_dims(self):
+        shape1 = _core.Shape([None, None, 3])
+        shape2 = _core.Shape([None, None, 3])
+        merged = shape1.merge(shape2)
+        self.assertTrue(merged.is_unknown_dim(0))
+        self.assertTrue(merged.is_unknown_dim(1))
+        self.assertEqual(merged[2], 3)
+
 
 class ValueTest(unittest.TestCase):
     def setUp(self) -> None:
