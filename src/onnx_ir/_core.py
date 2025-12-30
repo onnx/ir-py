@@ -1447,6 +1447,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
         - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
 
+        Denotations are merged as follows:
+        - If both denotations are equal, the merged denotation is the same.
+        - If one denotation is None and the other is not, the non-None denotation is preferred.
+        - If both denotations are not None and different, the current shape's denotation is taken.
+
         .. versionadded:: 0.1.14
 
         Args:
@@ -1487,7 +1492,20 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 return dim2
             return dim1
 
-        return Shape([merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)])
+        def merge_denotations(denot1: str | None, denot2: str | None) -> str | None:
+            if denot1 == denot2:
+                return denot1
+            if denot1 is None:
+                return denot2
+            # If denot2 is None or they differ, prefer denot1
+            return denot1
+
+        merged_dims = [merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)]
+        merged_denotations = [
+            merge_denotations(denot1, denot2)
+            for denot1, denot2 in zip(self._denotations, other._denotations)
+        ]
+        return Shape(merged_dims, denotations=merged_denotations)
 
     def rank(self) -> int:
         """The rank of the tensor this shape represents."""

@@ -1286,6 +1286,46 @@ class ShapeTest(unittest.TestCase):
         self.assertTrue(merged.is_unknown_dim(1))
         self.assertEqual(merged[2], 3)
 
+    def test_merge_preserves_denotations_when_equal(self):
+        shape1 = _core.Shape([1, 2, 3], denotations=["BATCH", "HEIGHT", "WIDTH"])
+        shape2 = _core.Shape([1, 2, 3], denotations=["BATCH", "HEIGHT", "WIDTH"])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged.get_denotation(0), "BATCH")
+        self.assertEqual(merged.get_denotation(1), "HEIGHT")
+        self.assertEqual(merged.get_denotation(2), "WIDTH")
+
+    def test_merge_prefers_non_none_denotation_from_shape1(self):
+        shape1 = _core.Shape([1, 2, 3], denotations=["BATCH", "HEIGHT", "WIDTH"])
+        shape2 = _core.Shape([1, 2, 3], denotations=[None, None, None])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged.get_denotation(0), "BATCH")
+        self.assertEqual(merged.get_denotation(1), "HEIGHT")
+        self.assertEqual(merged.get_denotation(2), "WIDTH")
+
+    def test_merge_prefers_non_none_denotation_from_shape2(self):
+        shape1 = _core.Shape([1, 2, 3], denotations=[None, None, None])
+        shape2 = _core.Shape([1, 2, 3], denotations=["BATCH", "HEIGHT", "WIDTH"])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged.get_denotation(0), "BATCH")
+        self.assertEqual(merged.get_denotation(1), "HEIGHT")
+        self.assertEqual(merged.get_denotation(2), "WIDTH")
+
+    def test_merge_prefers_shape1_denotation_when_both_non_none_and_different(self):
+        shape1 = _core.Shape([1, 2, 3], denotations=["BATCH", "HEIGHT", "WIDTH"])
+        shape2 = _core.Shape([1, 2, 3], denotations=["N", "H", "W"])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged.get_denotation(0), "BATCH")
+        self.assertEqual(merged.get_denotation(1), "HEIGHT")
+        self.assertEqual(merged.get_denotation(2), "WIDTH")
+
+    def test_merge_mixed_denotations(self):
+        shape1 = _core.Shape([1, 2, 3], denotations=["BATCH", None, "WIDTH"])
+        shape2 = _core.Shape([1, 2, 3], denotations=[None, "HEIGHT", "W"])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged.get_denotation(0), "BATCH")
+        self.assertEqual(merged.get_denotation(1), "HEIGHT")
+        self.assertEqual(merged.get_denotation(2), "WIDTH")
+
 
 class ValueTest(unittest.TestCase):
     def setUp(self) -> None:
