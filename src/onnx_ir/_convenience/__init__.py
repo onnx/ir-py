@@ -360,7 +360,9 @@ def replace_all_uses_with(
         value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
 
 
-def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
+def create_value_mapping(
+    graph: _core.Graph | _core.GraphView | _core.Function,
+) -> dict[str, _core.Value]:
     """Return a dictionary mapping names to values in the graph.
 
     The mapping includes values from subgraphs. Duplicated names are omitted,
@@ -377,7 +379,8 @@ def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
         A dictionary mapping names to values.
     """
     values: dict[str, _core.Value] = {}
-    values.update(graph.initializers)
+    if not isinstance(graph, _core.Function):
+        values.update(graph.initializers)
     # The names of the values can be None or "", which we need to exclude
     for input in graph.inputs:
         if not input.name:
