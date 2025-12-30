@@ -442,6 +442,164 @@ class ExtractEdgeCasesTest(unittest.TestCase):
         self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0].op_type, "Add")
 
+    def test_extract_with_multiple_inputs(self):
+        """Test extracting with multiple input values."""
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+
+        add_node = ir.node(
+            "Add",
+            inputs=[input1, input2],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2],
+            outputs=[add_node.outputs[0]],
+            nodes=[add_node],
+            name="multi_input_graph",
+        )
+
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input1", "input2"],
+            outputs=["output"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(len(extracted.inputs), 2)
+        input_names = {inp.name for inp in extracted.inputs}
+        self.assertEqual(input_names, {"input1", "input2"})
+
+    def test_extract_with_shared_input(self):
+        """Test extracting when a value is used by multiple nodes."""
+        input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[3])
+        const_val = ir.val(
+            "const",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([1, 2, 3], dtype=np.float32), name="const"),
+        )
+
+        # Both nodes use the same input_val
+        add_node = ir.node(
+            "Add",
+            inputs=[input_val, const_val],
+            outputs=[ir.val("sum", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        mul_node = ir.node(
+            "Mul",
+            inputs=[input_val, const_val],
+            outputs=[ir.val("product", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        concat_node = ir.node(
+            "Concat",
+            inputs=[add_node.outputs[0], mul_node.outputs[0]],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[6])],
+            attributes={"axis": 0},
+        )
+
+        graph = ir.Graph(
+            inputs=[input_val],
+            outputs=[concat_node.outputs[0]],
+            nodes=[add_node, mul_node, concat_node],
+            name="shared_input_graph",
+        )
+
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input"],
+            outputs=["output"],
+        )
+
+        # Should include all three nodes since they're all needed
+        self.assertEqual(len(extracted), 3)
+
+    def test_extract_raises_on_output_not_found(self):
+        """Test that ValueError is raised when an output value is not found."""
+        input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[3])
+        graph = ir.Graph(
+            inputs=[input_val],
+            outputs=[input_val],
+            nodes=[],
+            name="simple_graph",
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "Value with name 'nonexistent_output' not found in the graph"
+        ):
+            _extractor.extract(
+                graph,
+                inputs=["input"],
+                outputs=["nonexistent_output"],
+            )
+
+    def test_extract_with_node_with_optional_inputs(self):
+        """Test extracting nodes that have None/optional inputs."""
+        input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[3, 4])
+
+        # Reshape node can have optional inputs
+        shape_val = ir.val(
+            "shape",
+            dtype=ir.DataType.INT64,
+            shape=[1],
+            const_value=ir.tensor(np.array([12], dtype=np.int64), name="shape"),
+        )
+        reshape_node = ir.node(
+            "Reshape",
+            inputs=[input_val, shape_val],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[12])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input_val],
+            outputs=[reshape_node.outputs[0]],
+            nodes=[reshape_node],
+            name="reshape_graph",
+        )
+
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input"],
+            outputs=["output"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].op_type, "Reshape")
+
+    def test_extract_partial_from_multi_output_node(self):
+        """Test extracting only one output from a node with multiple outputs."""
+        input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[10])
+
+        # Split creates multiple outputs
+        split_node = ir.node(
+            "Split",
+            inputs=[input_val],
+            outputs=[
+                ir.val("output1", dtype=ir.DataType.FLOAT, shape=[5]),
+                ir.val("output2", dtype=ir.DataType.FLOAT, shape=[5]),
+            ],
+            attributes={"axis": 0},
+        )
+
+        graph = ir.Graph(
+            inputs=[input_val],
+            outputs=split_node.outputs,
+            nodes=[split_node],
+            name="split_graph",
+        )
+
+        # Extract only one output
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input"],
+            outputs=["output1"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(len(extracted.outputs), 1)
+        self.assertEqual(extracted.outputs[0].name, "output1")
+
 
 if __name__ == "__main__":
     unittest.main()
