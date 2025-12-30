@@ -129,9 +129,10 @@ def extract(
     for val in itertools.chain(inputs, outputs):
         if isinstance(val, ir.Value):
             if not is_graph_view and val.graph is not graph:
+                graph_name = graph.name if graph.name is not None else "unnamed graph"
                 raise ValueError(
                     f"Value '{val}' does not belong to the given "
-                    f"{graph_like.__class__.__name__} ({graph.name})."
+                    f"{graph_like.__class__.__name__} ({graph_name})."
                 )
         else:
             if val not in values:
