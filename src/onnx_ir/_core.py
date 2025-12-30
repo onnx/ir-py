@@ -3331,6 +3331,30 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
     def __repr__(self) -> str:
         return _graph_repr(self)
 
+    def clone(self) -> Graph:
+        """Create a deep copy of this graph in O(#nodes + #values) time.
+
+        All nodes, values, and subgraphs are cloned. The cloned graph will have
+        the same structure as this graph, but all nodes and values will be different
+        objects.
+
+        Tensors in initializers and constant values will be shared.
+
+        .. versionadded:: 0.1.14
+
+        Returns:
+            A deep copy of this graph.
+        """
+        from onnx_ir import _cloner
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={},
+            metadata_props={},
+            resolve_ref_attrs=False,
+        )
+        return cloner.clone_graph(self)
+
 
 class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
     __slots__ = (
