@@ -375,7 +375,7 @@ def create_value_mapping(
         Values from subgraphs are now included in the mapping.
 
     .. versionadded:: 0.1.14
-        The `include_subgraphs` parameter.
+        The ``include_subgraphs`` parameter.
 
     Args:
         graph: The graph to extract the mapping from.
