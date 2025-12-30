@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Union
 
 import numpy as np
@@ -395,7 +395,7 @@ def create_value_mapping(
             continue
         values[input.name] = input
     if include_subgraphs:
-        iterator = traversal.RecursiveGraphIterator(graph)
+        iterator: Iterable[_core.Node] = traversal.RecursiveGraphIterator(graph)
     else:
         iterator = graph
     for node in iterator:

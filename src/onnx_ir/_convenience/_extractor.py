@@ -100,15 +100,15 @@ def extract(
             if val not in values:
                 raise ValueError(f"Value with name '{val}' not found in the graph.")
 
-    inputs = [values[val] if isinstance(val, str) else val for val in inputs]
-    outputs = [values[val] if isinstance(val, str) else val for val in outputs]
+    input_vals = [values[val] if isinstance(val, str) else val for val in inputs]
+    output_vals = [values[val] if isinstance(val, str) else val for val in outputs]
     extracted_nodes, initialized_values = _find_subgraph_bounded_by_values(
-        graph_like, inputs, outputs
+        graph_like, input_vals, output_vals
     )
 
     graph_view = ir.GraphView(
-        inputs,
-        outputs,
+        input_vals,
+        output_vals,
         nodes=extracted_nodes,
         initializers=tuple(initialized_values),
         doc_string=graph_like.doc_string,
