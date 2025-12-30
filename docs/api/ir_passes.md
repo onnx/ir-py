@@ -36,3 +36,9 @@ Alternatively, inherent the base class `onnx_ir.passes.PassBase <onnx_ir.passes.
 .. autoexception:: onnx_ir.passes.PostconditionError
 .. autoexception:: onnx_ir.passes.PassError
 ```
+
+## Utilities
+
+```{eval-rst}
+.. autofunction:: onnx_ir.passes.functionalize
+```

@@ -3309,5 +3309,578 @@ class StringTensorTest(unittest.TestCase):
         self.assertEqual(tensor.nbytes, 3)
 
 
+class GraphCloneTest(unittest.TestCase):
+    """Test the Graph.clone() method."""
+
+    def test_clone_simple_graph(self):
+        """Test cloning a simple graph with basic nodes."""
+        v0 = _core.Value(name="input1")
+        v1 = _core.Value(name="input2")
+        node = _core.Node("", "Add", inputs=(v0, v1), num_outputs=1, name="add_node")
+        graph = _core.Graph(
+            inputs=(v0, v1),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            name="simple_graph",
+            doc_string="A simple graph",
+        )
+
+        cloned_graph = graph.clone()
+
+        # Verify graph properties are copied
+        self.assertEqual(cloned_graph.name, graph.name)
+        self.assertEqual(cloned_graph.doc_string, graph.doc_string)
+        self.assertIsNot(cloned_graph, graph)
+
+        # Verify nodes are different objects
+        self.assertEqual(len(cloned_graph), len(graph))
+        cloned_node = cloned_graph[0]
+        self.assertIsNot(cloned_node, node)
+        self.assertEqual(cloned_node.op_type, node.op_type)
+        self.assertEqual(cloned_node.name, node.name)
+
+        # Verify inputs are different objects
+        self.assertEqual(len(cloned_graph.inputs), len(graph.inputs))
+        self.assertIsNot(cloned_graph.inputs[0], v0)
+        self.assertIsNot(cloned_graph.inputs[1], v1)
+        self.assertEqual(cloned_graph.inputs[0].name, v0.name)
+        self.assertEqual(cloned_graph.inputs[1].name, v1.name)
+
+        # Verify outputs are different objects
+        self.assertEqual(len(cloned_graph.outputs), len(graph.outputs))
+        self.assertIsNot(cloned_graph.outputs[0], node.outputs[0])
+
+    def test_clone_graph_with_initializers(self):
+        """Test cloning a graph with initializers."""
+        v0 = _core.Value(name="input1")
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="weights")
+        v_init = _core.Value(name="weights", const_value=initializer_tensor)
+        node = _core.Node("", "Mul", inputs=(v0, v_init), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            initializers=(v_init,),
+        )
+
+        cloned_graph = graph.clone()
+
+        # Verify initializers are cloned
+        self.assertEqual(len(cloned_graph.initializers), len(graph.initializers))
+        self.assertIn("weights", cloned_graph.initializers)
+        cloned_init = cloned_graph.initializers["weights"]
+        self.assertIsNot(cloned_init, v_init)
+        self.assertEqual(cloned_init.name, v_init.name)
+
+        # Verify tensor is shared (not deep copied)
+        self.assertIsNotNone(cloned_init.const_value)
+        self.assertIs(cloned_init.const_value, initializer_tensor)
+
+    def test_clone_graph_with_subgraphs(self):
+        """Test cloning a graph with subgraphs (e.g., If node)."""
+        v0 = _core.Value(name="condition")
+        v1 = _core.Value(name="x")
+        v2 = _core.Value(name="y")
+
+        # Create then branch
+        add_node = _core.Node("", "Add", inputs=(v1, v2), num_outputs=1)
+        then_graph = _core.Graph(
+            inputs=(),
+            outputs=(add_node.outputs[0],),
+            nodes=(add_node,),
+            name="then_branch",
+        )
+
+        # Create else branch
+        sub_node = _core.Node("", "Sub", inputs=(v1, v2), num_outputs=1)
+        else_graph = _core.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="else_branch",
+        )
+
+        # Create If node
+        if_node = _core.Node(
+            "",
+            "If",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+        )
+        main_graph = _core.Graph(
+            inputs=(v0, v1, v2),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+            name="main_graph",
+        )
+
+        cloned_graph = main_graph.clone()
+
+        # Verify subgraphs are cloned
+        cloned_if_node = cloned_graph[0]
+        self.assertIsNot(cloned_if_node, if_node)
+
+        cloned_then = cloned_if_node.attributes["then_branch"].value
+        cloned_else = cloned_if_node.attributes["else_branch"].value
+
+        self.assertIsNot(cloned_then, then_graph)
+        self.assertIsNot(cloned_else, else_graph)
+        self.assertEqual(cloned_then.name, then_graph.name)
+        self.assertEqual(cloned_else.name, else_graph.name)
+
+        # Verify nodes in subgraphs are cloned
+        self.assertEqual(len(cloned_then), len(then_graph))
+        cloned_then_node = cloned_then[0]
+        self.assertIsNot(cloned_then_node, add_node)
+        self.assertEqual(cloned_then_node.op_type, add_node.op_type)
+
+    def test_clone_graph_with_metadata(self):
+        """Test cloning a graph with metadata."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        graph.metadata_props["prop_key"] = "prop_value"
+
+        cloned_graph = graph.clone()
+
+        # Verify metadata_props are copied
+        self.assertEqual(
+            cloned_graph.metadata_props["prop_key"], graph.metadata_props["prop_key"]
+        )
+        self.assertIsNot(cloned_graph.metadata_props, graph.metadata_props)
+
+        # Note: meta is NOT cloned - it's a separate runtime dictionary
+
+    def test_clone_preserves_node_attributes(self):
+        """Test that cloning preserves node attributes."""
+        v0 = _core.Value(name="input")
+        node = _core.Node(
+            "",
+            "Clip",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrFloat32("min", -1.0),
+                ir.AttrFloat32("max", 1.0),
+            ],
+        )
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph.clone()
+        cloned_node = cloned_graph[0]
+
+        # Verify attributes are cloned
+        self.assertEqual(len(cloned_node.attributes), len(node.attributes))
+        self.assertEqual(cloned_node.attributes["min"].value, -1.0)
+        self.assertEqual(cloned_node.attributes["max"].value, 1.0)
+
+    def test_clone_preserves_value_types_and_shapes(self):
+        """Test that cloning preserves value types and shapes on inputs."""
+        v0 = _core.Value(
+            name="input",
+            shape=_core.Shape([1, 3, 224, 224]),
+            type=_core.TensorType(ir.DataType.FLOAT),
+        )
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph.clone()
+        cloned_input = cloned_graph.inputs[0]
+
+        # Verify input shapes and types are preserved
+        self.assertEqual(cloned_input.shape, v0.shape)
+        self.assertEqual(cloned_input.dtype, v0.dtype)
+
+        # Verify the cloned graph has the same structure
+        self.assertEqual(len(cloned_graph.inputs), len(graph.inputs))
+        self.assertEqual(len(cloned_graph.outputs), len(graph.outputs))
+
+    def test_clone_empty_graph(self):
+        """Test cloning an empty graph."""
+        graph = _core.Graph(inputs=(), outputs=(), nodes=())
+        cloned_graph = graph.clone()
+
+        self.assertIsNot(cloned_graph, graph)
+        self.assertEqual(len(cloned_graph.inputs), 0)
+        self.assertEqual(len(cloned_graph.outputs), 0)
+        self.assertEqual(len(list(cloned_graph)), 0)
+
+    def test_clone_graph_maintains_topology(self):
+        """Test that cloning preserves the graph topology."""
+        v0 = _core.Value(name="input")
+        node1 = _core.Node("", "Add", inputs=(v0, v0), num_outputs=1, name="add1")
+        node2 = _core.Node("", "Mul", inputs=(node1.outputs[0], v0), num_outputs=1, name="mul")
+        node3 = _core.Node(
+            "", "Sub", inputs=(node2.outputs[0], node1.outputs[0]), num_outputs=1, name="sub"
+        )
+
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node3.outputs[0],),
+            nodes=(node1, node2, node3),
+        )
+
+        cloned_graph = graph.clone()
+        cloned_nodes = list(cloned_graph)
+
+        # Verify nodes are in the same order
+        self.assertEqual(len(cloned_nodes), 3)
+        self.assertEqual(cloned_nodes[0].name, "add1")
+        self.assertEqual(cloned_nodes[1].name, "mul")
+        self.assertEqual(cloned_nodes[2].name, "sub")
+
+        # Verify connections are preserved
+        # node2 should take input from node1's output
+        self.assertIs(cloned_nodes[1].inputs[0], cloned_nodes[0].outputs[0])
+        # node3 should take input from node2's output and node1's output
+        self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
+        self.assertIs(cloned_nodes[2].inputs[1], cloned_nodes[0].outputs[0])
+
+
+class ModelCloneTest(unittest.TestCase):
+    """Test the Model.clone() method."""
+
+    def test_clone_simple_model(self):
+        """Test cloning a simple model."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            name="main_graph",
+        )
+        model = _core.Model(
+            graph,
+            ir_version=10,
+            producer_name="test_producer",
+            producer_version="1.0",
+            domain="test.domain",
+            model_version=42,
+            doc_string="Test model",
+        )
+
+        cloned_model = model.clone()
+
+        # Verify model properties are copied
+        self.assertIsNot(cloned_model, model)
+        self.assertEqual(cloned_model.ir_version, model.ir_version)
+        self.assertEqual(cloned_model.producer_name, model.producer_name)
+        self.assertEqual(cloned_model.producer_version, model.producer_version)
+        self.assertEqual(cloned_model.domain, model.domain)
+        self.assertEqual(cloned_model.model_version, model.model_version)
+        self.assertEqual(cloned_model.doc_string, model.doc_string)
+
+        # Verify graph is cloned
+        self.assertIsNot(cloned_model.graph, model.graph)
+        self.assertEqual(cloned_model.graph.name, model.graph.name)
+
+    def test_clone_model_with_functions(self):
+        """Test cloning a model with local functions."""
+        # Create a simple function
+        func_input = _core.Value(name="func_input")
+        func_node = _core.Node("", "Identity", inputs=(func_input,), num_outputs=1)
+        func_graph = _core.Graph(
+            inputs=(func_input,),
+            outputs=(func_node.outputs[0],),
+            nodes=(func_node,),
+            name="func_graph",
+        )
+        function = _core.Function(
+            domain="custom.domain",
+            name="CustomFunc",
+            graph=func_graph,
+            attributes=[],
+        )
+
+        # Create main graph
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        model = _core.Model(
+            graph,
+            ir_version=10,
+            functions=[function],
+        )
+
+        cloned_model = model.clone()
+
+        # Verify functions are cloned
+        self.assertEqual(len(cloned_model.functions), len(model.functions))
+        cloned_func = cloned_model.functions[("custom.domain", "CustomFunc", "")]
+        original_func = model.functions[("custom.domain", "CustomFunc", "")]
+
+        self.assertIsNot(cloned_func, original_func)
+        self.assertEqual(cloned_func.domain, original_func.domain)
+        self.assertEqual(cloned_func.name, original_func.name)
+
+    def test_clone_model_with_metadata_props(self):
+        """Test cloning a model with metadata properties."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        model = _core.Model(graph, ir_version=10)
+        model.metadata_props["author"] = "test_author"
+        model.metadata_props["version"] = "1.0.0"
+
+        cloned_model = model.clone()
+
+        # Verify metadata_props are copied
+        self.assertEqual(cloned_model.metadata_props["author"], model.metadata_props["author"])
+        self.assertEqual(
+            cloned_model.metadata_props["version"], model.metadata_props["version"]
+        )
+        self.assertIsNot(cloned_model.metadata_props, model.metadata_props)
+
+    def test_clone_model_with_complex_graph(self):
+        """Test cloning a model with a complex graph including subgraphs."""
+        v0 = _core.Value(name="cond")
+        v1 = _core.Value(name="x")
+
+        # Create subgraph
+        sub_node = _core.Node("", "Neg", inputs=(v1,), num_outputs=1)
+        then_graph = _core.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+        )
+
+        # Create main graph with If node
+        if_node = _core.Node(
+            "",
+            "If",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[ir.AttrGraph("then_branch", then_graph)],
+        )
+        main_graph = _core.Graph(
+            inputs=(v0, v1),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+        )
+
+        model = _core.Model(main_graph, ir_version=10)
+        cloned_model = model.clone()
+
+        # Verify subgraphs are cloned
+        cloned_if_node = cloned_model.graph[0]
+        cloned_then = cloned_if_node.attributes["then_branch"].value
+        original_then = if_node.attributes["then_branch"].value
+
+        self.assertIsNot(cloned_then, original_then)
+        self.assertEqual(len(cloned_then), len(original_then))
+
+    def test_clone_model_opset_imports(self):
+        """Test that cloning preserves opset imports."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            opset_imports={"": 18, "custom.domain": 1},
+        )
+        model = _core.Model(graph, ir_version=10)
+
+        cloned_model = model.clone()
+
+        # Verify opset imports are preserved
+        self.assertEqual(cloned_model.graph.opset_imports, model.graph.opset_imports)
+        self.assertIsNot(cloned_model.graph.opset_imports, model.graph.opset_imports)
+
+
+class FunctionCloneTest(unittest.TestCase):
+    """Test the Function.clone() method."""
+
+    def test_clone_simple_function(self):
+        """Test cloning a simple function."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Abs", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        function = _core.Function(
+            domain="test.domain",
+            name="AbsFunc",
+            graph=graph,
+            attributes=[],
+        )
+
+        cloned_function = function.clone()
+
+        # Verify function properties are copied
+        self.assertIsNot(cloned_function, function)
+        self.assertEqual(cloned_function.domain, function.domain)
+        self.assertEqual(cloned_function.name, function.name)
+        self.assertEqual(cloned_function.overload, function.overload)
+
+        # Verify graph is cloned
+        self.assertIsNot(cloned_function.graph, function.graph)
+        self.assertEqual(len(list(cloned_function.graph)), len(list(function.graph)))
+
+    def test_clone_function_with_attributes(self):
+        """Test cloning a function with attributes."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        function = _core.Function(
+            domain="test.domain",
+            name="TestFunc",
+            graph=graph,
+            attributes=[
+                ir.AttrInt64("axis", 0),
+                ir.AttrFloat32("scale", 1.0),
+            ],
+        )
+
+        cloned_function = function.clone()
+
+        # Verify attributes are present (but note: non-graph attributes are shared, not cloned)
+        self.assertEqual(len(cloned_function._attributes), len(function._attributes))
+        self.assertIn("axis", cloned_function._attributes)
+        self.assertIn("scale", cloned_function._attributes)
+
+        # Non-graph attributes are shared in the clone implementation
+        cloned_axis_attr = cloned_function._attributes["axis"]
+        original_axis_attr = function._attributes["axis"]
+        self.assertIs(cloned_axis_attr, original_axis_attr)
+        self.assertEqual(cloned_axis_attr.name, original_axis_attr.name)
+        self.assertEqual(cloned_axis_attr.value, original_axis_attr.value)
+
+    def test_clone_function_with_overload(self):
+        """Test cloning a function with an overload."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        function = _core.Function(
+            domain="test.domain",
+            name="OverloadFunc",
+            overload="int32_version",
+            graph=graph,
+            attributes=[],
+        )
+
+        cloned_function = function.clone()
+
+        # Verify overload is preserved
+        self.assertEqual(cloned_function.overload, function.overload)
+
+    def test_clone_function_with_complex_graph(self):
+        """Test cloning a function with a complex graph."""
+        v0 = _core.Value(name="x")
+        v1 = _core.Value(name="y")
+        node1 = _core.Node("", "Add", inputs=(v0, v1), num_outputs=1)
+        node2 = _core.Node("", "Mul", inputs=(node1.outputs[0], v0), num_outputs=1)
+        node3 = _core.Node("", "Sub", inputs=(node2.outputs[0], v1), num_outputs=1)
+
+        graph = _core.Graph(
+            inputs=(v0, v1),
+            outputs=(node3.outputs[0],),
+            nodes=(node1, node2, node3),
+        )
+
+        function = _core.Function(
+            domain="complex.domain",
+            name="ComplexFunc",
+            graph=graph,
+            attributes=[],
+        )
+
+        cloned_function = function.clone()
+
+        # Verify all nodes are cloned
+        cloned_nodes = list(cloned_function.graph)
+        original_nodes = list(function.graph)
+
+        self.assertEqual(len(cloned_nodes), len(original_nodes))
+        for cloned_node, original_node in zip(cloned_nodes, original_nodes):
+            self.assertIsNot(cloned_node, original_node)
+            self.assertEqual(cloned_node.op_type, original_node.op_type)
+
+        # Verify topology is preserved
+        self.assertIs(cloned_nodes[1].inputs[0], cloned_nodes[0].outputs[0])
+        self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
+
+    def test_clone_function_with_subgraphs(self):
+        """Test cloning a function containing nodes with subgraphs."""
+        v0 = _core.Value(name="cond")
+        v1 = _core.Value(name="x")
+
+        # Create subgraph
+        neg_node = _core.Node("", "Neg", inputs=(v1,), num_outputs=1)
+        then_graph = _core.Graph(
+            inputs=(),
+            outputs=(neg_node.outputs[0],),
+            nodes=(neg_node,),
+        )
+
+        # Create function with If node
+        if_node = _core.Node(
+            "",
+            "If",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[ir.AttrGraph("then_branch", then_graph)],
+        )
+        func_graph = _core.Graph(
+            inputs=(v0, v1),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+        )
+
+        function = _core.Function(
+            domain="test.domain",
+            name="IfFunc",
+            graph=func_graph,
+            attributes=[],
+        )
+
+        cloned_function = function.clone()
+
+        # Verify subgraph is cloned
+        cloned_if_node = cloned_function[0]
+        cloned_then = cloned_if_node.attributes["then_branch"].value
+        original_then = if_node.attributes["then_branch"].value
+
+        self.assertIsNot(cloned_then, original_then)
+        self.assertEqual(len(cloned_then), len(original_then))
+
+
 if __name__ == "__main__":
     unittest.main()
