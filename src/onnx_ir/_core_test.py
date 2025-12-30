@@ -1243,6 +1243,14 @@ class ShapeTest(unittest.TestCase):
         self.assertEqual(merged[2], 3)
         self.assertEqual(merged[3], "hidden")
 
+    def test_merge_with_different_named_symbolic_dimensions_takes_shape1(self):
+        # When merging two shapes with different named symbolic dimensions,
+        # the first shape's dimension is taken following the documented precedence rule.
+        shape1 = _core.Shape(["batch", 128])
+        shape2 = _core.Shape(["sequence", 128])
+        merged = shape1.merge(shape2)
+        self.assertEqual(merged, ["batch", 128])
+
     def test_merge_with_empty_shapes(self):
         shape1 = _core.Shape([])
         shape2 = _core.Shape([])
