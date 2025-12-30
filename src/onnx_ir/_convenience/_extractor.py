@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from collections.abc import Collection, Sequence
 from typing import Union
@@ -66,6 +67,8 @@ def extract(
 ) -> ir.Graph:
     """Extracts a subgraph from the given graph-like object.
 
+    .. versionadded:: 0.1.14
+
     Args:
         graph_like: The graph-like object to extract from.
         inputs: The inputs to the subgraph. Can be Value objects or their names.
@@ -73,8 +76,25 @@ def extract(
 
     Returns:
         The extracted subgraph as a new :class:`~onnx_ir.Graph` object.
+
+    Raises:
+        ValueError: If any of the input or output are not found in the graph.
     """
-    values = ir.convenience.create_value_mapping(graph_like)
+    if isinstance(graph_like, ir.Function):
+        graph = graph_like.graph
+    else:
+        graph = graph_like
+    values = ir.convenience.create_value_mapping(graph)
+    is_graph_view = isinstance(graph_like, ir.GraphView)
+    for val in itertools.chain(inputs, outputs):
+        if isinstance(val, ir.Value) and not is_graph_view and val.graph is not graph:
+            raise ValueError(
+                f"Value '{val}' does not belong to the given "
+                f"{graph_like.__class__.__name__} ({graph.name})."
+            )
+        if val not in values:
+            raise ValueError(f"Value with name '{val}' not found in the graph.")
+
     inputs = [values[val] if isinstance(val, str) else val for val in inputs]
     outputs = [values[val] if isinstance(val, str) else val for val in outputs]
     extracted_nodes, initialized_values = _find_subgraph_bounded_by_values(
