@@ -10,7 +10,6 @@ from collections.abc import Collection, Sequence
 from typing import Union
 
 import onnx_ir as ir
-from onnx_ir import traversal
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ def _collect_all_external_values(parent_graph: ir.Graph, graph: ir.Graph) -> set
         A mapping from value names to Value objects.
     """
     values: set[ir.Value] = set()
-    for node in traversal.RecursiveGraphIterator(graph):
+    for node in ir.traversal.RecursiveGraphIterator(graph):
         for val in node.inputs:
             if val is None:
                 continue
