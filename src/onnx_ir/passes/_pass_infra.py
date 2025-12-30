@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
 from typing import Literal, final
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "PassManager",
     "PassResult",
     "functionalize",
+    "track_lineage",
     # Errors
     "InvariantError",
     "PreconditionError",
@@ -37,6 +39,8 @@ __all__ = [
 import abc
 
 import onnx_ir as ir
+
+_lineage_tracking_enabled = False
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +159,9 @@ class PassBase(abc.ABC):
                 "but the model returned *is* the same object as the input model. "
                 "Pass developer: Pass should return a new model object or the in_place property should return True."
             )
+
+        if _lineage_tracking_enabled:
+            ir.passes.lineage.tag(result.model, self.__class__.__name__)
         return result
 
     @abc.abstractmethod
@@ -312,3 +319,33 @@ def functionalize(pass_instance: PassBase) -> FunctionalPass:
         A functional pass.
     """
     return _FunctionalPassWrapper(pass_instance)
+
+
+@contextlib.contextmanager
+def track_lineage(enabled: bool = True) -> Generator[None, None, None]:
+    """Context manager to enable or disable lineage tracking.
+
+    When enabled, calls to :func:`tag` will record lineage information on nodes
+    and values. When disabled, calls to :func:`tag` are no-ops.
+
+    This uses thread-local storage, so each thread can have independent tracking state.
+
+    Args:
+        enabled: Whether to enable tracking. Defaults to True.
+
+    Example::
+        import onnx_ir as ir
+        import onnx_ir.passes.common as common_passes
+
+        with ir.passes.track_lineage():
+            model = ir.load("model.onnx")
+            common_passes.CommonSubexpressionEliminationPass()(model)
+            # Nodes will be tagged with lineage information
+    """
+    global _lineage_tracking_enabled
+    old_value = _lineage_tracking_enabled
+    _lineage_tracking_enabled = enabled
+    try:
+        yield
+    finally:
+        _lineage_tracking_enabled = old_value

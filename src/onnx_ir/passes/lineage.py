@@ -16,7 +16,6 @@ from __future__ import annotations
 
 __all__ = [
     "tag",
-    "track_lineage",
     "clear_lineage",
     "LINEAGE_TAG_KEY",
     "LINEAGE_STEP_KEY",
@@ -25,20 +24,15 @@ __all__ = [
 
 
 import ast
-import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
     import onnx_ir as ir
 
 # Metadata keys for lineage tracking
 LINEAGE_TAG_KEY = "pkg.onnx_ir.lineage_tag"
 LINEAGE_STEP_KEY = "pkg.onnx_ir.lineage_step"
 LINEAGE_COUNTER_KEY = "pkg.onnx_ir.lineage_counter"
-
-_tracking_enabled = False
 
 
 def _increment_or_create_model_step(model: ir.Model) -> str:
@@ -145,40 +139,3 @@ def clear_lineage(model: ir.Model) -> None:
         for initializer in graph.initializers.values():
             initializer.metadata_props.pop(LINEAGE_TAG_KEY, None)
             initializer.metadata_props.pop(LINEAGE_STEP_KEY, None)
-
-
-@contextlib.contextmanager
-def track_lineage(enabled: bool = True) -> Generator[None, None, None]:
-    """Context manager to enable or disable lineage tracking.
-
-    When enabled, calls to :func:`tag` will record lineage information on nodes
-    and values. When disabled, calls to :func:`tag` are no-ops.
-
-    This uses thread-local storage, so each thread can have independent tracking state.
-
-    Args:
-        enabled: Whether to enable tracking. Defaults to True.
-
-    Yields:
-        None
-
-    Example:
-        >>> import onnx_ir as ir
-        >>> from onnx_ir.passes import lineage
-        >>>
-        >>> with lineage.track_lineage():
-        ...     model = ir.load("model.onnx")
-        ...     lineage.tag(model, "initial")
-        ...     # ... run passes ...
-        ...     lineage.tag(model, "optimized")
-        >>>
-        >>> # Lineage tracking is now disabled
-        >>> lineage.tag(model, "final")  # This is a no-op
-    """
-    global _tracking_enabled
-    old_value = _tracking_enabled
-    _tracking_enabled = enabled
-    try:
-        yield
-    finally:
-        _tracking_enabled = old_value
