@@ -81,7 +81,7 @@ def extract(
         The extracted subgraph as a new :class:`~onnx_ir.Graph` object.
 
     Raises:
-        ValueError: If any of the input or output are not found in the graph.
+        ValueError: If any of the inputs or outputs are not found in the graph.
     """
     if isinstance(graph_like, ir.Function):
         graph = graph_like.graph
