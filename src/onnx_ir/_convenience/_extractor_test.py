@@ -314,7 +314,7 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should include all three nodes: add1, add2, mul
-        self.assertEqual(extracted, 3)
+        self.assertEqual(len(extracted), 3)
         node_names = {node.name for node in extracted}
         self.assertEqual(node_names, {"add1", "add2", "mul"})
 
@@ -327,7 +327,7 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should only include add1
-        self.assertEqual(extracted, 1)
+        self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0].name, "add1")
         # const1 is not an initializer in the input, so it should be in the extracted initializers
         # Since input itself is not an initializer in this test setup
@@ -342,7 +342,7 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should only include mul node
-        self.assertEqual(extracted, 1)
+        self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0].name, "mul")
         self.assertEqual(len(extracted.inputs), 2)
 
