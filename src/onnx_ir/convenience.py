@@ -8,6 +8,7 @@ __all__ = [
     "convert_attribute",
     "convert_attributes",
     "create_value_mapping",
+    "extract",
     "get_const_tensor",
     "replace_all_uses_with",
     "replace_nodes_and_values",
@@ -21,6 +22,7 @@ from onnx_ir._convenience import (
     replace_all_uses_with,
     replace_nodes_and_values,
 )
+from onnx_ir._convenience._extractor import extract
 
 # NOTE: Do not implement any other functions in this module.
 # implement them in the _convenience module and import them here instead.

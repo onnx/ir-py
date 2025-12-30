@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Union
 
 import numpy as np
@@ -360,7 +360,11 @@ def replace_all_uses_with(
         value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
 
 
-def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
+def create_value_mapping(
+    graph: _core.Graph | _core.GraphView | _core.Function,
+    *,
+    include_subgraphs: bool = True,
+) -> dict[str, _core.Value]:
     """Return a dictionary mapping names to values in the graph.
 
     The mapping includes values from subgraphs. Duplicated names are omitted,
@@ -370,14 +374,19 @@ def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
     .. versionchanged:: 0.1.2
         Values from subgraphs are now included in the mapping.
 
+    .. versionadded:: 0.1.14
+        The ``include_subgraphs`` parameter.
+
     Args:
         graph: The graph to extract the mapping from.
+        include_subgraphs: If True, values from subgraphs are included in the mapping.
 
     Returns:
         A dictionary mapping names to values.
     """
     values: dict[str, _core.Value] = {}
-    values.update(graph.initializers)
+    if not isinstance(graph, _core.Function):
+        values.update(graph.initializers)
     # The names of the values can be None or "", which we need to exclude
     for input in graph.inputs:
         if not input.name:
@@ -385,7 +394,11 @@ def create_value_mapping(graph: _core.Graph) -> dict[str, _core.Value]:
         if input.name in values:
             continue
         values[input.name] = input
-    for node in traversal.RecursiveGraphIterator(graph):
+    if include_subgraphs:
+        iterator: Iterable[_core.Node] = traversal.RecursiveGraphIterator(graph)
+    else:
+        iterator = graph
+    for node in iterator:
         for value in node.inputs:
             if not value:
                 continue
