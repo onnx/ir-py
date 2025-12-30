@@ -5,15 +5,10 @@
 from __future__ import annotations
 
 import itertools
-import logging
 from collections.abc import Collection, Sequence
 from typing import Union
 
 import onnx_ir as ir
-
-logger = logging.getLogger(__name__)
-
-
 GraphLike = Union["ir.Graph", "ir.Function", "ir.GraphView"]
 
 
