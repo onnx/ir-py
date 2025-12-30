@@ -9,6 +9,7 @@ from collections.abc import Collection, Sequence
 from typing import Union
 
 import onnx_ir as ir
+
 GraphLike = Union["ir.Graph", "ir.Function", "ir.GraphView"]
 
 

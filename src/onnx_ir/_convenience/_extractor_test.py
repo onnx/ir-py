@@ -235,6 +235,7 @@ class ExtractTest(unittest.TestCase):
             inputs=[input_val2],
             outputs=[mul_node2.outputs[0]],
             nodes=[add_node2, mul_node2],
+            initializers=[const1_val2, const2_val2],
             name="metadata_graph",
             doc_string="Test documentation",
             opset_imports={"": 18},
@@ -395,6 +396,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             inputs=[input_val],
             outputs=[add_node.outputs[0], mul_node.outputs[0]],
             nodes=[add_node, mul_node],
+            initializers=[const_val],
             name="multi_output_graph",
         )
 
@@ -429,6 +431,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             inputs=[input_val],
             outputs=[add_node.outputs[0]],
             nodes=[add_node],
+            initializers=[const_val],
             name="single_node_graph",
         )
 
@@ -502,6 +505,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             inputs=[input_val],
             outputs=[concat_node.outputs[0]],
             nodes=[add_node, mul_node, concat_node],
+            initializers=[const_val],
             name="shared_input_graph",
         )
 
@@ -554,6 +558,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             inputs=[input_val],
             outputs=[reshape_node.outputs[0]],
             nodes=[reshape_node],
+            initializers=[shape_val],
             name="reshape_graph",
         )
 
@@ -902,6 +907,364 @@ class ExtractSubgraphAttributesTest(unittest.TestCase):
 
         self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0].op_type, "If")
+
+
+class ExtractBoundaryValidationTest(unittest.TestCase):
+    """Test that subgraph extraction validates proper boundaries."""
+
+    def test_extract_unbounded_subgraph_missing_input(self):
+        """Test that extraction raises error when required graph input is not specified.
+
+        Graph structure:
+            input1, input2 (graph inputs)
+              |      |
+              |      |
+              v      v
+              Add -> output
+
+        Extract with only input1 specified should fail because input2 is needed.
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+
+        add_node = ir.node(
+            "Add",
+            inputs=[input1, input2],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2],
+            outputs=[add_node.outputs[0]],
+            nodes=[add_node],
+            name="two_input_graph",
+        )
+
+        # Try to extract with only input1 - should fail
+        with self.assertRaisesRegex(
+            ValueError,
+            r"The subgraph is not properly bounded.*graph inputs are required but not provided.*input2",
+        ):
+            _extractor.extract(
+                graph,
+                inputs=["input1"],
+                outputs=["output"],
+            )
+
+    def test_extract_bounded_subgraph_with_initializer(self):
+        """Test that extraction succeeds when missing inputs are initializers.
+
+        Graph structure:
+            input1 (graph input), const1 (initializer)
+              |      |
+              |      |
+              v      v
+              Add -> output
+
+        Extract with only input1 specified should succeed because const1 is an initializer.
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        const1 = ir.val(
+            "const1",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([1, 2, 3], dtype=np.float32), name="const1"),
+        )
+
+        add_node = ir.node(
+            "Add",
+            inputs=[input1, const1],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1],
+            outputs=[add_node.outputs[0]],
+            nodes=[add_node],
+            initializers=[const1],
+            name="input_and_const_graph",
+        )
+
+        # This should succeed - const1 is an initializer, not a required input
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input1"],
+            outputs=["output"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].op_type, "Add")
+        # const1 should be in the initializers
+        self.assertIn("const1", extracted.initializers)
+
+    def test_extract_unbounded_chain_missing_intermediate(self):
+        """Test that extraction fails when intermediate input is missing.
+
+        Graph structure:
+            input1 (graph input)
+              |
+              v
+            Add1 -> intermediate
+              |
+              v
+            Add2 (uses intermediate + input2)
+              |
+              v
+            output
+
+        Extract from input1 to output should fail if input2 is not specified and is not an initializer.
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+        const1 = ir.val(
+            "const1",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([1, 2, 3], dtype=np.float32), name="const1"),
+        )
+
+        add1_node = ir.node(
+            "Add",
+            inputs=[input1, const1],
+            outputs=[ir.val("intermediate", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        add2_node = ir.node(
+            "Add",
+            inputs=[add1_node.outputs[0], input2],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2],
+            outputs=[add2_node.outputs[0]],
+            nodes=[add1_node, add2_node],
+            initializers=[const1],
+            name="chain_graph",
+        )
+
+        # Try to extract without specifying input2 - should fail
+        with self.assertRaisesRegex(
+            ValueError,
+            r"The subgraph is not properly bounded.*graph inputs are required but not provided.*input2",
+        ):
+            _extractor.extract(
+                graph,
+                inputs=["input1"],
+                outputs=["output"],
+            )
+
+    def test_extract_bounded_all_inputs_specified(self):
+        r"""Test that extraction succeeds when all required inputs are specified.
+
+        Graph structure:
+            input1, input2, input3 (graph inputs)
+              |      |      |
+              v      v      v
+            Add1   Add2
+              \      /
+               \    /
+                Mul
+                 |
+                 v
+               output
+
+        Extract with all inputs specified should succeed.
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+        input3 = ir.val("input3", dtype=ir.DataType.FLOAT, shape=[3])
+
+        add1_node = ir.node(
+            "Add",
+            inputs=[input1, input2],
+            outputs=[ir.val("intermediate1", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        add2_node = ir.node(
+            "Add",
+            inputs=[add1_node.outputs[0], input3],
+            outputs=[ir.val("intermediate2", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        mul_node = ir.node(
+            "Mul",
+            inputs=[add2_node.outputs[0], input1],  # Reuses input1
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2, input3],
+            outputs=[mul_node.outputs[0]],
+            nodes=[add1_node, add2_node, mul_node],
+            name="complex_input_graph",
+        )
+
+        # All inputs specified - should succeed
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input1", "input2", "input3"],
+            outputs=["output"],
+        )
+
+        self.assertEqual(len(extracted), 3)
+
+    def test_extract_bounded_with_unused_input_specified(self):
+        """Test that extraction succeeds even if extra inputs are specified.
+
+        Graph structure:
+            input1, input2 (graph inputs)
+              |
+              v
+            Identity -> output
+            (only uses input1)
+
+        Extract with both inputs specified should succeed (input2 is just unused).
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+
+        identity_node = ir.node(
+            "Identity",
+            inputs=[input1],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2],
+            outputs=[identity_node.outputs[0]],
+            nodes=[identity_node],
+            name="unused_input_graph",
+        )
+
+        # Specify both inputs even though input2 is not used
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input1", "input2"],
+            outputs=["output"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        # Only input1 should be in the extracted graph inputs
+        self.assertEqual(len(extracted.inputs), 2)
+
+    def test_extract_unbounded_multiple_missing_inputs(self):
+        r"""Test error message includes all missing graph inputs.
+
+        Graph structure:
+            input1, input2, input3 (all graph inputs)
+              |      |      |
+              v      v      v
+             Add1   Add2
+               \    /
+                Mul
+                 |
+                 v
+               output
+
+        Extract with no inputs specified should list all missing inputs.
+        """
+        input1 = ir.val("input1", dtype=ir.DataType.FLOAT, shape=[3])
+        input2 = ir.val("input2", dtype=ir.DataType.FLOAT, shape=[3])
+        input3 = ir.val("input3", dtype=ir.DataType.FLOAT, shape=[3])
+
+        add1_node = ir.node(
+            "Add",
+            inputs=[input1, input2],
+            outputs=[ir.val("intermediate", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        add2_node = ir.node(
+            "Add",
+            inputs=[add1_node.outputs[0], input3],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[input1, input2, input3],
+            outputs=[add2_node.outputs[0]],
+            nodes=[add1_node, add2_node],
+            name="multi_missing_graph",
+        )
+
+        # Try to extract with no inputs - should fail and list all three
+        with self.assertRaisesRegex(
+            ValueError,
+            r"The subgraph is not properly bounded.*graph inputs are required but not provided",
+        ) as cm:
+            _extractor.extract(
+                graph,
+                inputs=[],
+                outputs=["output"],
+            )
+
+        # Verify all three inputs are mentioned in the error
+        error_msg = str(cm.exception)
+        self.assertIn("input1", error_msg)
+        self.assertIn("input2", error_msg)
+        self.assertIn("input3", error_msg)
+
+    def test_extract_partial_bounded_intermediate_as_input(self):
+        """Test that extraction works when using intermediate value as input boundary.
+
+        Graph structure:
+            actual_input (graph input)
+              |
+              v
+            Add1 -> intermediate1
+              |
+              v
+            Add2 -> intermediate2
+              |
+              v
+            output
+
+        Extract from intermediate1 to output should succeed (properly bounded).
+        """
+        actual_input = ir.val("actual_input", dtype=ir.DataType.FLOAT, shape=[3])
+        const1 = ir.val(
+            "const1",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([1, 2, 3], dtype=np.float32), name="const1"),
+        )
+        const2 = ir.val(
+            "const2",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([4, 5, 6], dtype=np.float32), name="const2"),
+        )
+
+        add1_node = ir.node(
+            "Add",
+            inputs=[actual_input, const1],
+            outputs=[ir.val("intermediate1", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        add2_node = ir.node(
+            "Add",
+            inputs=[add1_node.outputs[0], const2],
+            outputs=[ir.val("intermediate2", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        add3_node = ir.node(
+            "Add",
+            inputs=[add2_node.outputs[0], const1],
+            outputs=[ir.val("output", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+
+        graph = ir.Graph(
+            inputs=[actual_input],
+            outputs=[add3_node.outputs[0]],
+            nodes=[add1_node, add2_node, add3_node],
+            initializers=[const1, const2],
+            name="chain_partial_graph",
+        )
+
+        # Extract from intermediate1 (produced value) to output - should work
+        extracted = _extractor.extract(
+            graph,
+            inputs=["intermediate1"],
+            outputs=["output"],
+        )
+
+        # Should only include add2_node and add3_node
+        self.assertEqual(len(extracted), 2)
+        self.assertEqual(extracted.inputs[0].name, "intermediate1")
 
 
 if __name__ == "__main__":
