@@ -3882,5 +3882,370 @@ class FunctionCloneTest(unittest.TestCase):
         self.assertEqual(len(cloned_then), len(original_then))
 
 
+class GraphViewCloneTest(unittest.TestCase):
+    """Test the GraphView.clone() method."""
+
+    def test_clone_simple_graph_view(self):
+        """Test cloning a simple GraphView with basic nodes."""
+        v0 = ir.Value(name="input1")
+        v1 = ir.Value(name="input2")
+        node = ir.Node("", "Add", inputs=(v0, v1), num_outputs=1, name="add_node")
+        graph_view = ir.GraphView(
+            inputs=(v0, v1),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            name="simple_graph_view",
+            doc_string="A simple graph view",
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify the clone returns a Graph, not a GraphView
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertNotIsInstance(cloned_graph, ir.GraphView)
+
+        # Verify graph properties are copied
+        self.assertEqual(cloned_graph.name, graph_view.name)
+        self.assertEqual(cloned_graph.doc_string, graph_view.doc_string)
+        self.assertIsNot(cloned_graph, graph_view)
+
+        # Verify nodes are different objects
+        self.assertEqual(len(cloned_graph), len(graph_view))
+        cloned_node = cloned_graph[0]
+        self.assertIsNot(cloned_node, node)
+        self.assertEqual(cloned_node.op_type, node.op_type)
+        self.assertEqual(cloned_node.name, node.name)
+
+        # Verify inputs are different objects
+        self.assertEqual(len(cloned_graph.inputs), len(graph_view.inputs))
+        self.assertIsNot(cloned_graph.inputs[0], v0)
+        self.assertIsNot(cloned_graph.inputs[1], v1)
+        self.assertEqual(cloned_graph.inputs[0].name, v0.name)
+        self.assertEqual(cloned_graph.inputs[1].name, v1.name)
+
+        # Verify outputs are different objects
+        self.assertEqual(len(cloned_graph.outputs), len(graph_view.outputs))
+        self.assertIsNot(cloned_graph.outputs[0], node.outputs[0])
+
+    def test_clone_graph_view_with_initializers(self):
+        """Test cloning a GraphView with initializers."""
+        v0 = ir.Value(name="input1")
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="weights")
+        v_init = ir.Value(name="weights", const_value=initializer_tensor)
+        node = ir.Node("", "Mul", inputs=(v0, v_init), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            initializers=(v_init,),
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify initializers are cloned
+        self.assertEqual(len(cloned_graph.initializers), len(graph_view.initializers))
+        self.assertIn("weights", cloned_graph.initializers)
+        cloned_init = cloned_graph.initializers["weights"]
+        self.assertIsNot(cloned_init, v_init)
+        self.assertEqual(cloned_init.name, v_init.name)
+
+        # Verify tensor is shared (not deep copied)
+        self.assertIsNotNone(cloned_init.const_value)
+        self.assertIs(cloned_init.const_value, initializer_tensor)
+
+    def test_clone_graph_view_with_subgraphs(self):
+        """Test cloning a GraphView with subgraphs (e.g., If node)."""
+        v0 = ir.Value(name="condition")
+        v1 = ir.Value(name="x")
+        v2 = ir.Value(name="y")
+
+        # Create then branch
+        add_node = ir.Node("", "Add", inputs=(v1, v2), num_outputs=1)
+        then_graph = ir.Graph(
+            inputs=(),
+            outputs=(add_node.outputs[0],),
+            nodes=(add_node,),
+            name="then_branch",
+        )
+
+        # Create else branch
+        sub_node = ir.Node("", "Sub", inputs=(v1, v2), num_outputs=1)
+        else_graph = ir.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="else_branch",
+        )
+
+        # Create If node
+        if_node = ir.Node(
+            "",
+            "If",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+        )
+        graph_view = ir.GraphView(
+            inputs=(v0, v1, v2),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+            name="main_graph_view",
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify subgraphs are cloned
+        cloned_if_node = cloned_graph[0]
+        self.assertIsNot(cloned_if_node, if_node)
+
+        cloned_then = cloned_if_node.attributes["then_branch"].value
+        cloned_else = cloned_if_node.attributes["else_branch"].value
+
+        self.assertIsNot(cloned_then, then_graph)
+        self.assertIsNot(cloned_else, else_graph)
+        self.assertEqual(cloned_then.name, then_graph.name)
+        self.assertEqual(cloned_else.name, else_graph.name)
+
+        # Verify nodes in subgraphs are cloned
+        self.assertEqual(len(cloned_then), len(then_graph))
+        cloned_then_node = cloned_then[0]
+        self.assertIsNot(cloned_then_node, add_node)
+        self.assertEqual(cloned_then_node.op_type, add_node.op_type)
+
+    def test_clone_graph_view_with_metadata(self):
+        """Test cloning a GraphView with metadata."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            metadata_props={"prop_key": "prop_value"},
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify metadata_props are copied
+        self.assertEqual(
+            cloned_graph.metadata_props["prop_key"], graph_view.metadata_props["prop_key"]
+        )
+        self.assertIsNot(cloned_graph.metadata_props, graph_view.metadata_props)
+
+    def test_clone_graph_view_preserves_value_types_and_shapes(self):
+        """Test that cloning a GraphView preserves value types and shapes."""
+        v0 = ir.Value(
+            name="input",
+            shape=ir.Shape([1, 3, 224, 224]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_input = cloned_graph.inputs[0]
+
+        # Verify input shapes and types are preserved
+        self.assertEqual(cloned_input.shape, v0.shape)
+        self.assertEqual(cloned_input.dtype, v0.dtype)
+
+        # Verify the cloned graph has the same structure
+        self.assertEqual(len(cloned_graph.inputs), len(graph_view.inputs))
+        self.assertEqual(len(cloned_graph.outputs), len(graph_view.outputs))
+
+    def test_clone_empty_graph_view(self):
+        """Test cloning an empty GraphView."""
+        graph_view = ir.GraphView(inputs=(), outputs=(), nodes=())
+        cloned_graph = graph_view.clone()
+
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertIsNot(cloned_graph, graph_view)
+        self.assertEqual(len(cloned_graph.inputs), 0)
+        self.assertEqual(len(cloned_graph.outputs), 0)
+        self.assertEqual(len(list(cloned_graph)), 0)
+
+    def test_clone_graph_view_maintains_topology(self):
+        """Test that cloning a GraphView preserves the graph topology."""
+        v0 = ir.Value(name="input")
+        node1 = ir.Node("", "Add", inputs=(v0, v0), num_outputs=1, name="add1")
+        node2 = ir.Node("", "Mul", inputs=(node1.outputs[0], v0), num_outputs=1, name="mul")
+        node3 = ir.Node(
+            "", "Sub", inputs=(node2.outputs[0], node1.outputs[0]), num_outputs=1, name="sub"
+        )
+
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node3.outputs[0],),
+            nodes=(node1, node2, node3),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_nodes = list(cloned_graph)
+
+        # Verify nodes are in the same order
+        self.assertEqual(len(cloned_nodes), 3)
+        self.assertEqual(cloned_nodes[0].name, "add1")
+        self.assertEqual(cloned_nodes[1].name, "mul")
+        self.assertEqual(cloned_nodes[2].name, "sub")
+
+        # Verify connections are preserved
+        # node2 should take input from node1's output
+        self.assertIs(cloned_nodes[1].inputs[0], cloned_nodes[0].outputs[0])
+        # node3 should take input from node2's output and node1's output
+        self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
+        self.assertIs(cloned_nodes[2].inputs[1], cloned_nodes[0].outputs[0])
+
+    def test_clone_graph_view_with_opset_imports(self):
+        """Test that cloning a GraphView preserves opset imports."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            opset_imports={"": 18, "com.microsoft": 1},
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify opset imports are copied
+        self.assertEqual(cloned_graph.opset_imports, graph_view.opset_imports)
+        self.assertIsNot(cloned_graph.opset_imports, graph_view.opset_imports)
+
+    def test_clone_graph_view_is_mutable(self):
+        """Test that the cloned Graph from a GraphView is mutable."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify we can mutate the cloned graph (should be a Graph, not GraphView)
+        new_node = ir.Node("", "Relu", inputs=(cloned_graph.inputs[0],), num_outputs=1)
+        cloned_graph.append(new_node)
+
+        self.assertEqual(len(cloned_graph), 2)
+        self.assertEqual(len(graph_view), 1)
+
+    def test_clone_graph_view_preserves_node_attributes(self):
+        """Test that cloning a GraphView preserves node attributes."""
+        v0 = ir.Value(name="input")
+        node = ir.Node(
+            "",
+            "Clip",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrFloat32("min", -1.0),
+                ir.AttrFloat32("max", 1.0),
+            ],
+        )
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_node = cloned_graph[0]
+
+        # Verify attributes are cloned
+        self.assertEqual(len(cloned_node.attributes), len(node.attributes))
+        self.assertEqual(cloned_node.attributes["min"].value, -1.0)
+        self.assertEqual(cloned_node.attributes["max"].value, 1.0)
+
+    def test_clone_graph_view_with_intermediate_values(self):
+        """Test cloning a GraphView created from intermediate values of a larger graph."""
+        # Create a larger graph: input -> relu -> add -> mul -> output
+        v_input = ir.Value(name="graph_input")
+        v_const = ir.Value(
+            name="const_value", const_value=ir.tensor([2.0], name="const_value")
+        )
+
+        node_relu = ir.Node("", "Relu", inputs=(v_input,), num_outputs=1, name="relu")
+        node_add = ir.Node(
+            "", "Add", inputs=(node_relu.outputs[0], v_const), num_outputs=1, name="add"
+        )
+        node_mul = ir.Node(
+            "", "Mul", inputs=(node_add.outputs[0], v_const), num_outputs=1, name="mul"
+        )
+
+        # Create the full graph
+        full_graph = ir.Graph(
+            inputs=(v_input,),
+            outputs=(node_mul.outputs[0],),
+            nodes=(node_relu, node_add, node_mul),
+            initializers=(v_const,),
+            name="full_graph",
+        )
+
+        # Create a GraphView that extracts only the middle "add" and "mul" nodes
+        # The inputs to the view are intermediate values (relu output and const)
+        # The output is also an intermediate value (mul output, which is the final output here)
+        subgraph_inputs = [node_relu.outputs[0], v_const]
+        subgraph_outputs = [node_mul.outputs[0]]
+        subgraph_nodes = [node_add, node_mul]
+
+        graph_view = ir.GraphView(
+            inputs=subgraph_inputs,
+            outputs=subgraph_outputs,
+            nodes=subgraph_nodes,
+            initializers=(v_const,),
+            name="subgraph_view",
+        )
+
+        # Clone the graph view
+        cloned_graph = graph_view.clone()
+
+        # Verify the clone is a Graph instance
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertNotIsInstance(cloned_graph, ir.GraphView)
+
+        # Verify structure is preserved
+        self.assertEqual(len(cloned_graph), 2)
+        self.assertEqual(len(cloned_graph.inputs), 2)
+        self.assertEqual(len(cloned_graph.outputs), 1)
+        self.assertEqual(len(cloned_graph.initializers), 1)
+
+        # Verify nodes are cloned
+        cloned_add = cloned_graph[0]
+        cloned_mul = cloned_graph[1]
+        self.assertIsNot(cloned_add, node_add)
+        self.assertIsNot(cloned_mul, node_mul)
+        self.assertEqual(cloned_add.name, "add")
+        self.assertEqual(cloned_mul.name, "mul")
+
+        # Verify inputs are cloned
+        cloned_inputs = list(cloned_graph.inputs)
+        self.assertIsNot(cloned_inputs[0], node_relu.outputs[0])
+        self.assertIsNot(cloned_inputs[1], v_const)
+
+        # Verify the topology is preserved within the cloned subgraph
+        # The mul node should take input from the add node's output
+        self.assertIs(cloned_mul.inputs[0], cloned_add.outputs[0])
+
+        # Verify initializers are cloned
+        self.assertIn("const_value", cloned_graph.initializers)
+        cloned_const = cloned_graph.initializers["const_value"]
+        self.assertIsNot(cloned_const, v_const)
+
+        # Verify the original full graph is unchanged
+        self.assertEqual(len(full_graph), 3)
+        self.assertEqual(full_graph[0].name, "relu")
+        self.assertEqual(full_graph[1].name, "add")
+        self.assertEqual(full_graph[2].name, "mul")
+
+
 if __name__ == "__main__":
     unittest.main()

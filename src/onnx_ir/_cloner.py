@@ -70,7 +70,7 @@ class Cloner:
             assert known_value is not None, f"BUG: Value {value} mapped to None in value map"
             return known_value
         # If the value is not in the value map, it must be a graph input.
-        assert value.producer() is None, f"BUG: Value {value} has no entry in the value map"
+        # Note: value.producer() may not be None when the value is an input of a GraphView
         new_value = _core.Value(
             name=value.name,
             type=value.type,
@@ -166,7 +166,7 @@ class Cloner:
         return new_node
 
     @_capture_error_context
-    def clone_graph(self, graph: _core.Graph) -> _core.Graph:
+    def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
         input_values = [self.clone_value(v) for v in graph.inputs]
         nodes = [self.clone_node(node) for node in graph]
