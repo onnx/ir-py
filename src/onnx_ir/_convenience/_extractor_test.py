@@ -63,6 +63,7 @@ class ExtractTest(unittest.TestCase):
             inputs=[self.input_val],
             outputs=[self.mul_node.outputs[0]],
             nodes=[self.add_node, self.mul_node],
+            initializers=[self.input_val, self.const1_val, self.const2_val],
             name="test_graph",
         )
 
@@ -301,6 +302,7 @@ class ExtractComplexGraphTest(unittest.TestCase):
             inputs=[self.input_val],
             outputs=[self.mul_node.outputs[0]],
             nodes=[self.add1_node, self.add2_node, self.mul_node],
+            initializers=[self.const1_val, self.const2_val],
             name="diamond_graph",
         )
 
