@@ -40,22 +40,6 @@ LINEAGE_COUNTER_KEY = "pkg.onnx_ir.lineage_counter"
 _tracking_enabled = False
 
 
-# def _ensure_unique_names(model: ir.Model) -> None:
-#     """Ensure all nodes in the model have unique names.
-
-#     This function assigns unique names to all nodes that don't have one.
-#     It traverses all graphs and subgraphs in the model.
-
-#     Args:
-#         model: The model to process.
-#     """
-#     for graph in (model.graph, *[func.graph for func in model.functions.values()]):
-#         for node in graph.all_nodes():
-#             if node.name is None:
-#                 # The name authority will generate a unique name
-#                 graph._name_authority.register_or_name_node(node)
-
-
 def _increment_or_create_model_step(model: ir.Model) -> str:
     step_str = model.metadata_props.get(LINEAGE_COUNTER_KEY)
     if step_str is None:
@@ -128,6 +112,9 @@ def tag(model: ir.Model, tag_name: str) -> None:
         # Process all nodes and their values
         for node in graph.all_nodes():
             _maybe_set_lineage_info(node, tag_name, current_step)
+            # Tag all output values of the node
+            for output in node.outputs:
+                _maybe_set_lineage_info(output, tag_name, current_step)
 
         # Tag graph inputs
         for input_value in graph.inputs:

@@ -14,6 +14,7 @@ __all__ = [
     "PreconditionError",
     "PostconditionError",
     "PassError",
+    "lineage",
 ]
 
 from onnx_ir.passes._pass_infra import (
@@ -29,6 +30,8 @@ from onnx_ir.passes._pass_infra import (
     Sequential,
     functionalize,
 )
+
+from onnx_ir.passes import lineage
 
 
 def __set_module() -> None:
