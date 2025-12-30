@@ -26,6 +26,7 @@ __all__ = [
     "FunctionalPass",
     "PassManager",
     "PassResult",
+    "functionalize",
     # Errors
     "InvariantError",
     "PreconditionError",
@@ -287,3 +288,27 @@ class PassManager(Sequential):
                 logger.info("PassManager: No more graph changes detected after step %s", step)
                 break
         return PassResult(model, overall_modified)
+
+
+class _FunctionalPassWrapper(FunctionalPass):
+    def __init__(self, inner_pass: PassBase) -> None:
+        self._inner_pass = inner_pass
+
+    def call(self, model: ir.Model) -> PassResult:
+        return self._inner_pass(model.clone())
+
+
+def functionalize(pass_instance: PassBase) -> FunctionalPass:
+    """Produce a functional pass from a given pass.
+
+    A new functional pass is created that clones the input model before running the pass.
+
+    .. versionadded:: 0.1.14
+
+    Args:
+        pass_instance: The pass to convert.
+
+    Returns:
+        A functional pass.
+    """
+    return _FunctionalPassWrapper(pass_instance)
