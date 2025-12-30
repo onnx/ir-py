@@ -362,6 +362,8 @@ def replace_all_uses_with(
 
 def create_value_mapping(
     graph: _core.Graph | _core.GraphView | _core.Function,
+    *,
+    include_subgraphs: bool = True,
 ) -> dict[str, _core.Value]:
     """Return a dictionary mapping names to values in the graph.
 
@@ -372,8 +374,12 @@ def create_value_mapping(
     .. versionchanged:: 0.1.2
         Values from subgraphs are now included in the mapping.
 
+    .. versionadded:: 0.1.14
+        The `include_subgraphs` parameter.
+
     Args:
         graph: The graph to extract the mapping from.
+        include_subgraphs: If True, values from subgraphs are included in the mapping.
 
     Returns:
         A dictionary mapping names to values.
@@ -388,7 +394,11 @@ def create_value_mapping(
         if input.name in values:
             continue
         values[input.name] = input
-    for node in traversal.RecursiveGraphIterator(graph):
+    if include_subgraphs:
+        iterator = traversal.RecursiveGraphIterator(graph)
+    else:
+        iterator = graph
+    for node in iterator:
         for value in node.inputs:
             if not value:
                 continue

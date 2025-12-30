@@ -87,7 +87,7 @@ def extract(
         graph = graph_like.graph
     else:
         graph = graph_like
-    values = ir.convenience.create_value_mapping(graph)
+    values = ir.convenience.create_value_mapping(graph, include_subgraphs=False)
     is_graph_view = isinstance(graph_like, ir.GraphView)
     for val in itertools.chain(inputs, outputs):
         if isinstance(val, ir.Value):

@@ -75,7 +75,7 @@ class ExtractTest(unittest.TestCase):
             outputs=["output"],
         )
 
-        self.assertEqual(len(list(extracted)), 2)
+        self.assertEqual(len(extracted), 2)
         self.assertEqual(len(extracted.inputs), 1)
         self.assertEqual(len(extracted.outputs), 1)
         self.assertEqual(extracted.inputs[0].name, "input")
@@ -89,7 +89,7 @@ class ExtractTest(unittest.TestCase):
             outputs=[self.mul_node.outputs[0]],
         )
 
-        self.assertEqual(len(list(extracted)), 1)
+        self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted.inputs[0].name, "intermediate")
         self.assertEqual(extracted.outputs[0].name, "output")
         # Should include const2 as an initializer
@@ -103,7 +103,7 @@ class ExtractTest(unittest.TestCase):
             outputs=["output"],
         )
 
-        self.assertEqual(len(list(extracted)), 1)
+        self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted.inputs[0].name, "intermediate")
         self.assertEqual(extracted.outputs[0].name, "output")
 
@@ -115,7 +115,7 @@ class ExtractTest(unittest.TestCase):
             outputs=["output"],
         )
 
-        self.assertEqual(len(list(extracted)), 2)
+        self.assertEqual(len(extracted), 2)
         self.assertEqual(extracted.inputs[0].name, "input")
         self.assertEqual(extracted.outputs[0].name, "output")
 
@@ -127,9 +127,8 @@ class ExtractTest(unittest.TestCase):
             outputs=[self.mul_node.outputs[0]],
         )
 
-        nodes = list(extracted)
-        self.assertEqual(nodes[0].op_type, "Add")
-        self.assertEqual(nodes[1].op_type, "Mul")
+        self.assertEqual(extracted[0].op_type, "Add")
+        self.assertEqual(extracted[1].op_type, "Mul")
 
     def test_extract_raises_on_value_not_found(self):
         """Test that ValueError is raised when a value name is not found."""
@@ -177,7 +176,7 @@ class ExtractTest(unittest.TestCase):
             outputs=["output"],
         )
 
-        self.assertEqual(len(list(extracted)), 2)
+        self.assertEqual(len(extracted), 2)
         self.assertEqual(extracted.inputs[0].name, "input")
         self.assertEqual(extracted.outputs[0].name, "output")
 
@@ -195,7 +194,7 @@ class ExtractTest(unittest.TestCase):
             outputs=["output"],
         )
 
-        self.assertEqual(len(list(extracted)), 1)
+        self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted.inputs[0].name, "intermediate")
         self.assertEqual(extracted.outputs[0].name, "output")
 
@@ -315,9 +314,8 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should include all three nodes: add1, add2, mul
-        nodes = list(extracted)
-        self.assertEqual(len(nodes), 3)
-        node_names = {node.name for node in nodes}
+        self.assertEqual(extracted, 3)
+        node_names = {node.name for node in extracted}
         self.assertEqual(node_names, {"add1", "add2", "mul"})
 
     def test_extract_single_branch(self):
@@ -329,9 +327,8 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should only include add1
-        nodes = list(extracted)
-        self.assertEqual(len(nodes), 1)
-        self.assertEqual(nodes[0].name, "add1")
+        self.assertEqual(extracted, 1)
+        self.assertEqual(extracted[0].name, "add1")
         # const1 is not an initializer in the input, so it should be in the extracted initializers
         # Since input itself is not an initializer in this test setup
         self.assertGreaterEqual(len(extracted.initializers), 1)
@@ -345,9 +342,8 @@ class ExtractComplexGraphTest(unittest.TestCase):
         )
 
         # Should only include mul node
-        nodes = list(extracted)
-        self.assertEqual(len(nodes), 1)
-        self.assertEqual(nodes[0].name, "mul")
+        self.assertEqual(extracted, 1)
+        self.assertEqual(extracted[0].name, "mul")
         self.assertEqual(len(extracted.inputs), 2)
 
 
@@ -369,7 +365,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             outputs=[input_val],
         )
 
-        self.assertEqual(len(list(extracted)), 0)
+        self.assertEqual(len(extracted), 0)
         self.assertEqual(len(extracted.inputs), 1)
         self.assertEqual(len(extracted.outputs), 1)
         self.assertEqual(extracted.inputs[0].name, "input")
@@ -409,7 +405,7 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             outputs=[add_node.outputs[0], mul_node.outputs[0]],
         )
 
-        self.assertEqual(len(list(extracted)), 2)
+        self.assertEqual(len(extracted), 2)
         self.assertEqual(len(extracted.outputs), 2)
         output_names = {out.name for out in extracted.outputs}
         self.assertEqual(output_names, {"sum", "product"})
@@ -443,8 +439,8 @@ class ExtractEdgeCasesTest(unittest.TestCase):
             outputs=[add_node.outputs[0]],
         )
 
-        self.assertEqual(len(list(extracted)), 1)
-        self.assertEqual(list(extracted)[0].op_type, "Add")
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].op_type, "Add")
 
 
 if __name__ == "__main__":
