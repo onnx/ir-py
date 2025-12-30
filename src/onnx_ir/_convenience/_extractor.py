@@ -110,7 +110,7 @@ def _find_subgraph_bounded_by_values(
     # (initializers are allowed, but unspecified graph inputs mean the subgraph is unbounded)
     unspecified_graph_inputs: list[ir.Value] = []
     inputs_set = set(inputs)
-    for val in input_frontier:
+    for val in sorted(input_frontier, key=lambda v: v.name):
         if val not in inputs_set and not val.is_initializer():
             unspecified_graph_inputs.append(val)
 
