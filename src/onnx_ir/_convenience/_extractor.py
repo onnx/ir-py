@@ -96,7 +96,7 @@ def _find_subgraph_bounded_by_values(
     # Validate that the subgraph is properly bounded
     # Collect all values at the input frontier (used by subgraph but not produced by it)
     # The frontier can only contain graph inputs or initializers (values with no producer)
-    input_frontier = set()
+    input_frontier: set[ir.Value] = set()
     for node in visited_nodes:
         for input_val in node.inputs:
             if input_val is None:
@@ -110,7 +110,7 @@ def _find_subgraph_bounded_by_values(
     # (initializers are allowed, but unspecified graph inputs mean the subgraph is unbounded)
     unspecified_graph_inputs: list[ir.Value] = []
     inputs_set = set(inputs)
-    for val in sorted(input_frontier, key=lambda v: v.name):
+    for val in sorted(input_frontier, key=lambda v: v.name or ""):
         if val not in inputs_set and not val.is_initializer():
             unspecified_graph_inputs.append(val)
 
