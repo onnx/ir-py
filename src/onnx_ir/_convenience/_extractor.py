@@ -64,6 +64,16 @@ def extract(
     inputs: Sequence[ir.Value | str],
     outputs: Sequence[ir.Value | str],
 ) -> ir.Graph:
+    """Extracts a subgraph from the given graph-like object.
+
+    Args:
+        graph_like: The graph-like object to extract from.
+        inputs: The inputs to the subgraph. Can be Value objects or their names.
+        outputs: The outputs of the subgraph. Can be Value objects or their names.
+
+    Returns:
+        The extracted subgraph as a new :class:`~onnx_ir.Graph` object.
+    """
     values = ir.convenience.create_value_mapping(graph_like)
     inputs = [values[val] if isinstance(val, str) else val for val in inputs]
     outputs = [values[val] if isinstance(val, str) else val for val in outputs]
@@ -82,4 +92,4 @@ def extract(
         metadata_props=graph_like.metadata_props,
     )
 
-    return graph_view.copy()
+    return graph_view.clone()
