@@ -140,6 +140,8 @@ def extract(
     input_vals = [values[val] if isinstance(val, str) else val for val in inputs]
     output_vals = [values[val] if isinstance(val, str) else val for val in outputs]
     # Find the owning graph of the outputs to set as the parent graph
+    if not output_vals:
+        raise ValueError("At least one output must be provided to extract a subgraph.")
     parent_graph = output_vals[0].graph
     assert parent_graph is not None
     extracted_nodes, initialized_values = _find_subgraph_bounded_by_values(
