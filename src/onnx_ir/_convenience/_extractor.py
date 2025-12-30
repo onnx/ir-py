@@ -84,7 +84,7 @@ def extract(
         ValueError: If any of the inputs or outputs are not found in the graph.
     """
     if isinstance(graph_like, ir.Function):
-        graph = graph_like.graph
+        graph: ir.Graph | ir.GraphView = graph_like.graph
     else:
         graph = graph_like
     values = ir.convenience.create_value_mapping(graph, include_subgraphs=False)
