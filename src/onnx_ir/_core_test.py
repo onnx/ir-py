@@ -4132,7 +4132,7 @@ class GraphViewCloneTest(unittest.TestCase):
         cloned_graph = graph_view.clone()
 
         # Verify we can mutate the cloned graph (should be a Graph, not GraphView)
-        new_node = ir.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        new_node = ir.Node("", "Relu", inputs=(cloned_graph.inputs[0],), num_outputs=1)
         cloned_graph.append(new_node)
 
         self.assertEqual(len(cloned_graph), 2)
