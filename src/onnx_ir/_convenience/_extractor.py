@@ -14,7 +14,7 @@ import onnx_ir as ir
 logger = logging.getLogger(__name__)
 
 
-GraphLike = Union[ir.Graph, ir.Function, ir.GraphView]
+GraphLike = Union["ir.Graph", "ir.Function", "ir.GraphView"]
 
 
 def _find_subgraph_bounded_by_values(
@@ -87,13 +87,15 @@ def extract(
     values = ir.convenience.create_value_mapping(graph)
     is_graph_view = isinstance(graph_like, ir.GraphView)
     for val in itertools.chain(inputs, outputs):
-        if isinstance(val, ir.Value) and not is_graph_view and val.graph is not graph:
-            raise ValueError(
-                f"Value '{val}' does not belong to the given "
-                f"{graph_like.__class__.__name__} ({graph.name})."
-            )
-        if val not in values:
-            raise ValueError(f"Value with name '{val}' not found in the graph.")
+        if isinstance(val, ir.Value):
+            if not is_graph_view and val.graph is not graph:
+                raise ValueError(
+                    f"Value '{val}' does not belong to the given "
+                    f"{graph_like.__class__.__name__} ({graph.name})."
+                )
+        else:
+            if val not in values:
+                raise ValueError(f"Value with name '{val}' not found in the graph.")
 
     inputs = [values[val] if isinstance(val, str) else val for val in inputs]
     outputs = [values[val] if isinstance(val, str) else val for val in outputs]
