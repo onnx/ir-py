@@ -330,8 +330,7 @@ class ExtractComplexGraphTest(unittest.TestCase):
         self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0].name, "add1")
         # const1 is not an initializer in the input, so it should be in the extracted initializers
-        # Since input itself is not an initializer in this test setup
-        self.assertGreaterEqual(len(extracted.initializers), 1)
+        self.assertEqual(len(extracted.initializers), 1)
 
     def test_extract_from_intermediate_to_output(self):
         """Test extracting from intermediate values to final output."""
@@ -599,6 +598,310 @@ class ExtractEdgeCasesTest(unittest.TestCase):
         self.assertEqual(len(extracted), 1)
         self.assertEqual(len(extracted.outputs), 1)
         self.assertEqual(extracted.outputs[0].name, "output1")
+
+
+class ExtractSubgraphAttributesTest(unittest.TestCase):
+    def test_extract_with_if_node(self):
+        """Test extracting a graph containing an If node with subgraph attributes.
+
+        Graph structure:
+            condition, x, y (inputs)
+                  |
+                  v
+                 If  <--- then_branch: Add(x, y) -> then_out
+                  |   <--- else_branch: Identity(x) -> else_out
+                  v
+               result (output)
+        """
+        # Create main graph values
+        condition = ir.val("condition", dtype=ir.DataType.BOOL, shape=[])
+        x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[3])
+        y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[3])
+
+        # Create then branch subgraph that uses x and y from parent
+        then_add = ir.node(
+            "Add",
+            inputs=[x, y],
+            outputs=[ir.val("then_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        then_graph = ir.Graph(
+            inputs=[],
+            outputs=[then_add.outputs[0]],
+            nodes=[then_add],
+            name="then_branch",
+        )
+
+        # Create else branch subgraph that uses x from parent
+        else_identity = ir.node(
+            "Identity",
+            inputs=[x],
+            outputs=[ir.val("else_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        else_graph = ir.Graph(
+            inputs=[],
+            outputs=[else_identity.outputs[0]],
+            nodes=[else_identity],
+            name="else_branch",
+        )
+
+        # Create If node
+        if_node = ir.node(
+            "If",
+            inputs=[condition],
+            outputs=[ir.val("result", dtype=ir.DataType.FLOAT, shape=[3])],
+            attributes={
+                "then_branch": then_graph,
+                "else_branch": else_graph,
+            },
+        )
+
+        # Create main graph
+        graph = ir.Graph(
+            inputs=[condition, x, y],
+            outputs=[if_node.outputs[0]],
+            nodes=[if_node],
+            name="if_graph",
+        )
+
+        # Extract the graph - should include the If node and trace back to x, y inputs
+        extracted = _extractor.extract(
+            graph,
+            inputs=["condition", "x", "y"],
+            outputs=["result"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].op_type, "If")
+        # Verify the subgraphs are preserved
+        then_attr = extracted[0].attributes["then_branch"]
+        else_attr = extracted[0].attributes["else_branch"]
+        self.assertIsNotNone(then_attr)
+        self.assertIsNotNone(else_attr)
+
+    def test_extract_partial_with_if_node_dependencies(self):
+        """Test extraction where subgraph references create implicit dependencies.
+
+        Graph structure:
+            const_a, const_b (initializers, NOT in input list)
+                   |
+                   v
+                Add (implicit_node)
+                   |
+                   v
+              computed_val
+                   |
+            condition (input)
+                   |
+                   v
+                  If  <--- then_branch: Identity(computed_val) -> then_out
+                   |  <--- else_branch: Constant(0) -> else_out
+                   v
+                result (output)
+
+        Note: When extracting with only 'condition' as input, the Add node should
+        still be included because the If node's then_branch references computed_val.
+        """
+        # Create constants that will NOT be in the input list
+        const_a = ir.val(
+            "const_a",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([1, 2, 3], dtype=np.float32), name="const_a"),
+        )
+        const_b = ir.val(
+            "const_b",
+            dtype=ir.DataType.FLOAT,
+            shape=[3],
+            const_value=ir.tensor(np.array([4, 5, 6], dtype=np.float32), name="const_b"),
+        )
+
+        # This node produces a value from const_a and const_b
+        implicit_node = ir.node(
+            "Add",
+            inputs=[const_a, const_b],
+            outputs=[ir.val("computed_val", dtype=ir.DataType.FLOAT, shape=[3])],
+            name="implicit_node",
+        )
+
+        condition = ir.val("condition", dtype=ir.DataType.BOOL, shape=[])
+
+        # Then branch uses the computed value from implicit_node
+        then_identity = ir.node(
+            "Identity",
+            inputs=[implicit_node.outputs[0]],
+            outputs=[ir.val("then_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        then_graph = ir.Graph(
+            inputs=[],
+            outputs=[then_identity.outputs[0]],
+            nodes=[then_identity],
+            name="then_branch",
+        )
+
+        # Else branch doesn't use computed_val
+        else_const = ir.node(
+            "Constant",
+            inputs=[],
+            outputs=[ir.val("else_out", dtype=ir.DataType.FLOAT, shape=[3])],
+            attributes={"value": ir.tensor(np.zeros(3, dtype=np.float32), name="zero")},
+        )
+        else_graph = ir.Graph(
+            inputs=[],
+            outputs=[else_const.outputs[0]],
+            nodes=[else_const],
+            name="else_branch",
+        )
+
+        if_node = ir.node(
+            "If",
+            inputs=[condition],
+            outputs=[ir.val("result", dtype=ir.DataType.FLOAT, shape=[3])],
+            attributes={
+                "then_branch": then_graph,
+                "else_branch": else_graph,
+            },
+            name="if_node",
+        )
+
+        graph = ir.Graph(
+            inputs=[condition],
+            outputs=[if_node.outputs[0]],
+            nodes=[implicit_node, if_node],
+            initializers=[const_a, const_b],
+            name="implicit_dependency_graph",
+        )
+
+        # Extract with ONLY condition as input (not const_a or const_b)
+        # The implicit_node should still be included because then_branch references computed_val
+        extracted = _extractor.extract(
+            graph,
+            inputs=["condition"],
+            outputs=["result"],
+        )
+
+        # Verify implicit_node is included even though its inputs aren't in the input list
+        self.assertEqual(len(extracted), 2)
+        node_names = {node.name for node in extracted}
+        self.assertIn("if_node", node_names)
+        self.assertIn("implicit_node", node_names)
+        # Verify the initializers are preserved
+        self.assertIn("const_a", extracted.initializers)
+        self.assertIn("const_b", extracted.initializers)
+
+    def test_extract_nested_subgraphs(self):
+        r"""Test extraction with nested subgraphs (If inside If).
+
+        Graph structure:
+            input, outer_cond, inner_cond (inputs)
+                          |
+                          v
+                     Outer If
+                      /      \
+          then_branch        else_branch
+               |                  |
+            Inner If         Identity(input)
+             /    \                |
+        then: Add  else: Identity   |
+         (input)    (input)         |
+            \         /             /
+             \       /             /
+              inner_result        /
+                    \            /
+                     \____ _____/
+                           |
+                           v
+                        final (output)
+
+        Note: Both inner branches reference 'input' from the outermost parent graph.
+        """
+        input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[3])
+        outer_cond = ir.val("outer_cond", dtype=ir.DataType.BOOL, shape=[])
+        inner_cond = ir.val("inner_cond", dtype=ir.DataType.BOOL, shape=[])
+
+        # Inner then branch
+        inner_then_add = ir.node(
+            "Add",
+            inputs=[input_val, input_val],
+            outputs=[ir.val("inner_then_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        inner_then_graph = ir.Graph(
+            inputs=[],
+            outputs=[inner_then_add.outputs[0]],
+            nodes=[inner_then_add],
+            name="inner_then",
+        )
+
+        # Inner else branch
+        inner_else_identity = ir.node(
+            "Identity",
+            inputs=[input_val],
+            outputs=[ir.val("inner_else_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        inner_else_graph = ir.Graph(
+            inputs=[],
+            outputs=[inner_else_identity.outputs[0]],
+            nodes=[inner_else_identity],
+            name="inner_else",
+        )
+
+        # Inner If node (in outer then branch)
+        inner_if = ir.node(
+            "If",
+            inputs=[inner_cond],
+            outputs=[ir.val("inner_result", dtype=ir.DataType.FLOAT, shape=[3])],
+            attributes={
+                "then_branch": inner_then_graph,
+                "else_branch": inner_else_graph,
+            },
+        )
+
+        # Outer then branch containing inner If
+        outer_then_graph = ir.Graph(
+            inputs=[],
+            outputs=[inner_if.outputs[0]],
+            nodes=[inner_if],
+            name="outer_then",
+        )
+
+        # Outer else branch
+        outer_else_identity = ir.node(
+            "Identity",
+            inputs=[input_val],
+            outputs=[ir.val("outer_else_out", dtype=ir.DataType.FLOAT, shape=[3])],
+        )
+        outer_else_graph = ir.Graph(
+            inputs=[],
+            outputs=[outer_else_identity.outputs[0]],
+            nodes=[outer_else_identity],
+            name="outer_else",
+        )
+
+        # Outer If node
+        outer_if = ir.node(
+            "If",
+            inputs=[outer_cond],
+            outputs=[ir.val("final", dtype=ir.DataType.FLOAT, shape=[3])],
+            attributes={
+                "then_branch": outer_then_graph,
+                "else_branch": outer_else_graph,
+            },
+        )
+
+        graph = ir.Graph(
+            inputs=[input_val, outer_cond, inner_cond],
+            outputs=[outer_if.outputs[0]],
+            nodes=[outer_if],
+            name="nested_if_graph",
+        )
+
+        extracted = _extractor.extract(
+            graph,
+            inputs=["input", "outer_cond", "inner_cond"],
+            outputs=["final"],
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0].op_type, "If")
 
 
 if __name__ == "__main__":
