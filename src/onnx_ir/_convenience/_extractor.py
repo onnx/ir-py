@@ -25,7 +25,7 @@ def _collect_all_external_values(parent_graph: ir.Graph, graph: ir.Graph) -> set
         graph: The graph-like object to collect values from.
 
     Returns:
-        A mapping from value names to Value objects.
+        A set of :class:`~onnx_ir.Value` objects belonging to ``parent_graph``.
     """
     values: set[ir.Value] = set()
     for node in ir.traversal.RecursiveGraphIterator(graph):
