@@ -8,6 +8,7 @@ __all__ = [
     "Sequential",
     "InPlacePass",
     "FunctionalPass",
+    "functionalize",
     # Errors
     "InvariantError",
     "PreconditionError",
@@ -26,6 +27,7 @@ from onnx_ir.passes._pass_infra import (
     PostconditionError,
     PreconditionError,
     Sequential,
+    functionalize,
 )
 
 
