@@ -17,6 +17,7 @@ from __future__ import annotations
 __all__ = [
     "tag",
     "track_lineage",
+    "clear_lineage",
     "LINEAGE_TAG_KEY",
     "LINEAGE_STEP_KEY",
     "LINEAGE_COUNTER_KEY",
@@ -60,7 +61,10 @@ def _maybe_set_lineage_info(obj: ir.Node | ir.Value, tag: str, step: str) -> Non
         tag: The tag name to set.
         step: The step number to set.
     """
-    if LINEAGE_TAG_KEY not in obj.metadata_props and LINEAGE_STEP_KEY not in obj.metadata_props:
+    if (
+        LINEAGE_TAG_KEY not in obj.metadata_props
+        and LINEAGE_STEP_KEY not in obj.metadata_props
+    ):
         obj.metadata_props[LINEAGE_TAG_KEY] = tag
         obj.metadata_props[LINEAGE_STEP_KEY] = step
 
@@ -107,14 +111,9 @@ def tag(model: ir.Model, tag_name: str) -> None:
     # Increment the global step counter
     current_step = _increment_or_create_model_step(model)
 
-    # Process all graphs in the model
-    for graph in model.graphs():
-        # Process all nodes and their values
+    for graph in (model.graph, *[func.graph for func in model.functions.values()]):
         for node in graph.all_nodes():
             _maybe_set_lineage_info(node, tag_name, current_step)
-            # Tag all output values of the node
-            for output in node.outputs:
-                _maybe_set_lineage_info(output, tag_name, current_step)
 
         # Tag graph inputs
         for input_value in graph.inputs:
@@ -123,6 +122,29 @@ def tag(model: ir.Model, tag_name: str) -> None:
         # Tag initializers
         for initializer in graph.initializers.values():
             _maybe_set_lineage_info(initializer, tag_name, current_step)
+
+
+def clear_lineage(model: ir.Model) -> None:
+    """Clear all lineage metadata from the model.
+
+    This removes all lineage tags and step information from nodes and values
+    in the model, effectively resetting the lineage tracking state.
+
+    Args:
+        model: The model to clear lineage information from.
+    """
+    for graph in (model.graph, *[func.graph for func in model.functions.values()]):
+        for node in graph.all_nodes():
+            node.metadata_props.pop(LINEAGE_TAG_KEY, None)
+            node.metadata_props.pop(LINEAGE_STEP_KEY, None)
+
+        for input_value in graph.inputs:
+            input_value.metadata_props.pop(LINEAGE_TAG_KEY, None)
+            input_value.metadata_props.pop(LINEAGE_STEP_KEY, None)
+
+        for initializer in graph.initializers.values():
+            initializer.metadata_props.pop(LINEAGE_TAG_KEY, None)
+            initializer.metadata_props.pop(LINEAGE_STEP_KEY, None)
 
 
 @contextlib.contextmanager
