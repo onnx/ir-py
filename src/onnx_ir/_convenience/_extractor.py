@@ -10,6 +10,7 @@ from collections.abc import Collection, Sequence
 from typing import Union
 
 import onnx_ir as ir
+from onnx_ir import traversal
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,31 @@ logger = logging.getLogger(__name__)
 GraphLike = Union["ir.Graph", "ir.Function", "ir.GraphView"]
 
 
+def _collect_all_external_values(parent_graph: ir.Graph, graph: ir.Graph) -> set[ir.Value]:
+    """Collects all values in the given graph-like object.
+
+    Args:
+        parent_graph: The parent graph to which collected values must belong.
+        graph: The graph-like object to collect values from.
+
+    Returns:
+        A mapping from value names to Value objects.
+    """
+    values: set[ir.Value] = set()
+    for node in traversal.RecursiveGraphIterator(graph):
+        for val in node.inputs:
+            if val is None:
+                continue
+            if val.graph is parent_graph:
+                values.add(val)
+    return values
+
+
 def _find_subgraph_bounded_by_values(
-    graph: GraphLike, inputs: Collection[ir.Value], outputs: Collection[ir.Value]
+    graph: GraphLike,
+    inputs: Collection[ir.Value],
+    outputs: Collection[ir.Value],
+    parent_graph: ir.Graph,
 ) -> tuple[list[ir.Node], Collection[ir.Value]]:
     """Finds the subgraph bounded by the given inputs and outputs.
 
@@ -26,6 +50,7 @@ def _find_subgraph_bounded_by_values(
         graph: The graph to search.
         inputs: The inputs to the subgraph.
         outputs: The outputs of the subgraph.
+        parent_graph: The parent graph of the subgraph.
 
     Returns:
         A list of nodes in the subgraph and the initializers used.
@@ -57,6 +82,19 @@ def _find_subgraph_bounded_by_values(
                 for input in node.inputs:
                     if input not in visited_values and input is not None:
                         value_stack.append(input)
+                for attr in node.attributes.values():
+                    if attr.type == ir.AttributeType.GRAPH:
+                        values = _collect_all_external_values(parent_graph, attr.as_graph())
+                        for val in values:
+                            if val not in visited_values:
+                                value_stack.append(val)
+                    elif attr.type == ir.AttributeType.GRAPHS:
+                        for g in attr.as_graphs():
+                            values = _collect_all_external_values(parent_graph, g)
+                            for val in values:
+                                if val not in visited_values:
+                                    value_stack.append(val)
+
     # Preserve the original order
     all_nodes.sort(key=lambda n: node_index[n])
     return all_nodes, initialized_values
@@ -102,8 +140,10 @@ def extract(
 
     input_vals = [values[val] if isinstance(val, str) else val for val in inputs]
     output_vals = [values[val] if isinstance(val, str) else val for val in outputs]
+    # Find the owning graph of the outputs to set as the parent graph
+    parent_graph = output_vals[0].graph
     extracted_nodes, initialized_values = _find_subgraph_bounded_by_values(
-        graph_like, input_vals, output_vals
+        graph_like, input_vals, output_vals, parent_graph=parent_graph
     )
 
     graph_view = ir.GraphView(
