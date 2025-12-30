@@ -1443,8 +1443,9 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
 
         Two dimensions are merged as follows:
         - If both dimensions are equal, the merged dimension is the same.
-        - If one dimension is SymbolicDim, the merged dimension is the other concrete dimension.
-        - If both dimensions are different, the current shape's dimension is taken.
+        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
 
         .. versionadded:: 0.1.14
 
