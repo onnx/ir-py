@@ -115,7 +115,7 @@ def _find_subgraph_bounded_by_values(
             unspecified_graph_inputs.append(val)
 
     if unspecified_graph_inputs:
-        value_names = [val.name for val in unspecified_graph_inputs]
+        value_names = [val.name or "<None>" for val in unspecified_graph_inputs]
         raise ValueError(
             f"The subgraph is not properly bounded by the specified inputs and outputs. "
             f"The following graph inputs are required but not provided: {', '.join(value_names)}"
