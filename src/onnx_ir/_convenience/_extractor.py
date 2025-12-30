@@ -30,30 +30,33 @@ def _find_subgraph_bounded_by_values(
     Returns:
         A list of nodes in the subgraph and the initializers used.
     """
-    node_index = {node: idx for idx, node in enumerate(graph)}
-    all_nodes = []
-    node_stack: list[ir.Node] = [
-        producer for value in outputs if (producer := value.producer()) is not None
-    ]
-    visited_nodes: set[ir.Node] = set()
     if isinstance(graph, ir.Function):
         initialized_values: set[ir.Value] = set()
     else:
         initialized_values = {val for val in inputs if val.is_initializer()}
-    while node_stack:
-        node = node_stack.pop()
-        if node in visited_nodes:
+    node_index = {node: idx for idx, node in enumerate(graph)}
+    all_nodes = []
+    value_stack: list[ir.Value] = [*outputs]
+    visited_nodes: set[ir.Node] = set()
+    visited_values: set[ir.Value] = set(inputs)
+
+    while value_stack:
+        value = value_stack.pop()
+        if value in visited_values:
             continue
-        if not isinstance(graph, ir.Function):
+        if value.is_initializer():
             # Record the initializer
-            for input in node.inputs:
-                if input is not None and input.is_initializer():
-                    initialized_values.add(input)
-        visited_nodes.add(node)
-        all_nodes.append(node)
-        for predecessor in node.predecessors():
-            if predecessor not in visited_nodes:
-                node_stack.append(predecessor)
+            initialized_values.add(value)
+
+        visited_values.add(value)
+
+        if (node := value.producer()) is not None:
+            if node not in visited_nodes:
+                visited_nodes.add(node)
+                all_nodes.append(node)
+                for input in node.inputs:
+                    if input not in visited_values and input is not None:
+                        value_stack.append(input)
     # Preserve the original order
     all_nodes.sort(key=lambda n: node_index[n])
     return all_nodes, initialized_values
