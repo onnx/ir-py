@@ -1497,7 +1497,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 return denot1
             if denot1 is None:
                 return denot2
-            # If denot2 is None or they differ, prefer denot1
+            # If denot1 is not None and (denot2 is None or they differ), prefer denot1
             return denot1
 
         merged_dims = [merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)]
