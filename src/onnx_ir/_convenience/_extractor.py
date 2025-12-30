@@ -108,14 +108,14 @@ def _find_subgraph_bounded_by_values(
 
     # Check for graph inputs that weren't specified in the inputs parameter
     # (initializers are allowed, but unspecified graph inputs mean the subgraph is unbounded)
-    unspecified_graph_inputs = []
+    unspecified_graph_inputs: list[ir.Value] = []
     inputs_set = set(inputs)
     for val in input_frontier:
         if val not in inputs_set and not val.is_initializer():
             unspecified_graph_inputs.append(val)
 
     if unspecified_graph_inputs:
-        value_names = [str(val) for val in unspecified_graph_inputs]
+        value_names = [val.name for val in unspecified_graph_inputs]
         raise ValueError(
             f"The subgraph is not properly bounded by the specified inputs and outputs. "
             f"The following graph inputs are required but not provided: {', '.join(value_names)}"
