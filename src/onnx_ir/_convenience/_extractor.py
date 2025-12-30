@@ -142,6 +142,7 @@ def extract(
     output_vals = [values[val] if isinstance(val, str) else val for val in outputs]
     # Find the owning graph of the outputs to set as the parent graph
     parent_graph = output_vals[0].graph
+    assert parent_graph is not None
     extracted_nodes, initialized_values = _find_subgraph_bounded_by_values(
         graph_like, input_vals, output_vals, parent_graph=parent_graph
     )
