@@ -48,6 +48,9 @@ def _find_subgraph_bounded_by_values(
 
     Returns:
         A list of nodes in the subgraph and the initializers used.
+
+    Raises:
+        ValueError: If the subgraph is not properly bounded by the given inputs and outputs.
     """
     if isinstance(graph, ir.Function):
         initialized_values: set[ir.Value] = set()
@@ -89,6 +92,34 @@ def _find_subgraph_bounded_by_values(
                                 if val not in visited_values:
                                     value_stack.append(val)
 
+    # Validate that the subgraph is properly bounded
+    # Collect all values at the input frontier (used by subgraph but not produced by it)
+    # The frontier can only contain graph inputs or initializers (values with no producer)
+    input_frontier = set()
+    for node in visited_nodes:
+        for input_val in node.inputs:
+            if input_val is None:
+                continue
+            # If this value is not produced by any node in the subgraph
+            producer = input_val.producer()
+            if producer is None or producer not in visited_nodes:
+                input_frontier.add(input_val)
+
+    # Check for graph inputs that weren't specified in the inputs parameter
+    # (initializers are allowed, but unspecified graph inputs mean the subgraph is unbounded)
+    unspecified_graph_inputs = []
+    inputs_set = set(inputs)
+    for val in input_frontier:
+        if val not in inputs_set and not val.is_initializer():
+            unspecified_graph_inputs.append(val)
+
+    if unspecified_graph_inputs:
+        value_names = [str(val) for val in unspecified_graph_inputs]
+        raise ValueError(
+            f"The subgraph is not properly bounded by the specified inputs and outputs. "
+            f"The following graph inputs are required but not provided: {', '.join(value_names)}"
+        )
+
     # Preserve the original order
     all_nodes.sort(key=lambda n: node_index[n])
     return all_nodes, initialized_values
@@ -114,6 +145,7 @@ def extract(
 
     Raises:
         ValueError: If any of the inputs or outputs are not found in the graph.
+        ValueError: If the subgraph is not properly bounded by the given inputs and outputs.
     """
     if isinstance(graph_like, ir.Function):
         graph: ir.Graph | ir.GraphView = graph_like.graph
