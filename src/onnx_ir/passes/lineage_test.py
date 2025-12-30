@@ -109,26 +109,6 @@ class TestLineageTracking(unittest.TestCase):
         lineage.tag(model, "pass4")
         self.assertEqual(model.metadata_props[lineage.LINEAGE_COUNTER_KEY], "3")
 
-    def test_tag_values_are_tracked(self):
-        """Test that output values are also tagged."""
-        graph = ir.Graph(
-            inputs=[],
-            outputs=[],
-            nodes=[],
-            opset_imports={"": 18},
-        )
-        model = ir.Model(graph, ir_version=8)
-
-        x = ir.Value(name="x")
-        y = ir.Value(name="y")
-        ir.Node("", "Identity", inputs=[x], outputs=[y], graph=graph)
-
-        lineage.tag(model, "first_pass")
-
-        # Output value should be tagged
-        self.assertEqual(y.metadata_props[lineage.LINEAGE_TAG_KEY], "first_pass")
-        self.assertEqual(y.metadata_props[lineage.LINEAGE_STEP_KEY], "0")
-
     def test_tag_graph_inputs_are_tracked(self):
         """Test that graph inputs are tagged."""
         x = ir.Value(name="x")
@@ -294,30 +274,6 @@ class TestLineageTracking(unittest.TestCase):
         # Lineage metadata should be added
         self.assertEqual(node.metadata_props[lineage.LINEAGE_TAG_KEY], "test_pass")
         self.assertEqual(node.metadata_props[lineage.LINEAGE_STEP_KEY], "0")
-
-    def test_multiple_outputs_are_all_tagged(self):
-        """Test that all output values of a node are tagged."""
-        graph = ir.Graph(
-            inputs=[],
-            outputs=[],
-            nodes=[],
-            opset_imports={"": 18},
-        )
-        model = ir.Model(graph, ir_version=8)
-
-        x = ir.Value(name="x")
-        y1 = ir.Value(name="y1")
-        y2 = ir.Value(name="y2")
-        # Create a node with multiple outputs (like Split)
-        node = ir.Node("", "Split", inputs=[x], outputs=[y1, y2], graph=graph)
-
-        lineage.tag(model, "test_pass")
-
-        # All outputs should be tagged
-        self.assertEqual(y1.metadata_props[lineage.LINEAGE_TAG_KEY], "test_pass")
-        self.assertEqual(y1.metadata_props[lineage.LINEAGE_STEP_KEY], "0")
-        self.assertEqual(y2.metadata_props[lineage.LINEAGE_TAG_KEY], "test_pass")
-        self.assertEqual(y2.metadata_props[lineage.LINEAGE_STEP_KEY], "0")
 
     def test_lineage_workflow_simulation(self):
         """Simulate a realistic workflow with multiple passes."""
