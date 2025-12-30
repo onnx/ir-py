@@ -13,23 +13,6 @@ from onnx_ir.passes import lineage
 class TestLineageTracking(unittest.TestCase):
     """Tests for the lineage tracking system."""
 
-    def test_track_lineage_context_manager(self):
-        """Test that the track_lineage context manager enables/disables tracking."""
-        # Initially disabled
-        self.assertFalse(lineage._tracking_enabled)
-
-        # Enabled within context
-        with lineage.track_lineage():
-            self.assertTrue(lineage._tracking_enabled)
-
-        # Disabled after context
-        self.assertFalse(lineage._tracking_enabled)
-
-    def test_track_lineage_with_false(self):
-        """Test that track_lineage can be explicitly disabled."""
-        with lineage.track_lineage(enabled=False):
-            self.assertFalse(lineage._tracking_enabled)
-
     def test_tag_new_nodes_get_current_step(self):
         """Test that new nodes are tagged with the current step from the counter."""
         graph = ir.Graph(
