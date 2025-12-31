@@ -23,6 +23,8 @@ class RemoveDefaultAttributesPass(ir.passes.InPlacePass):
     This pass removes attributes that have default values of 0, 1, -1 (for int attributes)
     or -1.0, 0.0, 1.0 (for float attributes) as specified in the ONNX operator schema.
     Special handling for Conv op where pads all 0 or strides all 1 are also removed.
+
+    .. versionadded:: 0.1.14
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
