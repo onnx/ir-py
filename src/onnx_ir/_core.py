@@ -2651,6 +2651,8 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         for i, (dim1, dim2) in enumerate(zip(self_shape, other)):
             self_shape[i] = merge_dims(dim1, dim2)
 
+        self._shape = self_shape
+
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
 def Input(

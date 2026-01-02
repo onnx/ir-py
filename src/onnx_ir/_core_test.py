@@ -1183,113 +1183,6 @@ class ShapeTest(unittest.TestCase):
         shape = _core.Shape(())
         self.assertFalse(shape.has_unknown_dim())
 
-    def test_merge_with_equal_dimensions(self):
-        shape1 = _core.Shape([1, 2, 3])
-        shape2 = _core.Shape([1, 2, 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, [1, 2, 3])
-
-    def test_merge_with_symbolic_dimensions_equal(self):
-        shape1 = _core.Shape(["batch", "seq_len", 3])
-        shape2 = _core.Shape(["batch", "seq_len", 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, ["batch", "seq_len", 3])
-
-    def test_merge_prefers_concrete_over_symbolic_from_shape1(self):
-        shape1 = _core.Shape([64, 128, 3])
-        shape2 = _core.Shape(["batch", "seq_len", 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, [64, 128, 3])
-
-    def test_merge_prefers_concrete_over_symbolic_from_shape2(self):
-        shape1 = _core.Shape(["batch", "seq_len", 3])
-        shape2 = _core.Shape([64, 128, 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, [64, 128, 3])
-
-    def test_merge_with_none_dimensions_prefers_named_symbolic(self):
-        shape1 = _core.Shape([None, 128, 3])
-        shape2 = _core.Shape(["batch", 128, 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, ["batch", 128, 3])
-
-    def test_merge_with_none_dimensions_keeps_named_symbolic_from_shape1(self):
-        shape1 = _core.Shape(["batch", 128, 3])
-        shape2 = _core.Shape([None, 128, 3])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, ["batch", 128, 3])
-
-    def test_merge_with_conflicting_concrete_dimensions_raises(self):
-        shape1 = _core.Shape([64, 128, 3])
-        shape2 = _core.Shape([32, 128, 3])
-        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
-            merged = shape1.merge(shape2)
-            self.assertEqual(merged, [64, 128, 3])
-
-    def test_merge_with_mixed_dimensions(self):
-        shape1 = _core.Shape([64, "seq_len", 3, None])
-        shape2 = _core.Shape(["batch", 128, 3, "hidden"])
-        merged = shape1.merge(shape2)
-        # 64 (concrete) wins over "batch" (symbolic)
-        # 128 (concrete) wins over "seq_len" (symbolic)
-        # 3 (equal) stays the same
-        # "hidden" (named symbolic) wins over None
-        self.assertEqual(merged[0], 64)
-        self.assertEqual(merged[1], 128)
-        self.assertEqual(merged[2], 3)
-        self.assertEqual(merged[3], "hidden")
-
-    def test_merge_with_different_named_symbolic_dimensions_takes_shape1(self):
-        # When merging two shapes with different named symbolic dimensions,
-        # the first shape's dimension is taken following the documented precedence rule.
-        shape1 = _core.Shape(["batch", 128])
-        shape2 = _core.Shape(["sequence", 128])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, ["batch", 128])
-
-    def test_merge_with_empty_shapes(self):
-        shape1 = _core.Shape([])
-        shape2 = _core.Shape([])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, [])
-
-    def test_merge_raises_on_different_ranks(self):
-        shape1 = _core.Shape([1, 2, 3])
-        shape2 = _core.Shape([1, 2])
-        with self.assertRaisesRegex(ValueError, "same rank"):
-            shape1.merge(shape2)
-
-    def test_merge_when_other_is_none_returns_copy_of_self(self):
-        shape1 = _core.Shape([1, 2, 3])
-        merged = shape1.merge(None)
-        self.assertEqual(merged, [1, 2, 3])
-        # Verify it's a copy, not the same instance
-        self.assertIsNot(merged, shape1)
-
-    def test_merge_returns_new_shape_instance(self):
-        shape1 = _core.Shape([1, 2, 3])
-        shape2 = _core.Shape([1, 2, 3])
-        merged = shape1.merge(shape2)
-        # Verify it's a new instance, not the same object
-        self.assertIsNot(merged, shape1)
-        self.assertIsNot(merged, shape2)
-
-    def test_merge_with_symbolic_dim_objects(self):
-        sym1 = _core.SymbolicDim("batch")
-        sym2 = _core.SymbolicDim("batch")
-        shape1 = _core.Shape([sym1, 128])
-        shape2 = _core.Shape([sym2, 128])
-        merged = shape1.merge(shape2)
-        self.assertEqual(merged, ["batch", 128])
-
-    def test_merge_with_none_symbolic_dims(self):
-        shape1 = _core.Shape([None, None, 3])
-        shape2 = _core.Shape([None, None, 3])
-        merged = shape1.merge(shape2)
-        self.assertTrue(merged.is_unknown_dim(0))
-        self.assertTrue(merged.is_unknown_dim(1))
-        self.assertEqual(merged[2], 3)
-
 
 class ValueTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -1430,6 +1323,129 @@ class ValueTest(unittest.TestCase):
         # Should be able to rename input without issues
         input_value.name = "renamed_input"
         self.assertEqual(input_value.name, "renamed_input")
+
+    def test_merge_shapes_with_equal_dimensions(self):
+        value = _core.Value(shape=_core.Shape([1, 2, 3]))
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [1, 2, 3])
+
+    def test_merge_shapes_with_symbolic_dimensions_equal(self):
+        value = _core.Value(shape=_core.Shape(["batch", "seq_len", 3]))
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", "seq_len", 3])
+
+    def test_merge_shapes_prefers_concrete_over_symbolic_from_shape1(self):
+        value = _core.Value(shape=_core.Shape([64, 128, 3]))
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [64, 128, 3])
+
+    def test_merge_shapes_prefers_concrete_over_symbolic_from_shape2(self):
+        value = _core.Value(shape=_core.Shape(["batch", "seq_len", 3]))
+        shape2 = _core.Shape([64, 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [64, 128, 3])
+
+    def test_merge_shapes_with_none_dimensions_prefers_named_symbolic(self):
+        value = _core.Value(shape=_core.Shape([None, 128, 3]))
+        shape2 = _core.Shape(["batch", 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128, 3])
+
+    def test_merge_shapes_with_none_dimensions_keeps_named_symbolic_from_shape1(self):
+        value = _core.Value(shape=_core.Shape(["batch", 128, 3]))
+        shape2 = _core.Shape([None, 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128, 3])
+
+    def test_merge_shapes_with_conflicting_concrete_dimensions_raises(self):
+        value = _core.Value(shape=_core.Shape([64, 128, 3]))
+        shape2 = _core.Shape([32, 128, 3])
+        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_with_mixed_dimensions(self):
+        value = _core.Value(shape=_core.Shape([64, "seq_len", 3, None]))
+        shape2 = _core.Shape(["batch", 128, 3, "hidden"])
+        value.merge_shapes(shape2)
+        # 64 (concrete) wins over "batch" (symbolic)
+        # 128 (concrete) wins over "seq_len" (symbolic)
+        # 3 (equal) stays the same
+        # "hidden" (named symbolic) wins over None
+        self.assertEqual(value.shape[0], 64)
+        self.assertEqual(value.shape[1], 128)
+        self.assertEqual(value.shape[2], 3)
+        self.assertEqual(value.shape[3], "hidden")
+
+    def test_merge_shapes_with_different_named_symbolic_dimensions_takes_shape1(self):
+        # When merging two shapes with different named symbolic dimensions,
+        # the first shape's dimension is taken following the documented precedence rule.
+        value = _core.Value(shape=_core.Shape(["batch", 128]))
+        shape2 = _core.Shape(["sequence", 128])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128])
+
+    def test_merge_shapes_with_empty_shapes(self):
+        value = _core.Value(shape=_core.Shape([]))
+        shape2 = _core.Shape([])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [])
+
+    def test_merge_shapes_raises_on_different_ranks(self):
+        value = _core.Value(shape=_core.Shape([1, 2, 3]))
+        shape2 = _core.Shape([1, 2])
+        with self.assertRaisesRegex(ValueError, "same rank"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_when_other_is_none_keeps_shape_unchanged(self):
+        original_shape = _core.Shape([1, 2, 3])
+        value = _core.Value(shape=original_shape)
+        value.merge_shapes(None)
+        self.assertEqual(value.shape, [1, 2, 3])
+        # Verify it's still the same instance when not frozen
+        self.assertIs(value.shape, original_shape)
+
+    def test_merge_shapes_modifies_value_shape_in_place_if_not_frozen(self):
+        original_shape = _core.Shape([1, 2, 3])
+        value = _core.Value(shape=original_shape)
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        # Verify the value's shape is updated in place
+        self.assertIs(value.shape, original_shape)
+
+    def test_merge_shapes_when_value_has_no_shape_creates_copy(self):
+        value = _core.Value()
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [1, 2, 3])
+        # Verify it's a copy, not the same instance
+        self.assertIsNot(value.shape, shape2)
+
+    def test_merge_shapes_with_frozen_shape_creates_new_shape(self):
+        frozen_shape = _core.Shape([1, 2, 3], frozen=True)
+        value = _core.Value(shape=frozen_shape)
+        shape2 = _core.Shape([1, 2, 4])
+        # Should raise because conflicting concrete dimensions
+        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_with_symbolic_dim_objects(self):
+        sym1 = _core.SymbolicDim("batch")
+        sym2 = _core.SymbolicDim("batch")
+        value = _core.Value(shape=_core.Shape([sym1, 128]))
+        shape2 = _core.Shape([sym2, 128])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128])
+
+    def test_merge_shapes_with_none_symbolic_dims(self):
+        value = _core.Value(shape=_core.Shape([None, None, 3]))
+        shape2 = _core.Shape([None, None, 3])
+        value.merge_shapes(shape2)
+        self.assertTrue(value.shape.is_unknown_dim(0))
+        self.assertTrue(value.shape.is_unknown_dim(1))
+        self.assertEqual(value.shape[2], 3)
 
     # TODO(justinchuby): Test all methods
 
