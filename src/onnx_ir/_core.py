@@ -1438,50 +1438,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         """Return a copy of the shape."""
         return Shape(self._dims, self._denotations, frozen=frozen)
 
-    def merge(self, other: Shape | None) -> Shape:
-        """Merge this shape with another shape to produce a new shape, with the current shape's dimensions taking precedence.
-
-        Two dimensions are merged as follows:
-        - If both dimensions are equal, the merged dimension is the same.
-        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
-        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
-        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
-
-        .. versionadded:: 0.1.14
-
-        Args:
-            other: The other shape to merge with.
-
-        Returns:
-            A new shape that is the result of merging this shape with the other shape.
-
-        Raises:
-            ValueError: If the shapes have different ranks.
-        """
-        if other is None:
-            return self.copy()
-
-        if len(self) != len(other):
-            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
-
-        def merge_dims(dim1, dim2):
-            if dim1 == dim2:
-                return dim1
-            if isinstance(dim1, int) and isinstance(dim2, int):
-                raise ValueError(  # noqa: TRY004
-                    f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
-                    f"{self} and {other}."
-                )
-            if not isinstance(dim1, SymbolicDim):
-                return dim1  # Prefer int value over symbolic dim
-            if not isinstance(dim2, SymbolicDim):
-                return dim2
-            if dim1.value is None:
-                return dim2
-            return dim1
-
-        return Shape([merge_dims(dim1, dim2) for dim1, dim2 in zip(self, other)])
-
     def rank(self) -> int:
         """The rank of the tensor this shape represents."""
         return len(self._dims)
@@ -2640,6 +2596,60 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
 
         for user_node, index in self.uses():
             user_node.replace_input_with(index, replacement)
+
+    def merge_shapes(self, other: Shape | None, /) -> None:
+        """Merge the shape of this value with another shape to update the exising shape, with the current shape's dimensions taking precedence.
+
+        Two dimensions are merged as follows:
+        - If both dimensions are equal, the merged dimension is the same.
+        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+
+        .. versionadded:: 0.1.14
+
+        Args:
+            other: The other shape to merge with.
+
+        Returns:
+            A new shape that is the result of merging this shape with the other shape.
+
+        Raises:
+            ValueError: If the shapes have different ranks.
+            ValueError: If there are conflicting concrete dimensions.
+        """
+        if other is None:
+            return
+
+        self_shape = self.shape
+        if self_shape is None:
+            self._shape = other.copy()
+            return
+
+        if self_shape.frozen:
+            self_shape = self_shape.copy()
+
+        if len(self_shape) != len(other):
+            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
+
+        def merge_dims(dim1, dim2):
+            if dim1 == dim2:
+                return dim1
+            if isinstance(dim1, int) and isinstance(dim2, int):
+                raise ValueError(  # noqa: TRY004
+                    f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
+                    f"{self} and {other}."
+                )
+            if not isinstance(dim1, SymbolicDim):
+                return dim1  # Prefer int value over symbolic dim
+            if not isinstance(dim2, SymbolicDim):
+                return dim2
+            if dim1.value is None:
+                return dim2
+            return dim1
+
+        for i, (dim1, dim2) in enumerate(zip(self_shape, other)):
+            self_shape[i] = merge_dims(dim1, dim2)
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
