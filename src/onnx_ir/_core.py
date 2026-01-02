@@ -2318,7 +2318,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     Use :attr:`graph` to get the graph that owns the value.
 
     .. note:: Magic methods
-        Only the basic arithmetic magic methods are supported on types.
+        Only the basic arithmetic magic methods are supported on Values.
 
         Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
         For consistency, none of the other comparison operators are included.
