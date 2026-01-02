@@ -2188,7 +2188,7 @@ class _OpHandlerProtocol(Protocol):
     """Protocol for an object that can handle magic methods on Values.
 
     .. note::
-        Only the basic arithmetic magic methods are supported on types.
+        Only the basic arithmetic magic methods are supported on Values.
 
         Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
         For consistency, none of the other comparison operators are included.
