@@ -86,6 +86,8 @@ __all__ = [
     "save",
     # Flags
     "DEBUG",
+    # Others
+    "set_value_magic_handler",
 ]
 
 import types
@@ -128,6 +130,7 @@ from onnx_ir._core import (
     TensorType,
     TypeAndShape,
     Value,
+    set_value_magic_handler,
 )
 from onnx_ir._enums import (
     AttributeType,

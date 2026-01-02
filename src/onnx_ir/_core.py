@@ -37,8 +37,10 @@ from collections.abc import (
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Generic,
     NamedTuple,
+    Protocol,
     SupportsInt,
     Union,
 )
@@ -2182,7 +2184,116 @@ class OptionalType(_RecursiveTypeBase):
     """A type that represents an optional element."""
 
 
-class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
+class _OpHandlerProtocol(Protocol):
+    """Protocol for an object that can handle magic methods on Values.
+
+    .. note::
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+    """
+
+    def add_handler(self, lhs, rhs) -> Value: ...
+    def sub_handler(self, lhs, rhs) -> Value: ...
+    def mul_handler(self, lhs, rhs) -> Value: ...
+    def truediv_handler(self, lhs, rhs) -> Value: ...
+    def neg_handler(self, operand) -> Value: ...
+    def radd_handler(self, lhs, rhs) -> Value: ...
+    def rsub_handler(self, lhs, rhs) -> Value: ...
+    def rmul_handler(self, lhs, rhs) -> Value: ...
+    def rtruediv_handler(self, lhs, rhs) -> Value: ...
+
+
+def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
+    """Set the magic handler for Value arithmetic methods.
+
+    This context manager sets the magic handler for Value arithmetic methods
+    within the context. After exiting the context, the magic handler is reset
+    to None.
+
+    Framework authors can implement custom context managers that set
+    the magic handler to enable arithmetic operations on Values.
+
+    Args:
+        handler: The magic handler to set.
+
+    Returns:
+        The previous magic handler.
+
+    Example::
+        class MyOpHandler:
+            def add_handler(self, lhs, rhs):
+                # Implement addition logic here
+                pass
+            ...
+
+        @contextlib.contextmanager
+        def graph_context(graph):
+            old_handler = onnx_ir.set_value_magic_handler(MyOpHandler(graph))
+            try:
+                yield
+            finally:
+                onnx_ir.set_value_magic_handler(old_handler)
+    """
+    old_handler = WithArithmeticMethods._magic_handler
+    WithArithmeticMethods._magic_handler = handler
+    return old_handler
+
+
+class WithArithmeticMethods:
+    """Mixin class that adds arithmetic methods to Value.
+
+    This class is used to add arithmetic methods to Value that support arithmetic operations.
+    """
+
+    _magic_handler: ClassVar[_OpHandlerProtocol | None] = None
+
+    def _check_magic_handler(self):
+        if self._magic_handler is None:
+            raise ValueError(
+                "No magic handler is set. Please use 'onnx_ir.set_value_magic_handler' to set a handler."
+            )
+
+    # Magic methods for arithmetic operations
+    def __add__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.add_handler(self, other)  # type: ignore[union-attr]
+
+    def __sub__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.sub_handler(self, other)  # type: ignore[union-attr]
+
+    def __mul__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.mul_handler(self, other)  # type: ignore[union-attr]
+
+    def __truediv__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.truediv_handler(self, other)  # type: ignore[union-attr]
+
+    def __neg__(self):
+        self._check_magic_handler()
+        return self._magic_handler.neg_handler(self)  # type: ignore[union-attr]
+
+    def __radd__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.radd_handler(self, other)  # type: ignore[union-attr]
+
+    def __rsub__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.rsub_handler(self, other)  # type: ignore[union-attr]
+
+    def __rmul__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.rmul_handler(self, other)  # type: ignore[union-attr]
+
+    def __rtruediv__(self, other, /):
+        self._check_magic_handler()
+        return self._magic_handler.rtruediv_handler(self, other)  # type: ignore[union-attr]
+
+
+class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrintable):
     """IR Value.
 
     A value is a named entity that can be used to represent an input or output of a graph,
@@ -2205,6 +2316,16 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     use :meth:`is_graph_input`, :meth:`is_graph_output` or :meth:`is_initializer`.
 
     Use :attr:`graph` to get the graph that owns the value.
+
+    .. note:: Magic methods
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+
+    .. versionadded:: 0.1.14
+        Value now supports arithmetic magic methods within the context manager
+        :func:`onnx_ir.set_value_magic_handler`.
     """
 
     __slots__ = (
