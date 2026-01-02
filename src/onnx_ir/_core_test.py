@@ -1219,16 +1219,12 @@ class ShapeTest(unittest.TestCase):
         merged = shape1.merge(shape2)
         self.assertEqual(merged, ["batch", 128, 3])
 
-    def test_merge_with_conflicting_concrete_dimensions_takes_shape1(self):
+    def test_merge_with_conflicting_concrete_dimensions_raises(self):
         shape1 = _core.Shape([64, 128, 3])
         shape2 = _core.Shape([32, 128, 3])
-        with unittest.mock.patch("onnx_ir._core.logger.warning") as mock_warning:
+        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
             merged = shape1.merge(shape2)
             self.assertEqual(merged, [64, 128, 3])
-            # Verify warning was called
-            mock_warning.assert_called_once()
-            args = mock_warning.call_args[0]
-            self.assertIn("Conflicting dimensions", args[0])
 
     def test_merge_with_mixed_dimensions(self):
         shape1 = _core.Shape([64, "seq_len", 3, None])

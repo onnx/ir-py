@@ -1468,17 +1468,10 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
             if dim1 == dim2:
                 return dim1
             if isinstance(dim1, int) and isinstance(dim2, int):
-                logger.warning(
-                    "Conflicting dimensions %s and %s when merging shapes %s and %s. "
-                    "Taking the dimension from the current shape: %s.",
-                    dim1,
-                    dim2,
-                    self,
-                    other,
-                    dim1,
-                    stacklevel=3,
+                raise ValueError(  # noqa: TRY004
+                    f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
+                    f"{self} and {other}."
                 )
-                return dim1
             if not isinstance(dim1, SymbolicDim):
                 return dim1  # Prefer int value over symbolic dim
             if not isinstance(dim2, SymbolicDim):
