@@ -1328,12 +1328,16 @@ class ValueTest(unittest.TestCase):
 
 
 class SetValueMagicHandlerTest(unittest.TestCase):
-    """Tests for the set_value_magic_handler context manager and Value arithmetic operations."""
+    """Tests for the set_value_magic_handler function and Value arithmetic operations."""
 
     def setUp(self):
         """Create test values for arithmetic operations."""
         self.value1 = ir.Value(name="value1")
         self.value2 = ir.Value(name="value2")
+
+    def tearDown(self):
+        """Reset the handler after each test."""
+        ir.set_value_magic_handler(None)
 
     def test_raises_error_when_no_handler_set(self):
         """Test that arithmetic operations raise an error when no handler is set."""
@@ -1357,8 +1361,8 @@ class SetValueMagicHandlerTest(unittest.TestCase):
             _ = -self.value1
         self.assertIn("No magic handler is set", str(cm.exception))
 
-    def test_sets_and_resets_handler(self):
-        """Test that the context manager properly sets and resets the handler."""
+    def test_sets_and_returns_old_handler(self):
+        """Test that the function properly sets and returns the old handler."""
         # Handler should be None initially
         self.assertIsNone(_core.WithArithmeticMethods._magic_handler)
 
@@ -1367,26 +1371,37 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 return ir.Value(name="add_result")
 
         handler = MockHandler()
-        with ir.set_value_magic_handler(handler):
-            # Handler should be set within the context
-            self.assertIs(_core.WithArithmeticMethods._magic_handler, handler)
+        old_handler = ir.set_value_magic_handler(handler)
 
-        # Handler should be reset to None after exiting the context
+        # Old handler should be None
+        self.assertIsNone(old_handler)
+        # Handler should be set
+        self.assertIs(_core.WithArithmeticMethods._magic_handler, handler)
+
+        # Reset handler
+        ir.set_value_magic_handler(None)
         self.assertIsNone(_core.WithArithmeticMethods._magic_handler)
 
-    def test_resets_handler_on_exception(self):
-        """Test that the handler is properly reset even when an exception occurs."""
+    def test_returns_previous_handler(self):
+        """Test that the function returns the previous handler when setting a new one."""
 
-        class MockHandler:
-            def add_handler(self, lhs, rhs):
-                raise RuntimeError("Test error")
+        class Handler1:
+            pass
 
-        handler = MockHandler()
-        with self.assertRaises(RuntimeError), ir.set_value_magic_handler(handler):
-            _ = self.value1 + self.value2
+        class Handler2:
+            pass
 
-        # Handler should be reset to None even after an exception
-        self.assertIsNone(_core.WithArithmeticMethods._magic_handler)
+        handler1 = Handler1()
+        handler2 = Handler2()
+
+        # Set first handler
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIsNone(old)
+
+        # Set second handler, should return first
+        old = ir.set_value_magic_handler(handler2)
+        self.assertIs(old, handler1)
+        self.assertIs(_core.WithArithmeticMethods._magic_handler, handler2)
 
     def test_add_handler(self):
         """Test the __add__ magic method."""
@@ -1398,11 +1413,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 result.rhs = rhs
                 return result
 
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1 + self.value2
-            self.assertEqual(result.name, "add_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, self.value2)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 + self.value2
+        self.assertEqual(result.name, "add_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
 
     def test_sub_handler(self):
         """Test the __sub__ magic method."""
@@ -1414,11 +1429,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 result.rhs = rhs
                 return result
 
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1 - self.value2
-            self.assertEqual(result.name, "sub_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, self.value2)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 - self.value2
+        self.assertEqual(result.name, "sub_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
 
     def test_mul_handler(self):
         """Test the __mul__ magic method."""
@@ -1430,11 +1445,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 result.rhs = rhs
                 return result
 
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1 * self.value2
-            self.assertEqual(result.name, "mul_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, self.value2)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 * self.value2
+        self.assertEqual(result.name, "mul_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
 
     def test_truediv_handler(self):
         """Test the __truediv__ magic method."""
@@ -1446,11 +1461,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 result.rhs = rhs
                 return result
 
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1 / self.value2
-            self.assertEqual(result.name, "div_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, self.value2)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 / self.value2
+        self.assertEqual(result.name, "div_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
 
     def test_neg_handler(self):
         """Test the __neg__ magic method."""
@@ -1461,10 +1476,10 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 result.operand = operand
                 return result
 
-        with ir.set_value_magic_handler(MockHandler()):
-            result = -self.value1
-            self.assertEqual(result.name, "neg_result")
-            self.assertIs(result.operand, self.value1)
+        ir.set_value_magic_handler(MockHandler())
+        result = -self.value1
+        self.assertEqual(result.name, "neg_result")
+        self.assertIs(result.operand, self.value1)
 
     def test_radd_handler(self):
         """Test the __radd__ magic method."""
@@ -1481,12 +1496,12 @@ class SetValueMagicHandlerTest(unittest.TestCase):
             pass
 
         mock_obj = MockObject()
-        with ir.set_value_magic_handler(MockHandler()):
-            # When mock_obj + value1 is called, it should fall back to value1.__radd__(mock_obj)
-            result = self.value1.__radd__(mock_obj)
-            self.assertEqual(result.name, "radd_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, mock_obj)
+        ir.set_value_magic_handler(MockHandler())
+        # When mock_obj + value1 is called, it should fall back to value1.__radd__(mock_obj)
+        result = self.value1.__radd__(mock_obj)
+        self.assertEqual(result.name, "radd_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, mock_obj)
 
     def test_rsub_handler(self):
         """Test the __rsub__ magic method."""
@@ -1502,11 +1517,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
             pass
 
         mock_obj = MockObject()
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1.__rsub__(mock_obj)
-            self.assertEqual(result.name, "rsub_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, mock_obj)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1.__rsub__(mock_obj)
+        self.assertEqual(result.name, "rsub_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, mock_obj)
 
     def test_rmul_handler(self):
         """Test the __rmul__ magic method."""
@@ -1522,11 +1537,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
             pass
 
         mock_obj = MockObject()
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1.__rmul__(mock_obj)
-            self.assertEqual(result.name, "rmul_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, mock_obj)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1.__rmul__(mock_obj)
+        self.assertEqual(result.name, "rmul_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, mock_obj)
 
     def test_rtruediv_handler(self):
         """Test the __rtruediv__ magic method."""
@@ -1542,11 +1557,11 @@ class SetValueMagicHandlerTest(unittest.TestCase):
             pass
 
         mock_obj = MockObject()
-        with ir.set_value_magic_handler(MockHandler()):
-            result = self.value1.__rtruediv__(mock_obj)
-            self.assertEqual(result.name, "rdiv_result")
-            self.assertIs(result.lhs, self.value1)
-            self.assertIs(result.rhs, mock_obj)
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1.__rtruediv__(mock_obj)
+        self.assertEqual(result.name, "rdiv_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, mock_obj)
 
     def test_all_handler_methods_required(self):
         """Test that all handler methods are called correctly."""
@@ -1592,16 +1607,16 @@ class SetValueMagicHandlerTest(unittest.TestCase):
                 return ir.Value(name="result")
 
         handler = CompleteHandler()
-        with ir.set_value_magic_handler(handler):
-            _ = self.value1 + self.value2
-            _ = self.value1 - self.value2
-            _ = self.value1 * self.value2
-            _ = self.value1 / self.value2
-            _ = -self.value1
-            _ = self.value1.__radd__(self.value2)
-            _ = self.value1.__rsub__(self.value2)
-            _ = self.value1.__rmul__(self.value2)
-            _ = self.value1.__rtruediv__(self.value2)
+        ir.set_value_magic_handler(handler)
+        _ = self.value1 + self.value2
+        _ = self.value1 - self.value2
+        _ = self.value1 * self.value2
+        _ = self.value1 / self.value2
+        _ = -self.value1
+        _ = self.value1.__radd__(self.value2)
+        _ = self.value1.__rsub__(self.value2)
+        _ = self.value1.__rmul__(self.value2)
+        _ = self.value1.__rtruediv__(self.value2)
 
         # Verify all methods were called
         self.assertEqual(len(handler.calls), 9)
@@ -1615,8 +1630,8 @@ class SetValueMagicHandlerTest(unittest.TestCase):
         self.assertEqual(handler.calls[7][0], "rmul")
         self.assertEqual(handler.calls[8][0], "rtruediv")
 
-    def test_nested_context_managers(self):
-        """Test that nested context managers work correctly."""
+    def test_handler_swap(self):
+        """Test swapping handlers using the return value."""
 
         class Handler1:
             def add_handler(self, lhs, rhs):
@@ -1629,19 +1644,27 @@ class SetValueMagicHandlerTest(unittest.TestCase):
         handler1 = Handler1()
         handler2 = Handler2()
 
-        with ir.set_value_magic_handler(handler1):
-            result1 = self.value1 + self.value2
-            self.assertEqual(result1.name, "handler1_result")
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIsNone(old)
+        result1 = self.value1 + self.value2
+        self.assertEqual(result1.name, "handler1_result")
 
-            with ir.set_value_magic_handler(handler2):
-                result2 = self.value1 + self.value2
-                self.assertEqual(result2.name, "handler2_result")
+        old = ir.set_value_magic_handler(handler2)
+        self.assertIs(old, handler1)
+        result2 = self.value1 + self.value2
+        self.assertEqual(result2.name, "handler2_result")
 
-            # Should be back to handler1
-            result3 = self.value1 + self.value2
-            self.assertEqual(result3.name, "handler1_result")
+        # Restore handler1
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIs(old, handler2)
+        result3 = self.value1 + self.value2
+        self.assertEqual(result3.name, "handler1_result")
 
-        # Should be back to None
+        # Reset to None
+        old = ir.set_value_magic_handler(None)
+        self.assertIs(old, handler1)
+
+        # Should raise error with no handler
         with self.assertRaises(ValueError):
             _ = self.value1 + self.value2
 
