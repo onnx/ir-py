@@ -2598,7 +2598,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
             user_node.replace_input_with(index, replacement)
 
     def merge_shapes(self, other: Shape | None, /) -> None:
-        """Merge the shape of this value with another shape to update the exising shape, with the current shape's dimensions taking precedence.
+        """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
 
         Two dimensions are merged as follows:
         - If both dimensions are equal, the merged dimension is the same.
