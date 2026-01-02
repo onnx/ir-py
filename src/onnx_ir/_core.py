@@ -2190,7 +2190,7 @@ class _OpHandlerProtocol(Protocol):
     .. note::
         Only the basic arithmetic magic methods are supported on types.
 
-        ``__eq__`` is not included because Values may need to be compared for identity.
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
         For consistency, none of the other comparison operators are included.
     """
 
@@ -2313,7 +2313,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     .. note:: Magic methods
         Only the basic arithmetic magic methods are supported on types.
 
-        ``__eq__`` is not included because Values may need to be compared for identity.
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
         For consistency, none of the other comparison operators are included.
 
     .. versionadded:: 0.1.14
