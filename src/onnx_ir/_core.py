@@ -2205,33 +2205,40 @@ class _OpHandlerProtocol(Protocol):
     def rtruediv_handler(self, lhs, rhs) -> Value: ...
 
 
-@contextlib.contextmanager
-def set_value_magic_handler(handler: _OpHandlerProtocol) -> Iterator[None]:
-    """Context manager to set the magic handler for Value arithmetic methods.
+def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
+    """Set the magic handler for Value arithmetic methods.
 
     This context manager sets the magic handler for Value arithmetic methods
     within the context. After exiting the context, the magic handler is reset
     to None.
 
+    Framework authors can implement custom context managers that set
+    the magic handler to enable arithmetic operations on Values.
+
     Args:
         handler: The magic handler to set.
 
-    Example::
-        class MyMagicHandler:
-            def add_handler(self, lhs, rhs):
-                # Custom implementation for addition
-                print("Adding", lhs, "and", rhs)
+    Returns:
+        The previous magic handler.
 
-        with onnx_ir.set_value_magic_handler(MyMagicHandler()):
-            # Value arithmetic methods will use MyMagicHandler
-            result = value1 + value2
+    Example::
+        class MyOpHandler:
+            def add_handler(self, lhs, rhs):
+                # Implement addition logic here
+                pass
+            ...
+
+        @contextlib.contextmanager
+        def graph_context(graph):
+            old_handler = onnx_ir.set_value_magic_handler(MyOpHandler(graph))
+            try:
+                yield
+            finally:
+                onnx_ir.set_value_magic_handler(old_handler)
     """
     old_handler = WithArithmeticMethods._magic_handler
     WithArithmeticMethods._magic_handler = handler
-    try:
-        yield
-    finally:
-        WithArithmeticMethods._magic_handler = old_handler
+    return old_handler
 
 
 class WithArithmeticMethods:
