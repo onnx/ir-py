@@ -2621,15 +2621,15 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         if other is None:
             return
 
-        self_shape = self.shape
-        if self_shape is None:
+        merged_shape = self.shape
+        if merged_shape is None:
             self._shape = other.copy()
             return
 
-        if self_shape.frozen:
-            self_shape = self_shape.copy()
+        if merged_shape.frozen:
+            merged_shape = merged_shape.copy()
 
-        if len(self_shape) != len(other):
+        if len(merged_shape) != len(other):
             raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
 
         def merge_dims(dim1, dim2):
@@ -2648,10 +2648,10 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
                 return dim2
             return dim1
 
-        for i, (dim1, dim2) in enumerate(zip(self_shape, other)):
-            self_shape[i] = merge_dims(dim1, dim2)
+        for i, (dim1, dim2) in enumerate(zip(merged_shape, other)):
+            merged_shape[i] = merge_dims(dim1, dim2)
 
-        self._shape = self_shape
+        self._shape = merged_shape
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
