@@ -2249,48 +2249,40 @@ class WithArithmeticMethods:
 
     _magic_handler: ClassVar[_OpHandlerProtocol | None] = None
 
-    def _check_magic_handler(self):
+    def _get_magic_handler(self):
         if self._magic_handler is None:
             raise ValueError(
                 "No magic handler is set. Please use 'onnx_ir.set_value_magic_handler' to set a handler."
             )
+        return self._magic_handler
 
     # Magic methods for arithmetic operations
     def __add__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.add_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().add_handler(self, other)  # type: ignore[union-attr]
 
     def __sub__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.sub_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().sub_handler(self, other)  # type: ignore[union-attr]
 
     def __mul__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.mul_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().mul_handler(self, other)  # type: ignore[union-attr]
 
     def __truediv__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.truediv_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().truediv_handler(self, other)  # type: ignore[union-attr]
 
     def __neg__(self):
-        self._check_magic_handler()
-        return self._magic_handler.neg_handler(self)  # type: ignore[union-attr]
+        return self._get_magic_handler().neg_handler(self)  # type: ignore[union-attr]
 
     def __radd__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.radd_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().radd_handler(self, other)  # type: ignore[union-attr]
 
     def __rsub__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.rsub_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().rsub_handler(self, other)  # type: ignore[union-attr]
 
     def __rmul__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.rmul_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().rmul_handler(self, other)  # type: ignore[union-attr]
 
     def __rtruediv__(self, other, /):
-        self._check_magic_handler()
-        return self._magic_handler.rtruediv_handler(self, other)  # type: ignore[union-attr]
+        return self._get_magic_handler().rtruediv_handler(self, other)  # type: ignore[union-attr]
 
 
 class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrintable):
