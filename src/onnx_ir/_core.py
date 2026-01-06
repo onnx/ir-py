@@ -2707,10 +2707,10 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
         Two dimensions are merged as follows:
 
-        - If both dimensions are equal, the merged dimension is the same.
-        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
-        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
-        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+        * If both dimensions are equal, the merged dimension is the same.
+        * If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        * If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        * In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
 
         .. versionadded:: 0.1.14
 
