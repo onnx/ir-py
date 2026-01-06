@@ -42,7 +42,7 @@ passes = ir.passes.PassManager(
             [
                 common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
                 common_passes.CommonSubexpressionEliminationPass(),
-            ]
+            ],
             steps=2,
             early_stop=True,
         ),
