@@ -266,6 +266,31 @@ class PassManager(Sequential):
 
     The PassManager is a Pass that runs a sequence of passes on a model.
 
+    Example::
+        import onnx_ir as ir
+        import onnx_ir.passes.common as common_passes
+
+        model = ir.load("model.onnx")
+        passes = ir.passes.PassManager(
+            [
+                # Pass managers can be nested
+                ir.passes.PassManager(
+                    [
+                        common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+                        common_passes.CommonSubexpressionEliminationPass(),
+                    ],
+                    steps=2,
+                    early_stop=True,
+                ),
+                common_passes.ClearMetadataAndDocStringPass(),
+            ],
+            steps=2,
+            early_stop=False,
+        )
+
+        # Apply the passes to the model
+        result = passes(model)
+
     Attributes:
         passes: The passes to run.
         steps: The number of times to run the passes.
