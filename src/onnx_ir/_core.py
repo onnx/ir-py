@@ -2210,12 +2210,6 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
     Framework authors can implement custom context managers that set
     the magic handler to enable arithmetic operations on Values.
 
-    Args:
-        handler: The magic handler to set.
-
-    Returns:
-        The previous magic handler.
-
     Example::
         class MyOpHandler:
             def Add(self, lhs, rhs):
@@ -2230,6 +2224,12 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
                 yield
             finally:
                 onnx_ir.set_value_magic_handler(old_handler)
+
+    Args:
+        handler: The magic handler to set.
+
+    Returns:
+        The previous magic handler.
     """
     old_handler = WithArithmeticMethods._magic_handler
     WithArithmeticMethods._magic_handler = handler
