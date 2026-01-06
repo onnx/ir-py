@@ -27,7 +27,7 @@ result = passes(model)
 result = common_passes.ClearMetadataAndDocStringPass()(result)
 
 print("The model was modified:", result.modified)
-ir.save(result.model)
+ir.save(result.model, "model.onnx")
 ```
 
 For more advanced use cases, you can use {py:class}`onnx_ir.passes.PassManager <onnx_ir.passes.PassManager>` to orchestrate passes with automatic iteration until convergence:
