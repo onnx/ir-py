@@ -6,7 +6,7 @@
 
 ## Use built-in passes
 
-Common, reusable passes are implemented in :module:`onnx_ir.passes.common`. You can use {py:class}`onnx_ir.passes.Sequential <onnx_ir.passes.Sequential>` to chain passes or use {py:class}`onnx_ir.passes.PassManager <onnx_ir.passes.PassManager>` which supports early stopping if no changes are made.
+Common, reusable passes are implemented in {py:module}`onnx_ir.passes.common`. You can use {py:class}`onnx_ir.passes.Sequential <onnx_ir.passes.Sequential>` to chain passes or use {py:class}`onnx_ir.passes.PassManager <onnx_ir.passes.PassManager>` which supports early stopping if no changes are made.
 
 ### Example
 
@@ -28,6 +28,25 @@ result = common_passes.ClearMetadataAndDocStringPass()(result)
 
 print("The model was modified:", result.modified)
 ir.save(result.model)
+```
+
+For more advanced usages, you can use the `{py:class}`onnx_ir.passes.PassManager <onnx_ir.passes.PassManager>` to orchestrate the passes:
+
+
+```py
+model = ir.load("model.onnx")
+
+passes = ir.passes.PassManager(
+    ir.passes.PassManager([
+        common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+        common_passes.CommonSubexpressionEliminationPass(),
+        steps=2,
+        early_stop=True,
+    ]),
+    common_passes.ClearMetadataAndDocStringPass(),
+)
+
+result = passes(model)
 ```
 
 ## Pass infrastructure
