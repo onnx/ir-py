@@ -210,7 +210,19 @@ class FunctionalPass(PassBase):
 
 
 class Sequential(PassBase):
-    """Run a sequence of passes in order."""
+    """Run a sequence of passes in order.
+
+    Example::
+        import onnx_ir as ir
+        import onnx_ir.passes.common as common_passes
+
+        passes = ir.passes.Sequential(
+            common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+            common_passes.CommonSubexpressionEliminationPass(),
+            common_passes.ClearMetadataAndDocStringPass(),
+        )
+        result = passes(model)
+    """
 
     def __init__(self, *passes: PassBase):
         if not passes:
