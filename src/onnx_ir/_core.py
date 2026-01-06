@@ -38,8 +38,10 @@ from collections.abc import (
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Generic,
     NamedTuple,
+    Protocol,
     SupportsInt,
     Union,
 )
@@ -2185,7 +2187,104 @@ class OptionalType(_RecursiveTypeBase):
     """A type that represents an optional element."""
 
 
-class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
+class _OpHandlerProtocol(Protocol):
+    """Protocol for an object that can handle magic methods on Values.
+
+    .. note::
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+    """
+
+    def Add(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Sub(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Mul(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Div(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Neg(self, operand) -> Value: ...  # noqa: N802
+
+
+def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
+    """Set the magic handler for Value arithmetic methods.
+
+    This context manager sets the magic handler for Value arithmetic methods
+    within the context. After exiting the context, the magic handler is reset
+    to None.
+
+    Framework authors can implement custom context managers that set
+    the magic handler to enable arithmetic operations on Values.
+
+    Args:
+        handler: The magic handler to set.
+
+    Returns:
+        The previous magic handler.
+
+    Example::
+        class MyOpHandler:
+            def Add(self, lhs, rhs):
+                # Implement addition logic here
+                pass
+            ...
+
+        @contextlib.contextmanager
+        def graph_context(graph):
+            old_handler = onnx_ir.set_value_magic_handler(MyOpHandler(graph))
+            try:
+                yield
+            finally:
+                onnx_ir.set_value_magic_handler(old_handler)
+    """
+    old_handler = WithArithmeticMethods._magic_handler
+    WithArithmeticMethods._magic_handler = handler
+    return old_handler
+
+
+class WithArithmeticMethods:
+    """Mixin class that adds arithmetic methods to Value.
+
+    This class is used to add arithmetic methods to Value that support arithmetic operations.
+    """
+
+    _magic_handler: ClassVar[_OpHandlerProtocol | None] = None
+
+    def _get_magic_handler(self):
+        if self._magic_handler is None:
+            raise ValueError(
+                "No magic handler is set. Please use 'onnx_ir.set_value_magic_handler' to set a handler."
+            )
+        return self._magic_handler
+
+    # Magic methods for arithmetic operations
+    def __add__(self, other, /):
+        return self._get_magic_handler().Add(self, other)  # type: ignore[union-attr]
+
+    def __sub__(self, other, /):
+        return self._get_magic_handler().Sub(self, other)  # type: ignore[union-attr]
+
+    def __mul__(self, other, /):
+        return self._get_magic_handler().Mul(self, other)  # type: ignore[union-attr]
+
+    def __truediv__(self, other, /):
+        return self._get_magic_handler().Div(self, other)  # type: ignore[union-attr]
+
+    def __neg__(self):
+        return self._get_magic_handler().Neg(self)  # type: ignore[union-attr]
+
+    def __radd__(self, other, /):
+        return self._get_magic_handler().Add(other, self)  # type: ignore[union-attr]
+
+    def __rsub__(self, other, /):
+        return self._get_magic_handler().Sub(other, self)  # type: ignore[union-attr]
+
+    def __rmul__(self, other, /):
+        return self._get_magic_handler().Mul(other, self)  # type: ignore[union-attr]
+
+    def __rtruediv__(self, other, /):
+        return self._get_magic_handler().Div(other, self)  # type: ignore[union-attr]
+
+
+class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrintable):
     """IR Value.
 
     A value is a named entity that can be used to represent an input or output of a graph,
@@ -2208,6 +2307,16 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     use :meth:`is_graph_input`, :meth:`is_graph_output` or :meth:`is_initializer`.
 
     Use :attr:`graph` to get the graph that owns the value.
+
+    .. note:: Magic methods
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+
+    .. versionadded:: 0.1.14
+        Value now supports arithmetic magic methods within the context manager
+        :func:`onnx_ir.set_value_magic_handler`.
     """
 
     __slots__ = (
@@ -2655,7 +2764,7 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
-def Input(
+def Input(  # noqa: N802
     name: str | None = None,
     shape: Shape | None = None,
     type: _protocols.TypeProtocol | None = None,
@@ -4111,7 +4220,7 @@ class Attr(
 # NOTE: The following functions are just for convenience
 
 
-def RefAttr(
+def RefAttr(  # noqa: N802
     name: str,
     ref_attr_name: str,
     type: _enums.AttributeType,
@@ -4132,7 +4241,7 @@ def RefAttr(
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4143,7 +4252,7 @@ def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = 
     )
 
 
-def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4154,7 +4263,7 @@ def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None)
     )
 
 
-def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:
+def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a str attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4165,7 +4274,7 @@ def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrTensor(
+def AttrTensor(  # noqa: N802
     name: str, value: _protocols.TensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a tensor attribute."""
@@ -4178,7 +4287,7 @@ def AttrTensor(
     )
 
 
-def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:
+def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a graph attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4189,7 +4298,7 @@ def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:
+def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a float sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4200,7 +4309,7 @@ def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = Non
     )
 
 
-def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:
+def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create an int sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4211,7 +4320,7 @@ def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -
     )
 
 
-def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:
+def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a string sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4222,7 +4331,7 @@ def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) 
     )
 
 
-def AttrTensors(
+def AttrTensors(  # noqa: N802
     name: str, value: Sequence[_protocols.TensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a tensor sequence attribute."""
@@ -4235,7 +4344,7 @@ def AttrTensors(
     )
 
 
-def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:
+def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a graph sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4247,7 +4356,7 @@ def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None)
 
 
 # NOTE: SparseTensor should be a sparse tensor proto
-def AttrSparseTensor(
+def AttrSparseTensor(  # noqa: N802
     name: str, value: _protocols.SparseTensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor attribute."""
@@ -4260,7 +4369,7 @@ def AttrSparseTensor(
     )
 
 
-def AttrSparseTensors(
+def AttrSparseTensors(  # noqa: N802
     name: str, value: Sequence[_protocols.SparseTensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor sequence attribute."""
@@ -4284,7 +4393,7 @@ class TypeAndShape:
     shape: Shape | None
 
 
-def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:
+def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a type attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4295,7 +4404,7 @@ def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None)
     )
 
 
-def AttrTypeProtos(
+def AttrTypeProtos(  # noqa: N802
     name: str, value: Sequence[TypeAndShape], doc_string: str | None = None
 ) -> Attr:
     """Create a type sequence attribute."""
