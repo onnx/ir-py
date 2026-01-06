@@ -2207,18 +2207,8 @@ class _OpHandlerProtocol(Protocol):
 def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
     """Set the magic handler for Value arithmetic methods.
 
-    This context manager sets the magic handler for Value arithmetic methods
-    within the context. After exiting the context, the magic handler is reset
-    to None.
-
     Framework authors can implement custom context managers that set
     the magic handler to enable arithmetic operations on Values.
-
-    Args:
-        handler: The magic handler to set.
-
-    Returns:
-        The previous magic handler.
 
     Example::
         class MyOpHandler:
@@ -2234,6 +2224,12 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
                 yield
             finally:
                 onnx_ir.set_value_magic_handler(old_handler)
+
+    Args:
+        handler: The magic handler to set.
+
+    Returns:
+        The previous magic handler.
     """
     old_handler = WithArithmeticMethods._magic_handler
     WithArithmeticMethods._magic_handler = handler
@@ -2315,7 +2311,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         For consistency, none of the other comparison operators are included.
 
     .. versionadded:: 0.1.14
-        Value now supports arithmetic magic methods within the context manager
+        Value now supports arithmetic magic methods when a handler is set via
         :func:`onnx_ir.set_value_magic_handler`.
     """
 
@@ -2710,10 +2706,11 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
 
         Two dimensions are merged as follows:
-        - If both dimensions are equal, the merged dimension is the same.
-        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
-        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
-        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+
+        * If both dimensions are equal, the merged dimension is the same.
+        * If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        * If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        * In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
 
         .. versionadded:: 0.1.14
 
