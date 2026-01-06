@@ -36,16 +36,18 @@ For more advanced use cases, you can use {py:class}`onnx_ir.passes.PassManager <
 model = ir.load("model.onnx")
 
 passes = ir.passes.PassManager(
-    # Pass managers can be nested
-    ir.passes.PassManager(
-        [
-            common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
-            common_passes.CommonSubexpressionEliminationPass(),
-        ]
-        steps=2,
-        early_stop=True,
-    ),
-    common_passes.ClearMetadataAndDocStringPass(),
+    [
+        # Pass managers can be nested
+        ir.passes.PassManager(
+            [
+                common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+                common_passes.CommonSubexpressionEliminationPass(),
+            ]
+            steps=2,
+            early_stop=True,
+        ),
+        common_passes.ClearMetadataAndDocStringPass(),
+    ],
     steps=2,
     early_stop=False,
 )
