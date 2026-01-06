@@ -2311,7 +2311,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         For consistency, none of the other comparison operators are included.
 
     .. versionadded:: 0.1.14
-        Value now supports arithmetic magic methods when a magic handler is set via
+        Value now supports arithmetic magic methods when a handler is set via
         :func:`onnx_ir.set_value_magic_handler`.
     """
 
