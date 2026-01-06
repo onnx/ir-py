@@ -2211,6 +2211,7 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
     the magic handler to enable arithmetic operations on Values.
 
     Example::
+
         class MyOpHandler:
             def Add(self, lhs, rhs):
                 # Implement addition logic here
