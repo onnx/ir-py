@@ -2706,6 +2706,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
 
         Two dimensions are merged as follows:
+
         - If both dimensions are equal, the merged dimension is the same.
         - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
         - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
