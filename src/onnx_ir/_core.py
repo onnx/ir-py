@@ -16,6 +16,7 @@ import abc
 import contextlib
 import dataclasses
 import heapq
+import logging
 import math
 import mmap
 import os
@@ -88,6 +89,8 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.UINT2,
     )
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _compatible_with_numpy(obj: Any) -> TypeGuard[_protocols.ArrayCompatible]:
@@ -2702,6 +2705,62 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
         for user_node, index in self.uses():
             user_node.replace_input_with(index, replacement)
+
+    def merge_shapes(self, other: Shape | None, /) -> None:
+        """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
+
+        Two dimensions are merged as follows:
+        - If both dimensions are equal, the merged dimension is the same.
+        - If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        - If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        - In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+
+        .. versionadded:: 0.1.14
+
+        Args:
+            other: The other shape to merge with.
+
+        Returns:
+            A new shape that is the result of merging this shape with the other shape.
+
+        Raises:
+            ValueError: If the shapes have different ranks.
+            ValueError: If there are conflicting concrete dimensions.
+        """
+        if other is None:
+            return
+
+        merged_shape = self.shape
+        if merged_shape is None:
+            self._shape = other.copy()
+            return
+
+        if merged_shape.frozen:
+            merged_shape = merged_shape.copy()
+
+        if len(merged_shape) != len(other):
+            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
+
+        def merge_dims(dim1, dim2):
+            if dim1 == dim2:
+                return dim1
+            if isinstance(dim1, int) and isinstance(dim2, int):
+                raise ValueError(  # noqa: TRY004
+                    f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
+                    f"{self} and {other}."
+                )
+            if not isinstance(dim1, SymbolicDim):
+                return dim1  # Prefer int value over symbolic dim
+            if not isinstance(dim2, SymbolicDim):
+                return dim2
+            if dim1.value is None:
+                return dim2
+            return dim1
+
+        for i, (dim1, dim2) in enumerate(zip(merged_shape, other)):
+            merged_shape[i] = merge_dims(dim1, dim2)
+
+        self._shape = merged_shape
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
