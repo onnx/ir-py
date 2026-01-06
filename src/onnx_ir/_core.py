@@ -2207,10 +2207,6 @@ class _OpHandlerProtocol(Protocol):
 def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
     """Set the magic handler for Value arithmetic methods.
 
-    This context manager sets the magic handler for Value arithmetic methods
-    within the context. After exiting the context, the magic handler is reset
-    to None.
-
     Framework authors can implement custom context managers that set
     the magic handler to enable arithmetic operations on Values.
 
@@ -2315,7 +2311,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         For consistency, none of the other comparison operators are included.
 
     .. versionadded:: 0.1.14
-        Value now supports arithmetic magic methods within the context manager
+        Value now supports arithmetic magic methods when a magic handler is set via
         :func:`onnx_ir.set_value_magic_handler`.
     """
 
