@@ -32,6 +32,9 @@ __all__ = [
     "from_torch_dtype",
     "to_torch_dtype",
     "TorchTensor",
+    "from_mlx_dtype",
+    "to_mlx_dtype",
+    "MlxArray",
 ]
 
 import ctypes
@@ -43,11 +46,14 @@ import onnx_ir as ir
 from onnx_ir import _core
 
 if TYPE_CHECKING:
+    import mlx.core as mx
     import torch
 
 
 _TORCH_DTYPE_TO_ONNX: dict[torch.dtype, ir.DataType] | None = None
 _ONNX_DTYPE_TO_TORCH: dict[ir.DataType, torch.dtype] | None = None
+_MLX_DTYPE_TO_ONNX: dict[mx.Dtype, ir.DataType] | None = None
+_ONNX_DTYPE_TO_MLX: dict[ir.DataType, mx.Dtype] | None = None
 
 
 def from_torch_dtype(dtype: torch.dtype) -> ir.DataType:
@@ -208,3 +214,114 @@ class TorchTensor(_core.Tensor):
     def tofile(self, file) -> None:
         _, data = self._get_cbytes()
         return file.write(data)
+
+
+def from_mlx_dtype(dtype: mx.Dtype) -> ir.DataType:
+    """Convert an MLX dtype to an ONNX IR DataType."""
+    global _MLX_DTYPE_TO_ONNX
+    if _MLX_DTYPE_TO_ONNX is None:
+        import mlx.core as mx
+
+        _MLX_DTYPE_TO_ONNX = {
+            mx.bool_: ir.DataType.BOOL,
+            mx.uint8: ir.DataType.UINT8,
+            mx.uint16: ir.DataType.UINT16,
+            mx.uint32: ir.DataType.UINT32,
+            mx.uint64: ir.DataType.UINT64,
+            mx.int8: ir.DataType.INT8,
+            mx.int16: ir.DataType.INT16,
+            mx.int32: ir.DataType.INT32,
+            mx.int64: ir.DataType.INT64,
+            mx.float16: ir.DataType.FLOAT16,
+            mx.float32: ir.DataType.FLOAT,
+            mx.bfloat16: ir.DataType.BFLOAT16,
+            mx.complex64: ir.DataType.COMPLEX64,
+        }
+
+    if dtype not in _MLX_DTYPE_TO_ONNX:
+        raise TypeError(
+            f"Unsupported MLX dtype '{dtype}'. "
+            "Please use a supported dtype from the list: "
+            f"{list(_MLX_DTYPE_TO_ONNX.keys())}"
+        )
+    return _MLX_DTYPE_TO_ONNX[dtype]
+
+
+def to_mlx_dtype(dtype: ir.DataType) -> mx.Dtype:
+    """Convert an ONNX IR DataType to an MLX dtype."""
+    global _ONNX_DTYPE_TO_MLX
+    if _ONNX_DTYPE_TO_MLX is None:
+        import mlx.core as mx
+
+        _ONNX_DTYPE_TO_MLX = {
+            ir.DataType.BOOL: mx.bool_,
+            ir.DataType.UINT8: mx.uint8,
+            ir.DataType.UINT16: mx.uint16,
+            ir.DataType.UINT32: mx.uint32,
+            ir.DataType.UINT64: mx.uint64,
+            ir.DataType.INT8: mx.int8,
+            ir.DataType.INT16: mx.int16,
+            ir.DataType.INT32: mx.int32,
+            ir.DataType.INT64: mx.int64,
+            ir.DataType.FLOAT16: mx.float16,
+            ir.DataType.FLOAT: mx.float32,
+            ir.DataType.BFLOAT16: mx.bfloat16,
+            ir.DataType.COMPLEX64: mx.complex64,
+        }
+
+    if dtype not in _ONNX_DTYPE_TO_MLX:
+        raise TypeError(
+            f"Unsupported conversion from ONNX dtype '{dtype}' to mlx. "
+            "Please use a supported dtype from the list: "
+            f"{list(_ONNX_DTYPE_TO_MLX.keys())}"
+        )
+    return _ONNX_DTYPE_TO_MLX[dtype]
+
+
+class MlxArray(_core.Tensor):
+    """Tensor adapter for MLX arrays.
+
+    This class wraps MLX arrays to make them compatible with the ONNX IR tensor protocol.
+    MLX arrays are efficiently converted to numpy arrays for serialization.
+
+    Example::
+        import mlx.core as mx
+        import onnx_ir as ir
+
+        # Create an MLX array
+        mlx_array = mx.array([1, 2, 3], dtype=mx.float32)
+
+        # Wrap the MLX array in an MlxArray object
+        ir_tensor = ir.tensor_adapters.MlxArray(mlx_array)
+
+        # Use the IR tensor in the graph
+        attr = ir.AttrTensor("x", ir_tensor)
+        print(attr)
+    """
+
+    def __init__(
+        self, array: mx.array, name: str | None = None, doc_string: str | None = None
+    ):
+        # Pass the array as the raw data to ir.Tensor's constructor
+        super().__init__(
+            array, dtype=from_mlx_dtype(array.dtype), name=name, doc_string=doc_string
+        )
+
+    def numpy(self) -> npt.NDArray:
+        import numpy as np
+
+        return np.asarray(self.raw)
+
+    def __array__(self, dtype: Any = None, copy: bool | None = None) -> npt.NDArray:
+        del copy  # Unused, but needed for the signature
+        if dtype is None:
+            return self.numpy()
+        return self.numpy().__array__(dtype)
+
+    def tobytes(self) -> bytes:
+        # Convert to numpy and then to bytes for serialization
+        return self.numpy().tobytes()
+
+    def tofile(self, file) -> None:
+        # Convert to numpy and write to file
+        return self.numpy().tofile(file)
