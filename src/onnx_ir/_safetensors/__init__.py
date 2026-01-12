@@ -237,8 +237,6 @@ def _save_file(
             # Build tensor_dict for this shard only
             shard_dict: dict[str, Any] = {}
             for tensor in tensor_shard:
-                current_offset += tensor.nbytes
-                current_index += 1
                 if callback is not None:
                     callback(
                         tensor,
@@ -257,6 +255,8 @@ def _save_file(
                 }
                 # Update weight_map with shard filename
                 weight_map[tensor.name] = shard_filename
+                current_offset += tensor.nbytes
+                current_index += 1
 
             safetensors.serialize_file(shard_dict, shard_path)
 
