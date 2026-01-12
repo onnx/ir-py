@@ -36,6 +36,7 @@ _SAFETENSORS_DTYPE_TO_IR_DTYPE = {
 }
 _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
     ir.DataType.BOOL: "bool",
+    # TODO: New versions of safetensors support these types directly
     ir.DataType.FLOAT4E2M1: "uint8",
     ir.DataType.FLOAT8E5M2: "float8_e5m2",
     ir.DataType.FLOAT8E4M3FN: "float8_e4m3fn",
