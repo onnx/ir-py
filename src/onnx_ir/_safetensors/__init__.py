@@ -465,7 +465,7 @@ def _migrate_tensor_shape_dtype(
             offset=safe_tensor.offset,
             length=safe_tensor.length,
             dtype=model_tensor.dtype,
-            shape=model_tensor.shape,
+            shape=model_tensor.shape,  # type: ignore[arg-type]
             name=safe_tensor.name,
             base_dir=safe_tensor.base_dir,
         )
