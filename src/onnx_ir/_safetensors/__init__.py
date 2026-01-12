@@ -315,7 +315,7 @@ def save_safetensors(
             model,
             "model.onnx",
             size_threshold_bytes=100,
-            max_shard_size_bytes=int(5 * 1024**3),  # Shard safetensors files larger than 5GB
+            max_shard_size_bytes=int(5 * 1000**3),  # Shard safetensors files larger than 5GB
         )
 
     .. tip::
