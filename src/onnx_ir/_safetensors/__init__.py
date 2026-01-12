@@ -396,7 +396,7 @@ def _read_safetensors_header(file: io.IOBase) -> tuple[dict[str, dict[str, Any]]
         The header of the safetensors file.
     """
     file.seek(0)
-    header_size = struct.unpack_from("i", file.read(_HEADER_SIZE_NUMBER_SIZE))[0]
+    header_size = struct.unpack_from("<Q", file.read(_HEADER_SIZE_NUMBER_SIZE))[0]
     header = file.read(header_size)
     return json.loads(header.decode("utf-8")), header_size
 
