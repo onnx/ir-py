@@ -12,6 +12,7 @@ import os
 import struct
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+import packaging.version
 
 import onnx_ir as ir
 
@@ -71,6 +72,14 @@ def _import_safetensors():
             "Please install it with 'pip install --upgrade safetensors'."
         ) from e
 
+    min_required_version = packaging.version.parse("0.7.0")
+    version = getattr(safetensors, "__version__", None)
+    if version is None or packaging.version.parse(version) < min_required_version:
+        raise ImportError(
+            f"safetensors version 0.7.0 or higher is required, but version {version} is installed. "
+            "Please upgrade it with 'pip install --upgrade safetensors'."
+        )
+
     return safetensors
 
 
@@ -124,7 +133,10 @@ def _shard_tensors(
     for tensor in tensors:
         tensor_size = tensor.nbytes
         # Check if adding this tensor would exceed max_shard_size_bytes
-        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
+        if (
+            current_shard_size + tensor_size > max_shard_size_bytes
+            and current_shard_size > 0
+        ):
             # Start a new shard
             shards.append([])
             current_shard_size = 0
@@ -182,7 +194,8 @@ def _save_file(
     *,
     size_threshold_bytes: int,
     max_shard_size_bytes: int | None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
+    | None = None,
 ) -> ir.Model:
     """Save all tensors in an ONNX model to a safetensors file.
 
@@ -267,7 +280,8 @@ def _save_file(
             location_str = str(location)
             if location_str.endswith(".safetensors"):
                 index_filename = (
-                    location_str.rsplit(".safetensors", 1)[0] + ".safetensors.index.json"
+                    location_str.rsplit(".safetensors", 1)[0]
+                    + ".safetensors.index.json"
                 )
             else:
                 index_filename = location_str + ".index.json"
@@ -294,7 +308,8 @@ def save_safetensors(
     format: str | None = None,
     size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
+    | None = None,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
