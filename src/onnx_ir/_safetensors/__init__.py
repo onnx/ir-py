@@ -355,7 +355,8 @@ def save_safetensors(
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
         callback: A callback function that is called after each tensor is saved.
-            Args are (filename: str, tensor_name: str, current_offset: int, total_size: int).
+            The callback must have signature ``Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]``,
+            where the first argument is the tensor being saved and the second contains metadata such as filename and progress.
     """
     # Derive external_data from path if not provided
     path_str = str(path)
