@@ -201,7 +201,7 @@ def _save_file(
     # Ensure that external_data ends with .safetensors
     if not str(location).endswith(".safetensors"):
         raise ValueError(
-            f"The path to safetensors file must have a .safetensors extension, got: {location}"
+            f'The path to safetensors file must have a .safetensors extension, got: "{location}"'
         )
 
     # First, collect metadata without loading tensor data
