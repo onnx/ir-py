@@ -126,7 +126,6 @@ def _shard_tensors(
             shards.append([])
             current_shard_size = 0
 
-        # Add tensor name to current shard
         shards[-1].append(tensor)
         current_shard_size += tensor_size
 
