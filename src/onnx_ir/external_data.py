@@ -59,11 +59,13 @@ class CallbackInfo:
         total: The total number of tensors to save.
         index: The index of the tensor being saved.
         offset: The offset of the tensor in the external data file.
+        filename: The filename of the external data file.
     """
 
     total: int
     index: int
     offset: int
+    filename: str
 
 
 def _all_tensors(
@@ -201,6 +203,7 @@ def _write_external_data(
                         total=tensors_count,
                         index=i,
                         offset=tensor_info.offset,
+                        filename=os.path.basename(file_path),
                     ),
                 )
             current_offset = tensor_info.offset
