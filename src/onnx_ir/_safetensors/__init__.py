@@ -1,4 +1,4 @@
-"""Private module for loading and saving safetensors data to ONNX models."""
+"""Utilities for using safetensors as an external data format."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import math
 import os
 import re
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import onnx
@@ -218,7 +218,7 @@ def _is_4bit(dtype: ir.DataType) -> bool:
     return dtype.bitwidth == 4
 
 
-def _get_tensor_storage_shape(tensor: ir.TensorProtocol) -> list[int]:
+def _get_tensor_storage_shape(tensor: ir.TensorProtocol) -> Sequence[int]:
     if _is_4bit(tensor.dtype):
         return [math.ceil(math.prod(tensor.shape.numpy()) / 2)]
     return tensor.shape.numpy()
@@ -355,9 +355,10 @@ def _save_file(
 
 def save_safetensors(
     model: ir.Model,
-    model_path: str | os.PathLike,
+    path: str | os.PathLike,
     /,
     *,
+    format: str | None = None,
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
 ) -> None:
@@ -373,7 +374,7 @@ def save_safetensors(
 
     Args:
         model: ONNX model to save.
-        model_path: Path to the ONNX model file. E.g. "model.onnx".
+        path: Path to the ONNX model file. E.g. "model.onnx".
         size_threshold_bytes: Save to external data if the tensor size in bytes
             is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
@@ -382,13 +383,13 @@ def save_safetensors(
     Raises:
         ValueError: If external_data does not end with ".safetensors".
     """
-    # Derive external_data from model_path if not provided
-    model_path_str = str(model_path)
+    # Derive external_data from path if not provided
+    path_str = str(path)
     # Get the base name without extension
-    if "." in os.path.basename(model_path_str):
-        base_name = os.path.splitext(os.path.basename(model_path_str))[0]
+    if "." in os.path.basename(path_str):
+        base_name = os.path.splitext(os.path.basename(path_str))[0]
     else:
-        base_name = os.path.basename(model_path_str)
+        base_name = os.path.basename(path_str)
     external_data = f"{base_name}.safetensors"
 
     original_initializers = [
@@ -398,11 +399,11 @@ def save_safetensors(
         updated_model = _save_file(
             model,
             external_data,
-            os.path.dirname(model_path),
+            os.path.dirname(path),
             size_threshold_bytes=size_threshold_bytes,
             max_shard_size_bytes=max_shard_size_bytes,
         )
-        ir.save(updated_model, model_path)
+        ir.save(updated_model, path, format=format)
     finally:
         # Restore original initializers to avoid side effects
         for name, tensor in original_initializers:
