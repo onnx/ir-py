@@ -212,7 +212,7 @@ def _save_file(
         tensor = value.const_value
         if tensor is None:
             continue
-        if tensor.size < size_threshold_bytes:
+        if tensor.nbytes < size_threshold_bytes:
             continue
         tensors_to_save.append(tensor)
 
