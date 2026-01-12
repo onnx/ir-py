@@ -243,7 +243,7 @@ def _save_file(
                     callback(
                         tensor,
                         ir.external_data.CallbackInfo(
-                            total=total_size,
+                            total=len(tensors_to_save),
                             index=current_index,
                             offset=current_offset,
                             filename=shard_filename,
