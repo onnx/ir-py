@@ -357,9 +357,6 @@ def save_safetensors(
             before being sharded. If None, no sharding is performed.
         callback: A callback function that is called after each tensor is saved.
             Args are (filename: str, tensor_name: str, current_offset: int, total_size: int).
-
-    Raises:
-        ValueError: If external_data does not end with ".safetensors".
     """
     # Derive external_data from path if not provided
     path_str = str(path)
