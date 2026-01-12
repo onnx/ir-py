@@ -342,6 +342,8 @@ def save_safetensors(
                     callback=callback,
                 )
 
+    .. versionadded:: 0.1.15
+
     Args:
         model: ONNX model to save.
         path: Path to the ONNX model file. E.g. "model.onnx".
