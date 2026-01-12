@@ -13,6 +13,7 @@ import struct
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 import packaging.version
+import functools
 
 import onnx_ir as ir
 
@@ -62,6 +63,7 @@ _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _import_safetensors():
     """Raise an error if safetensors is not installed."""
     try:
