@@ -6,16 +6,12 @@ __all__ = ["save_safetensors"]
 
 import io
 import json
-import math
 import os
-import re
 import struct
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any
 
-import onnx
 import onnx_ir as ir
-
 
 _HEADER_SIZE_NUMBER_SIZE = 8
 # https://github.com/huggingface/safetensors/blob/543243c3017e413584f27ebd4b99c844f62deb34/safetensors/src/tensor.rs#L664
@@ -64,13 +60,13 @@ def _import_safetensors():
     """Raise an error if safetensors is not installed."""
     try:
         import safetensors
-
-        return safetensors
     except ImportError as e:
         raise ImportError(
             "safetensors is required for using safetensors external data format. "
             "Please install it with 'pip install --upgrade safetensors'."
         ) from e
+
+    return safetensors
 
 
 def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
@@ -105,14 +101,13 @@ def _shard_tensors(
     """Shard tensors into multiple files based on max_shard_size_bytes.
 
     Args:
-        tensor_metadata: Dictionary of tensor name to metadata (size, dtype, shape).
+        tensors: The tensors to shard.
         max_shard_size_bytes: Maximum size for each shard in bytes. When None,
             no sharding is performed.
 
     Returns:
         A list of tensor name lists for each shard.
     """
-
     if max_shard_size_bytes is None:
         # No sharding
         return [list(tensors)]
@@ -124,10 +119,7 @@ def _shard_tensors(
     for tensor in tensors:
         tensor_size = tensor.nbytes
         # Check if adding this tensor would exceed max_shard_size_bytes
-        if (
-            current_shard_size + tensor_size > max_shard_size_bytes
-            and current_shard_size > 0
-        ):
+        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
             # Start a new shard
             shards.append([])
             current_shard_size = 0
@@ -186,8 +178,7 @@ def _save_file(
     *,
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
-    | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> ir.Model:
     """Save all tensors in an ONNX model to a safetensors file.
 
@@ -273,8 +264,7 @@ def _save_file(
             location_str = str(location)
             if location_str.endswith(".safetensors"):
                 index_filename = (
-                    location_str.rsplit(".safetensors", 1)[0]
-                    + ".safetensors.index.json"
+                    location_str.rsplit(".safetensors", 1)[0] + ".safetensors.index.json"
                 )
             else:
                 index_filename = location_str + ".index.json"
@@ -301,8 +291,7 @@ def save_safetensors(
     format: str | None = None,
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
-    | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
@@ -341,6 +330,8 @@ def save_safetensors(
     Args:
         model: ONNX model to save.
         path: Path to the ONNX model file. E.g. "model.onnx".
+        format: The format of the file (e.g. ``protobuf``, ``textproto``, ``json``, etc.).
+            If None, the format is inferred from the file extension.
         size_threshold_bytes: Save to external data if the tensor size in bytes
             is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
