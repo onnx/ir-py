@@ -338,7 +338,7 @@ def save_safetensors(
                     pbar.update()
                     pbar.set_description(f"Saving {metadata.filename}: {tensor.name} ({tensor.dtype}, {tensor.shape})")
 
-                ir.save(
+                ir.save_safetensors(
                     ...,
                     callback=callback,
                 )
