@@ -28,6 +28,7 @@ pyyaml
 torch>=2.3
 torchvision>=0.18.0
 transformers>=4.37.2
+mlx; sys_platform != "win32"
 
 # Lint
 lintrunner>=0.10.7
