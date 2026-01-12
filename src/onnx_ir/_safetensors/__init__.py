@@ -192,7 +192,6 @@ def _save_file(
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
         callback: A callback function that is called after each tensor is saved.
-            Args are (filename: str, tensor_name: str, current_offset: int, total_size: int).
 
     Returns:
         The ONNX model with the external data.
