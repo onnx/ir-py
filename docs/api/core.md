@@ -14,6 +14,7 @@
 
     onnx_ir.load
     onnx_ir.save
+    onnx_ir.save_safetensors
     onnx_ir.from_proto
     onnx_ir.from_onnx_text
     onnx_ir.to_proto

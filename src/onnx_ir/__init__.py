@@ -84,6 +84,7 @@ __all__ = [
     # IO
     "load",
     "save",
+    "save_safetensors",
     # Flags
     "DEBUG",
     # Others
@@ -137,6 +138,7 @@ from onnx_ir._enums import (
     DataType,
 )
 from onnx_ir._io import load, save
+from onnx_ir._safetensors import save_safetensors
 from onnx_ir._protocols import (
     ArrayCompatible,
     AttributeProtocol,
