@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+__all__ = ["save_safetensors"]
+
 import io
 import json
 import math
 import os
 import re
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import onnx
@@ -232,6 +234,7 @@ def _save_file(
     *,
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
+    callback: Callable[[str, str, int, int], None] = lambda filename, tensor, current, total: None,
 ) -> ir.Model:
     """Save all tensors in an ONNX model to a safetensors file.
 
@@ -243,6 +246,8 @@ def _save_file(
             is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
+        callback: A callback function that is called after each tensor is saved.
+            Args are (filename: str, tensor_name: str, current_offset: int, total_size: int).
 
     Returns:
         The ONNX model with the external data.
@@ -282,6 +287,7 @@ def _save_file(
             # Save each shard, loading only necessary tensor data
             all_shards = []
             weight_map: dict[str, str] = {}  # Maps tensor name to shard filename
+            current_offset = 0
             for shard_idx, tensor_names in enumerate(shard_tensor_names, start=1):
                 shard_filename = _get_shard_filename(
                     str(location), shard_idx, total_shards
@@ -289,8 +295,9 @@ def _save_file(
 
                 # Build tensor_dict for this shard only
                 shard_dict = {}
-                for tensor_name in (pbar := tqdm(tensor_names)):
-                    pbar.set_description(f"Saving {shard_filename} ({tensor_name})")
+                for tensor_name in tensor_names:
+                    current_offset += tensor_metadata[tensor_name]["size"]
+                    callback(shard_filename, tensor_name, current_offset, total_size)
                     tensor = model.graph.initializers[tensor_name].const_value
                     assert tensor is not None
                     shard_dict[tensor_name] = {
@@ -361,6 +368,7 @@ def save_safetensors(
     format: str | None = None,
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
+    callback: Callable[[str, str, int, int], None] = lambda filename, tensor, current, total: None,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
@@ -372,6 +380,30 @@ def save_safetensors(
     to their respective shard files. The shards will be created only if
     the total size of tensors exceeds the specified max_shard_size_bytes.
 
+    .. tip::
+
+        A simple progress bar can be implemented by passing a callback function as the following::
+
+            import onnx_ir as ir
+            import tqdm
+
+            with tqdm.tqdm() as pbar:
+                total_set = False
+
+                def callback(tensor: ir.TensorProtocol, metadata: ir.external_data.CallbackInfo) -> None:
+                    nonlocal total_set
+                    if not total_set:
+                        pbar.total = metadata.total
+                        total_set = True
+
+                    pbar.update()
+                    pbar.set_description(f"Saving {tensor.name} ({tensor.dtype}, {tensor.shape}) at offset {metadata.offset}")
+
+                ir.save(
+                    ...,
+                    callback=callback,
+                )
+
     Args:
         model: ONNX model to save.
         path: Path to the ONNX model file. E.g. "model.onnx".
@@ -379,6 +411,9 @@ def save_safetensors(
             is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
+        callback: A callback function that is called after each tensor is saved.
+            Args are (filename: str, tensor_name: str, current_offset: int, total_size: int).
+            The callback is called only when sharding is enabled.
 
     Raises:
         ValueError: If external_data does not end with ".safetensors".
@@ -402,6 +437,7 @@ def save_safetensors(
             os.path.dirname(path),
             size_threshold_bytes=size_threshold_bytes,
             max_shard_size_bytes=max_shard_size_bytes,
+            callback=callback,
         )
         ir.save(updated_model, path, format=format)
     finally:
