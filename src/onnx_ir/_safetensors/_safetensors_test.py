@@ -52,7 +52,6 @@ def _create_simple_model_with_initializers() -> ir.Model:
 def _create_large_model_for_sharding() -> ir.Model:
     """Create a model with large tensors for testing sharding."""
     # Create multiple tensors with varying sizes
-    tensors = []
     initializers = []
     for i in range(5):
         # Create tensors of increasing size
@@ -63,7 +62,6 @@ def _create_large_model_for_sharding() -> ir.Model:
             name=f"initializer_{i}",
         )
         initializers.append(_create_initializer(tensor))
-        tensors.append(tensor)
 
     identity_node = ir.Node("", "Identity", inputs=(initializers[0],))
     identity_node.outputs[0].shape = ir.Shape([1000])
