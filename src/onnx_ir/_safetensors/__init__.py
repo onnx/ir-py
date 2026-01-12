@@ -108,7 +108,7 @@ def _shard_tensors(
             no sharding is performed.
 
     Returns:
-        A list of tensor name lists for each shard.
+        A list of tensor lists for each shard.
     """
     if max_shard_size_bytes is None:
         # No sharding
