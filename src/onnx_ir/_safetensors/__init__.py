@@ -176,8 +176,8 @@ def _save_file(
     location: str | os.PathLike,
     base_dir: str | os.PathLike = "",
     *,
-    size_threshold_bytes: int = 0,
-    max_shard_size_bytes: int | None = None,
+    size_threshold_bytes: int,
+    max_shard_size_bytes: int | None,
     callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> ir.Model:
     """Save all tensors in an ONNX model to a safetensors file.
@@ -289,7 +289,7 @@ def save_safetensors(
     /,
     *,
     format: str | None = None,
-    size_threshold_bytes: int = 0,
+    size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> None:
