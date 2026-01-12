@@ -303,6 +303,21 @@ def save_safetensors(
     to their respective shard files. The shards will be created only if
     the total size of tensors exceeds the specified max_shard_size_bytes.
 
+    Example::
+
+        import onnx_ir as ir
+
+        model = ir.load("model.onnx")
+
+        # Save model with tensors larger than 100 bytes to safetensors external data,
+        # sharding files larger than 5GB.
+        ir.save_safetensors(
+            model,
+            "model.onnx",
+            size_threshold_bytes=100,
+            max_shard_size_bytes=int(5 * 1024**3),  # Shard safetensors files larger than 5GB
+        )
+
     .. tip::
 
         A simple progress bar can be implemented by passing a callback function as the following::

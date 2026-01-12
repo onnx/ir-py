@@ -138,7 +138,6 @@ from onnx_ir._enums import (
     DataType,
 )
 from onnx_ir._io import load, save
-from onnx_ir._safetensors import save_safetensors
 from onnx_ir._protocols import (
     ArrayCompatible,
     AttributeProtocol,
@@ -158,6 +157,7 @@ from onnx_ir._protocols import (
     TypeProtocol,
     ValueProtocol,
 )
+from onnx_ir._safetensors import save_safetensors
 from onnx_ir.serde import TensorProtoTensor, from_onnx_text, from_proto, to_onnx_text, to_proto
 
 DEBUG = False
