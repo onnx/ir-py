@@ -141,7 +141,10 @@ def _shard_tensors(
     for tensor in tensors:
         tensor_size = tensor.nbytes
         # Check if adding this tensor would exceed max_shard_size_bytes
-        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
+        if (
+            current_shard_size + tensor_size > max_shard_size_bytes
+            and current_shard_size > 0
+        ):
             # Start a new shard
             shards.append([])
             current_shard_size = 0
@@ -152,25 +155,11 @@ def _shard_tensors(
     return shards
 
 
-def _apply_tensors(model: ir.Model, tensors: Mapping[str, ir.TensorProtocol]):
-    """Apply tensors to an ONNX model.
-
-    Args:
-        model: ONNX model to apply tensors to.
-        tensors: Tensors to apply to the ONNX model.
-    """
-    graph = model.graph
-    for name, tensor in tensors.items():
-        assert name in graph.initializers
-        model_tensor = graph.initializers[name].const_value
-        assert model_tensor is not None
-        assert isinstance(tensor, ir.ExternalTensor)
-        updated_tensor = _migrate_tensor_shape_dtype(model_tensor, tensor)
-        graph.initializers[name].const_value = updated_tensor
-
-
 def _replace_tensors(
-    model: ir.Model, /, location: str | os.PathLike, base_dir: str | os.PathLike
+    values: Sequence[ir.Value],
+    /,
+    location: str | os.PathLike,
+    base_dir: str | os.PathLike,
 ) -> None:
     """Replace all tensors in an ONNX model with external data from a safetensors file.
 
@@ -179,8 +168,19 @@ def _replace_tensors(
         location: Path to the safetensors file relative to the ONNX model file.
         base_dir: Directory where the ONNX model file is stored.
     """
-    tensors = _read_safetensors(location, base_dir=base_dir)
-    _apply_tensors(model, tensors)
+    tensors: dict[str, ir.ExternalTensor] = _read_safetensors(
+        location, base_dir=base_dir
+    )
+    value_map: dict[str, ir.Value] = {value.name: value for value in values}
+    for name, tensor in tensors.items():
+        assert name in value_map, (
+            f"Bug: Tensor '{name}' not found in model initializers."
+        )
+        value = value_map[name]
+        model_tensor = value.const_value
+        assert model_tensor is not None
+        updated_tensor = _migrate_tensor_shape_dtype(model_tensor, tensor)
+        value.const_value = updated_tensor
 
 
 def _get_tensor_storage_shape(tensor: ir.TensorProtocol) -> Sequence[int]:
@@ -192,19 +192,20 @@ def _get_tensor_storage_shape(tensor: ir.TensorProtocol) -> Sequence[int]:
 
 
 def _save_file(
-    model: ir.Model,
+    initialized_values: Sequence[ir.Value],
     /,
     location: str | os.PathLike,
     base_dir: str | os.PathLike = "",
     *,
     size_threshold_bytes: int,
     max_shard_size_bytes: int | None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
-) -> ir.Model:
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
+    | None = None,
+) -> None:
     """Save all tensors in an ONNX model to a safetensors file.
 
     Args:
-        model: ONNX model proto to save.
+        initialized_values: List of initialized values to consider for saving.
         location: Path to the safetensors file relative to the ONNX model file.
         base_dir: Directory where the ONNX model file is stored.
         size_threshold_bytes: Save to external data if the tensor size in bytes
@@ -212,9 +213,6 @@ def _save_file(
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
         callback: A callback function that is called after each tensor is saved.
-
-    Returns:
-        The ONNX model with the external data.
     """
     safetensors = _import_safetensors()
 
@@ -226,13 +224,14 @@ def _save_file(
 
     # First, collect metadata without loading tensor data
     tensors_to_save: list[ir.TensorProtocol] = []
-    for value in model.graph.initializers.values():
+    values_to_save: list[ir.Value] = []
+    for value in initialized_values:
         tensor = value.const_value
-        if tensor is None:
-            continue
+        assert tensor is not None
         if tensor.nbytes < size_threshold_bytes:
             continue
         tensors_to_save.append(tensor)
+        values_to_save.append(value)
 
     total_size = sum(tensor.nbytes for tensor in tensors_to_save)
 
@@ -284,7 +283,8 @@ def _save_file(
             location_str = str(location)
             if location_str.endswith(".safetensors"):
                 index_filename = (
-                    location_str.rsplit(".safetensors", 1)[0] + ".safetensors.index.json"
+                    location_str.rsplit(".safetensors", 1)[0]
+                    + ".safetensors.index.json"
                 )
             else:
                 index_filename = location_str + ".index.json"
@@ -298,9 +298,7 @@ def _save_file(
 
         # Replace tensors from each shard file
         for filename in all_filenames:
-            _replace_tensors(model, filename, base_dir)
-
-    return model
+            _replace_tensors(values_to_save, filename, base_dir)
 
 
 def save_safetensors(
@@ -311,7 +309,8 @@ def save_safetensors(
     format: str | None = None,
     size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
+    | None = None,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
@@ -376,6 +375,9 @@ def save_safetensors(
         callback: A callback function that is called after each tensor is saved.
             The callback must have signature ``Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]``,
             where the first argument is the tensor being saved and the second contains metadata such as filename and progress.
+
+    Raises:
+        ValueError: If duplicate initializer names are found in the model.
     """
     # Derive external_data from path if not provided
     path_str = str(path)
@@ -386,12 +388,33 @@ def save_safetensors(
         base_name = os.path.basename(path_str)
     external_data = f"{base_name}.safetensors"
 
-    original_initializers = [
-        (name, val.const_value) for name, val in model.graph.initializers.items()
-    ]
+    # Store the original initializer values so they can be restored if modify_model=False
+    value_tensor_pairs: list[tuple[ir.Value, ir.TensorProtocol]] = []
+    initializer_names: set[str] = set()
+    for graph in model.graphs():
+        for value in graph.initializers.values():
+            tensor = value.const_value
+            # The value.name should be the same as tensor.name. However,
+            # in case there is a conflict, we do not care and will prefer value.name.
+            name = value.name
+            if name is None:
+                raise ValueError(
+                    f"Initializer value '{value!r}' has no name (in graph {graph.name!r}). "
+                    "All initializers must have names."
+                )
+            if tensor is None:
+                continue
+            if name in initializer_names:
+                raise ValueError(
+                    f"Duplicate initializer name found: {tensor.name} (in graph {graph.name!r})."
+                    " Rename the initializers to have unique names before saving to safetensors."
+                )
+            initializer_names.add(name)
+            value_tensor_pairs.append((value, tensor))
+
     try:
         updated_model = _save_file(
-            model,
+            [value for value, _ in value_tensor_pairs],
             external_data,
             os.path.dirname(path),
             size_threshold_bytes=size_threshold_bytes,
@@ -401,8 +424,8 @@ def save_safetensors(
         ir.save(updated_model, path, format=format)
     finally:
         # Restore original initializers to avoid side effects
-        for name, tensor in original_initializers:
-            model.graph.initializers[name].const_value = tensor
+        for value, tensor in value_tensor_pairs:
+            value.const_value = tensor
 
 
 def _read_safetensors_header(file: io.IOBase) -> tuple[dict[str, dict[str, Any]], int]:
@@ -467,18 +490,15 @@ def _migrate_tensor_shape_dtype(
     Returns:
         The migrated tensor.
     """
-    if (
-        model_tensor.dtype
-        in {
-            # Types that safetensors does not support directly
-            ir.DataType.FLOAT8E4M3FNUZ,
-            ir.DataType.FLOAT8E5M2FNUZ,
-            ir.DataType.INT4,
-            ir.DataType.INT2,
-            ir.DataType.UINT4,
-            ir.DataType.UINT2,
-        }
-    ):
+    if model_tensor.dtype in {
+        # Types that safetensors does not support directly
+        ir.DataType.FLOAT8E4M3FNUZ,
+        ir.DataType.FLOAT8E5M2FNUZ,
+        ir.DataType.INT4,
+        ir.DataType.INT2,
+        ir.DataType.UINT4,
+        ir.DataType.UINT2,
+    }:
         return ir.ExternalTensor(
             location=safe_tensor.location,
             offset=safe_tensor.offset,
