@@ -96,7 +96,7 @@ def _all_tensors(
             elif attr.type == _enums.AttributeType.TENSORS and attr.value is not None:
                 yield from attr.value
             elif attr.type == _enums.AttributeType.GRAPH and attr.value is not None:
-                for value in graph.initializers.values():
+                for value in attr.value.initializers.values():
                     if (tensor := value.const_value) is not None:
                         yield tensor
             elif attr.type == _enums.AttributeType.GRAPHS and attr.value is not None:
