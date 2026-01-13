@@ -19,11 +19,13 @@ import packaging.version
 import onnx_ir as ir
 
 _HEADER_SIZE_NUMBER_SIZE = 8
-# https://github.com/huggingface/safetensors/blob/543243c3017e413584f27ebd4b99c844f62deb34/safetensors/src/tensor.rs#L664
+# https://github.com/huggingface/safetensors/blob/806426784adb43631e9a1102d4621126bb589347/safetensors/src/tensor.rs#L811
 _SAFETENSORS_DTYPE_TO_IR_DTYPE = {
     "BOOL": ir.DataType.BOOL,
+    "F4": ir.DataType.FLOAT4E2M1,
     "F8_E5M2": ir.DataType.FLOAT8E5M2,
     "F8_E4M3": ir.DataType.FLOAT8E4M3FN,
+    "F8_E8M0": ir.DataType.FLOAT8E8M0,
     "BF16": ir.DataType.BFLOAT16,
     "F16": ir.DataType.FLOAT16,
     "F32": ir.DataType.FLOAT,
@@ -39,10 +41,10 @@ _SAFETENSORS_DTYPE_TO_IR_DTYPE = {
 }
 _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
     ir.DataType.BOOL: "bool",
-    # TODO: New versions of safetensors support these types directly
-    ir.DataType.FLOAT4E2M1: "uint8",
+    ir.DataType.FLOAT4E2M1: "f4",
     ir.DataType.FLOAT8E5M2: "float8_e5m2",
     ir.DataType.FLOAT8E4M3FN: "float8_e4m3fn",
+    ir.DataType.FLOAT8E8M0: "float8_e8m0",
     ir.DataType.FLOAT8E4M3FNUZ: "uint8",
     ir.DataType.FLOAT8E5M2FNUZ: "uint8",
     ir.DataType.BFLOAT16: "bfloat16",
