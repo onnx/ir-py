@@ -11,7 +11,7 @@ import io
 import json
 import os
 import struct
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import packaging.version
@@ -484,6 +484,7 @@ def _migrate_tensor_shape_dtype(
         # Types that safetensors does not support directly
         ir.DataType.FLOAT8E4M3FNUZ,
         ir.DataType.FLOAT8E5M2FNUZ,
+        ir.DataType.FLOAT4E2M1,  # Still need to migrate shape
         ir.DataType.INT4,
         ir.DataType.INT2,
         ir.DataType.UINT4,

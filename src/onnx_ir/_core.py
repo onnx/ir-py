@@ -757,7 +757,8 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             _enums.DataType.UINT2,
         }:
             # Use uint8 to read in the full byte. Otherwise ml_dtypes.int4 will clip the values
-            dt = np.dtype(np.uint8).newbyteorder("<")
+            # No need to set endianness for uint8
+            dt = np.dtype(np.uint8)
             count = self.size // 2 + self.size % 2
         else:
             # Handle the byte order correctly by always using little endian
@@ -770,6 +771,11 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         if self.dtype.bitwidth == 4:
             # Unpack the 4bit arrays
             self._array = _type_casting.unpack_4bitx2(self._array, shape).view(
+                self.dtype.numpy()
+            )
+        elif self.dtype.bitwidth == 2:
+            # Unpack the 2bit arrays
+            self._array = _type_casting.unpack_2bitx4(self._array, shape).view(
                 self.dtype.numpy()
             )
         else:

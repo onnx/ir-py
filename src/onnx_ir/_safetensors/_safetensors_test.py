@@ -294,10 +294,19 @@ class SaveSafetensorsTest(unittest.TestCase):
             float4_data, dtype=ir.DataType.FLOAT4E2M1, name="float4_tensor"
         )
 
+        # Use multiples of 4 for int2/uint2 since they pack 4 values per byte
+        int2_data = np.array([-2, -1, 0, 1, 1, -2, 1, 0], dtype=ml_dtypes.int2)
+        tensor_int2 = ir.tensor(int2_data, dtype=ir.DataType.INT2, name="int2_tensor")
+
+        uint2_data = np.array([0, 1, 2, 3, 3, 2, 1, 0], dtype=ml_dtypes.uint2)
+        tensor_uint2 = ir.tensor(uint2_data, dtype=ir.DataType.UINT2, name="uint2_tensor")
+
         initializers = [
             _create_initializer(tensor_int4),
             _create_initializer(tensor_uint4),
             _create_initializer(tensor_float4),
+            _create_initializer(tensor_int2),
+            _create_initializer(tensor_uint2),
         ]
 
         identity_node = ir.Node("", "Identity", inputs=(initializers[0],))
@@ -321,15 +330,10 @@ class SaveSafetensorsTest(unittest.TestCase):
         loaded_model = ir.load(path)
 
         # Verify the tensors are correctly loaded as external tensors
-        self.assertIsInstance(
-            loaded_model.graph.initializers["int4_tensor"].const_value, ir.ExternalTensor
-        )
-        self.assertIsInstance(
-            loaded_model.graph.initializers["uint4_tensor"].const_value, ir.ExternalTensor
-        )
-        self.assertIsInstance(
-            loaded_model.graph.initializers["float4_tensor"].const_value, ir.ExternalTensor
-        )
+        for tensor_name in ["int4_tensor", "uint4_tensor", "float4_tensor", "int2_tensor", "uint2_tensor"]:
+            self.assertIsInstance(
+                loaded_model.graph.initializers[tensor_name].const_value, ir.ExternalTensor
+            )
 
         # Check that the raw data is preserved
         np.testing.assert_array_equal(
@@ -344,6 +348,14 @@ class SaveSafetensorsTest(unittest.TestCase):
             loaded_model.graph.initializers["float4_tensor"].const_value.numpy(),
             float4_data,
         )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["int2_tensor"].const_value.numpy(),
+            int2_data,
+        )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["uint2_tensor"].const_value.numpy(),
+            uint2_data,
+        )
 
         # Check that the dtype is preserved
         self.assertEqual(
@@ -357,6 +369,14 @@ class SaveSafetensorsTest(unittest.TestCase):
         self.assertEqual(
             loaded_model.graph.initializers["float4_tensor"].const_value.dtype,
             ir.DataType.FLOAT4E2M1,
+        )
+        self.assertEqual(
+            loaded_model.graph.initializers["int2_tensor"].const_value.dtype,
+            ir.DataType.INT2,
+        )
+        self.assertEqual(
+            loaded_model.graph.initializers["uint2_tensor"].const_value.dtype,
+            ir.DataType.UINT2,
         )
 
     def test_save_safetensors_float8_types(self):
@@ -481,6 +501,109 @@ class SaveSafetensorsTest(unittest.TestCase):
         # Verify all data is preserved
         for name, value in loaded_model.graph.initializers.items():
             np.testing.assert_array_equal(value.const_value.numpy(), original_data[name])
+
+    def test_save_safetensors_with_subgraphs(self):
+        """Test that initializers in subgraphs are saved correctly."""
+        # Create initializers for main graph
+        main_tensor = ir.tensor([1.0, 2.0, 3.0], dtype=ir.DataType.FLOAT, name="main_init")
+        main_initializer = _create_initializer(main_tensor)
+
+        # Create initializers for then branch
+        then_tensor = ir.tensor([4.0, 5.0], dtype=ir.DataType.FLOAT, name="then_init")
+        then_initializer = _create_initializer(then_tensor)
+
+        # Create initializers for else branch
+        else_tensor = ir.tensor([6.0, 7.0, 8.0], dtype=ir.DataType.FLOAT, name="else_init")
+        else_initializer = _create_initializer(else_tensor)
+
+        # Create then branch graph
+        then_identity = ir.Node("", "Identity", inputs=(then_initializer,))
+        then_identity.outputs[0].shape = ir.Shape([2])
+        then_identity.outputs[0].dtype = ir.DataType.FLOAT
+        then_identity.outputs[0].name = "then_output"
+        then_graph = ir.Graph(
+            inputs=[],
+            outputs=[*then_identity.outputs],
+            nodes=[then_identity],
+            initializers=[then_initializer],
+            name="then_graph",
+        )
+
+        # Create else branch graph
+        else_identity = ir.Node("", "Identity", inputs=(else_initializer,))
+        else_identity.outputs[0].shape = ir.Shape([3])
+        else_identity.outputs[0].dtype = ir.DataType.FLOAT
+        else_identity.outputs[0].name = "else_output"
+        else_graph = ir.Graph(
+            inputs=[],
+            outputs=[*else_identity.outputs],
+            nodes=[else_identity],
+            initializers=[else_initializer],
+            name="else_graph",
+        )
+
+        # Create condition value for If node
+        cond_tensor = ir.tensor([True], dtype=ir.DataType.BOOL, name="condition")
+        cond_value = _create_initializer(cond_tensor)
+
+        # Create If node with subgraphs
+        if_node = ir.Node(
+            "",
+            "If",
+            inputs=(cond_value,),
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+        )
+        if_node.outputs[0].shape = ir.Shape([2])
+        if_node.outputs[0].dtype = ir.DataType.FLOAT
+        if_node.outputs[0].name = "if_output"
+
+        # Create main graph
+        graph = ir.Graph(
+            inputs=[main_initializer, cond_value],
+            outputs=[*if_node.outputs],
+            nodes=[if_node],
+            initializers=[main_initializer, cond_value],
+            name="main_graph",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        path = os.path.join(self.tmpdir, "model.onnx")
+        ir.save_safetensors(model, path, size_threshold_bytes=0)
+
+        # Load the model back
+        loaded_model = ir.load(path)
+
+        # Check main graph initializers
+        self.assertIsInstance(
+            loaded_model.graph.initializers["main_init"].const_value, ir.ExternalTensor
+        )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["main_init"].const_value.numpy(),
+            main_tensor.numpy(),
+        )
+
+        # Check then branch initializers
+        then_branch = loaded_model.graph.node(0).attributes["then_branch"].as_graph()
+        self.assertIsInstance(
+            then_branch.initializers["then_init"].const_value, ir.ExternalTensor
+        )
+        np.testing.assert_array_equal(
+            then_branch.initializers["then_init"].const_value.numpy(),
+            then_tensor.numpy(),
+        )
+
+        # Check else branch initializers
+        else_branch = loaded_model.graph.node(0).attributes["else_branch"].as_graph()
+        self.assertIsInstance(
+            else_branch.initializers["else_init"].const_value, ir.ExternalTensor
+        )
+        np.testing.assert_array_equal(
+            else_branch.initializers["else_init"].const_value.numpy(),
+            else_tensor.numpy(),
+        )
 
 
 if __name__ == "__main__":
