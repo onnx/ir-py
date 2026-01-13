@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 __all__ = [
+    "AddDefaultAttributesPass",
     "AddInitializersToInputsPass",
     "CheckerPass",
     "ClearMetadataAndDocStringPass",
@@ -22,6 +23,7 @@ __all__ = [
     "TopologicalSortPass",
 ]
 
+from onnx_ir.passes.common.add_default_attributes import AddDefaultAttributesPass
 from onnx_ir.passes.common.clear_metadata_and_docstring import (
     ClearMetadataAndDocStringPass,
 )
