@@ -25,6 +25,10 @@ class ImplicitUseAnalysisPass(ir.passes.InPlacePass):
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         modified = False
         graph_stack: list[ir.Graph] = []
+        # NOTE: The main graph is intentionally not added to graph_stack.
+        # This ensures that values from the main graph are treated as captures
+        # for first-level sub-graphs, since those sub-graphs will be the only
+        # graphs on the stack when we walk their nodes.
         implicit_usages: dict[ir.Graph, list[ir.Value]] = {}
         for node in model.graph:
             _iterate_subgraphs(node, implicit_usages, graph_stack)
