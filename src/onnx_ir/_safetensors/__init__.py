@@ -312,6 +312,14 @@ def save_safetensors(
     to their respective shard files. The shards will be created only if
     the total size of tensors exceeds the specified max_shard_size_bytes.
 
+    .. note::
+        Because the safetensors data format uses key-value mapping to store tensors,
+        all initializer names in the model (across subgraphs) must be unique.
+        Externalizing tensor attributes in nodes to safetensors files is currently not
+        supported. If you have tensors from Constant nodes that you want to externalize,
+        consider converting them to initializers first with
+        :class:`~onnx_ir.passes.common.LiftConstantsToInitializersPass`.
+
     Example::
 
         import onnx_ir as ir
