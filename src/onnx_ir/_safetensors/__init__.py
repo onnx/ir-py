@@ -161,7 +161,7 @@ def _replace_tensors(
     """Replace all tensors in an ONNX model with external data from a safetensors file.
 
     Args:
-        model: ONNX model to replace tensors in.
+        values: List of initialized values to replace constant values from.
         location: Path to the safetensors file relative to the ONNX model file.
         base_dir: Directory where the ONNX model file is stored.
     """

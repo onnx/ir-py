@@ -330,7 +330,13 @@ class SaveSafetensorsTest(unittest.TestCase):
         loaded_model = ir.load(path)
 
         # Verify the tensors are correctly loaded as external tensors
-        for tensor_name in ["int4_tensor", "uint4_tensor", "float4_tensor", "int2_tensor", "uint2_tensor"]:
+        for tensor_name in [
+            "int4_tensor",
+            "uint4_tensor",
+            "float4_tensor",
+            "int2_tensor",
+            "uint2_tensor",
+        ]:
             self.assertIsInstance(
                 loaded_model.graph.initializers[tensor_name].const_value, ir.ExternalTensor
             )
