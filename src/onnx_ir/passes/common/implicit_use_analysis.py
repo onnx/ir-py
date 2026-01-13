@@ -52,7 +52,7 @@ def _iterate_subgraphs(
     def process_node(node: ir.Node, subgraph: ir.Graph):
         for inp in node.inputs:
             if inp is not None and inp.graph is not subgraph:
-                # This is a closed variable, add to implicit usages of all parent graphs
+                # This is a closed variable, add to implicit usages of all graphs that enclose it
                 for g in reversed(graph_stack):
                     if g is inp.graph:
                         break
