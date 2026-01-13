@@ -114,12 +114,12 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
                 default_attr = self._proto_attr_to_ir_attr(default_attr_proto)
                 node.attributes[attr_name] = default_attr
                 modified = True
-                logger.debug("Added default attribute '%s' to node %s", attr_name, node.name)
+                logger.debug("Added default attribute '%s' to node %s", attr_name, node)
             except (ValueError, TypeError, AttributeError) as e:
                 logger.debug(
                     "Failed to convert default attribute '%s' for node %s: %s",
                     attr_name,
-                    node.name,
+                    node,
                     e,
                 )
 
