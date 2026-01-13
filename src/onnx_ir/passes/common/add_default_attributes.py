@@ -29,6 +29,21 @@ AttrValue = Union[
     list[ir.TensorProtocol],
 ]
 
+# Default ONNX opset version to use when not specified in the model
+DEFAULT_OPSET_VERSION = 1
+
+
+def _decode_string_value(s: bytes | str) -> str:
+    """Decode a string value from bytes if necessary."""
+    return s.decode("utf-8") if isinstance(s, bytes) else s
+
+
+def _has_valid_default(attr_def: onnx.defs.OpSchema.Attribute) -> bool:
+    """Check if an attribute definition has a valid default value."""
+    return bool(
+        attr_def.default_value and attr_def.default_value.type != onnx.AttributeProto.UNDEFINED
+    )
+
 
 class AddDefaultAttributesPass(ir.passes.InPlacePass):
     """Add default values for optional attributes that are not present in nodes.
@@ -46,7 +61,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
         modified = False
 
         # Get the opset version for the main ONNX domain
-        onnx_opset_version = model.graph.opset_imports.get("", 1)
+        onnx_opset_version = model.graph.opset_imports.get("", DEFAULT_OPSET_VERSION)
 
         # Process all nodes in the model graph and subgraphs
         for node in ir.traversal.RecursiveGraphIterator(model.graph):
@@ -90,11 +105,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
                 continue
 
             # Skip if attribute doesn't have a default value
-            # Attributes with defaults have type != UNDEFINED
-            if (
-                not attr_def.default_value
-                or attr_def.default_value.type == onnx.AttributeProto.UNDEFINED
-            ):
+            if not _has_valid_default(attr_def):
                 continue
 
             # Create an IR Attr from the ONNX AttributeProto default value
@@ -126,11 +137,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
         elif attr_type == ir.AttributeType.INT:
             value = attr_proto.i
         elif attr_type == ir.AttributeType.STRING:
-            value = (
-                attr_proto.s.decode("utf-8")
-                if isinstance(attr_proto.s, bytes)
-                else attr_proto.s
-            )
+            value = _decode_string_value(attr_proto.s)
         elif attr_type == ir.AttributeType.TENSOR:
             # Convert TensorProto to IR Tensor
             value = ir.serde.deserialize_tensor(attr_proto.t)
@@ -143,9 +150,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
         elif attr_type == ir.AttributeType.INTS:
             value = list(attr_proto.ints)
         elif attr_type == ir.AttributeType.STRINGS:
-            value = [
-                s.decode("utf-8") if isinstance(s, bytes) else s for s in attr_proto.strings
-            ]
+            value = [_decode_string_value(s) for s in attr_proto.strings]
         elif attr_type == ir.AttributeType.TENSORS:
             value = [ir.serde.deserialize_tensor(t) for t in attr_proto.tensors]
         elif attr_type == ir.AttributeType.GRAPHS:
