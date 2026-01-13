@@ -9,12 +9,25 @@ __all__ = [
 ]
 
 import logging
+from typing import Union
 
 import onnx  # noqa: TID251
 
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
+
+# Type alias for attribute values
+AttrValue = Union[
+    float,
+    int,
+    str,
+    ir.TensorProtocol,
+    list[float],
+    list[int],
+    list[str],
+    list[ir.TensorProtocol],
+]
 
 
 class AddDefaultAttributesPass(ir.passes.InPlacePass):
@@ -62,9 +75,9 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
             op_schema = onnx.defs.get_schema(
                 node.op_type, onnx_opset_version, domain=node.domain
             )
-        except Exception:  # pylint: disable=broad-exception-caught
+        except onnx.defs.SchemaError:
             logger.debug(
-                "Failed to get schema for %s, skipping default attribute addition",
+                "Schema not found for %s, skipping default attribute addition",
                 node,
             )
             return False
@@ -77,7 +90,11 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
                 continue
 
             # Skip if attribute doesn't have a default value
-            if not attr_def.default_value or not attr_def.default_value.name:
+            # Attributes with defaults have type != UNDEFINED
+            if (
+                not attr_def.default_value
+                or attr_def.default_value.type == onnx.AttributeProto.UNDEFINED
+            ):
                 continue
 
             # Create an IR Attr from the ONNX AttributeProto default value
@@ -87,7 +104,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
                 node.attributes[attr_name] = default_attr
                 modified = True
                 logger.debug("Added default attribute '%s' to node %s", attr_name, node.name)
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except (ValueError, TypeError, AttributeError) as e:
                 logger.debug(
                     "Failed to convert default attribute '%s' for node %s: %s",
                     attr_name,
@@ -103,16 +120,7 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
         name = attr_proto.name
 
         # Extract the value based on the attribute type
-        value: (
-            float
-            | int
-            | str
-            | ir.TensorProtocol
-            | list[float]
-            | list[int]
-            | list[str]
-            | list[ir.TensorProtocol]
-        )
+        value: AttrValue
         if attr_type == ir.AttributeType.FLOAT:
             value = attr_proto.f
         elif attr_type == ir.AttributeType.INT:
