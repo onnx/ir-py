@@ -59,15 +59,17 @@ class CallbackInfo:
         total: The total number of tensors to save.
         index: The index of the tensor being saved.
         offset: The offset of the tensor in the external data file.
+        filename: The filename of the external data file.
     """
 
     total: int
     index: int
     offset: int
+    filename: str
 
 
 def _all_tensors(
-    graph: _core.Graph | _core.GraphView, include_attributes: bool = False
+    graph: _core.Graph, include_attributes: bool = False
 ) -> Iterator[_protocols.TensorProtocol]:
     """Iterate over all tensors in the graph.
 
@@ -80,8 +82,8 @@ def _all_tensors(
     """
     # Yield all tensors in initializers
     for value in graph.initializers.values():
-        if value.const_value is not None:
-            yield value.const_value
+        if (tensor := value.const_value) is not None:
+            yield tensor
     if not include_attributes:
         return
     # Look at constant attributes in nodes
@@ -93,10 +95,19 @@ def _all_tensors(
                 yield attr.value
             elif attr.type == _enums.AttributeType.TENSORS and attr.value is not None:
                 yield from attr.value
+            elif attr.type == _enums.AttributeType.GRAPH and attr.value is not None:
+                for value in attr.value.initializers.values():
+                    if (tensor := value.const_value) is not None:
+                        yield tensor
+            elif attr.type == _enums.AttributeType.GRAPHS and attr.value is not None:
+                for g in attr.value:
+                    for value in g.initializers.values():
+                        if (tensor := value.const_value) is not None:
+                            yield tensor
 
 
-def set_base_dir(graph: _core.Graph | _core.GraphView, base_dir: str | os.PathLike) -> None:
-    """Set the base directory for external data in a graph.
+def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
+    """Set the base directory for external data in a graph (including all of its subgraphs).
 
     Args:
         graph: The graph to traverse tensors on.
@@ -201,6 +212,7 @@ def _write_external_data(
                         total=tensors_count,
                         index=i,
                         offset=tensor_info.offset,
+                        filename=os.path.basename(file_path),
                     ),
                 )
             current_offset = tensor_info.offset

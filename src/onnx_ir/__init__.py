@@ -84,6 +84,7 @@ __all__ = [
     # IO
     "load",
     "save",
+    "save_safetensors",
     # Flags
     "DEBUG",
     # Others
@@ -156,6 +157,7 @@ from onnx_ir._protocols import (
     TypeProtocol,
     ValueProtocol,
 )
+from onnx_ir._safetensors import save_safetensors
 from onnx_ir.serde import TensorProtoTensor, from_onnx_text, from_proto, to_onnx_text, to_proto
 
 DEBUG = False
