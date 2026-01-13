@@ -59,8 +59,6 @@ def _iterate_subgraphs(
                     implicit_usages[g].append(inp)
 
     for attr in node.attributes.values():
-        if not isinstance(attr, ir.Attr):
-            continue
         if attr.type == ir.AttributeType.GRAPH:
             subgraph = attr.as_graph()
             graph_stack.append(subgraph)
