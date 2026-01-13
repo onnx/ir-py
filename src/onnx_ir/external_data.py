@@ -82,8 +82,8 @@ def _all_tensors(
     """
     # Yield all tensors in initializers
     for value in graph.initializers.values():
-        if value.const_value is not None:
-            yield value.const_value
+        if (tensor := value.const_value) is not None:
+            yield tensor
     if not include_attributes:
         return
     # Look at constant attributes in nodes
@@ -97,13 +97,13 @@ def _all_tensors(
                 yield from attr.value
             elif attr.type == _enums.AttributeType.GRAPH and attr.value is not None:
                 for value in graph.initializers.values():
-                    if value.const_value is not None:
-                        yield value.const_value
+                    if (tensor := value.const_value) is not None:
+                        yield tensor
             elif attr.type == _enums.AttributeType.GRAPHS and attr.value is not None:
                 for g in attr.value:
-                    for value in graph.initializers.values():
-                        if value.const_value is not None:
-                            yield value.const_value
+                    for value in g.initializers.values():
+                        if (tensor := value.const_value) is not None:
+                            yield tensor
 
 
 def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
