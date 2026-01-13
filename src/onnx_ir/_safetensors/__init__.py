@@ -404,7 +404,7 @@ def save_safetensors(
                 continue
             if name in initializer_names:
                 raise ValueError(
-                    f"Duplicate initializer name found: {tensor.name} (in graph {graph.name!r})."
+                    f"Duplicate initializer name found: {name} (in graph {graph.name!r})."
                     " Rename the initializers to have unique names before saving to safetensors."
                 )
             initializer_names.add(name)
