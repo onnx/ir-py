@@ -15,7 +15,7 @@ class ImplicitUseAnalysisPass(ir.passes.InPlacePass):
     """Find all values that are implicitly used by the sub-graphs.
 
     This pass will store in each sub-graph's ``.meta`` (not ``metadata_props``) a
-    list of values that are captured from outer scopes (i.e., not defined
+    list of :class:`~onnx_ir.Value`s that are captured from outer scopes (i.e., not defined
     within the sub-graph itself). The list is stored under the key defined by
     :attr:`onnx_ir.passes.common.ImplicitUseAnalysisPassMETADATA_KEY`.
     """

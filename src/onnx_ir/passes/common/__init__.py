@@ -9,11 +9,12 @@ __all__ = [
     "DeduplicateHashedInitializersPass",
     "DeduplicateInitializersPass",
     "IdentityEliminationPass",
-    "OutputFixPass",
+    "ImplicitUseAnalysisPass",
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
     "NameFixPass",
+    "OutputFixPass",
     "RemoveInitializersFromInputsPass",
     "RemoveUnusedFunctionsPass",
     "RemoveUnusedNodesPass",
@@ -35,6 +36,9 @@ from onnx_ir.passes.common.constant_manipulation import (
     RemoveInitializersFromInputsPass,
 )
 from onnx_ir.passes.common.identity_elimination import IdentityEliminationPass
+from onnx_ir.passes.common.implicit_use_analysis import (
+    ImplicitUseAnalysisPass,
+)
 from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateHashedInitializersPass,
     DeduplicateInitializersPass,
