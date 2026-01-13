@@ -12,7 +12,7 @@ import unittest
 
 import ml_dtypes
 import numpy as np
-from safetensors import safe_open
+import safetensors
 
 import onnx_ir as ir
 
@@ -107,7 +107,7 @@ class SaveSafetensorsTest(unittest.TestCase):
         self.assertTrue(os.path.exists(safetensors_path))
 
         # Validate the safetensors file contents
-        with safe_open(safetensors_path, framework="numpy") as f:
+        with safetensors.safe_open(safetensors_path, framework="numpy") as f:
             # Check that all expected tensors are present
             tensor_names = f.keys()
             expected_names = {"initializer_0", "initializer_1", "initializer_2"}
