@@ -12,6 +12,7 @@ import unittest
 
 import ml_dtypes
 import numpy as np
+from safetensors import safe_open
 
 import onnx_ir as ir
 
@@ -104,6 +105,21 @@ class SaveSafetensorsTest(unittest.TestCase):
         # Check that the safetensors file was created
         safetensors_path = os.path.join(self.tmpdir, "model.safetensors")
         self.assertTrue(os.path.exists(safetensors_path))
+
+        # Validate the safetensors file contents
+        with safe_open(safetensors_path, framework="numpy") as f:
+            # Check that all expected tensors are present
+            tensor_names = f.keys()
+            expected_names = {"initializer_0", "initializer_1", "initializer_2"}
+            self.assertEqual(set(tensor_names), expected_names)
+
+            # Verify each tensor's data and metadata
+            for name, value in model.graph.initializers.items():
+                saved_tensor = f.get_tensor(name)
+                expected_array = value.const_value.numpy()
+                np.testing.assert_array_equal(saved_tensor, expected_array)
+                # Verify shape matches
+                self.assertEqual(saved_tensor.shape, expected_array.shape)
 
     def test_save_safetensors_preserves_original_model(self):
         """Test that save_safetensors does not modify the original model."""

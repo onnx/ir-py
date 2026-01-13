@@ -141,10 +141,7 @@ def _shard_tensors(
     for tensor in tensors:
         tensor_size = tensor.nbytes
         # Check if adding this tensor would exceed max_shard_size_bytes
-        if (
-            current_shard_size + tensor_size > max_shard_size_bytes
-            and current_shard_size > 0
-        ):
+        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
             # Start a new shard
             shards.append([])
             current_shard_size = 0
@@ -168,14 +165,10 @@ def _replace_tensors(
         location: Path to the safetensors file relative to the ONNX model file.
         base_dir: Directory where the ONNX model file is stored.
     """
-    tensors: dict[str, ir.ExternalTensor] = _read_safetensors(
-        location, base_dir=base_dir
-    )
+    tensors: dict[str, ir.ExternalTensor] = _read_safetensors(location, base_dir=base_dir)
     value_map: dict[str, ir.Value] = {value.name: value for value in values}  # type: ignore[misc]
     for name, tensor in tensors.items():
-        assert name in value_map, (
-            f"Bug: Tensor '{name}' not found in model initializers."
-        )
+        assert name in value_map, f"Bug: Tensor '{name}' not found in model initializers."
         value = value_map[name]
         model_tensor = value.const_value
         assert model_tensor is not None
@@ -199,8 +192,7 @@ def _save_file(
     *,
     size_threshold_bytes: int,
     max_shard_size_bytes: int | None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
-    | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> None:
     """Save all tensors in an ONNX model to a safetensors file.
 
@@ -283,8 +275,7 @@ def _save_file(
             location_str = str(location)
             if location_str.endswith(".safetensors"):
                 index_filename = (
-                    location_str.rsplit(".safetensors", 1)[0]
-                    + ".safetensors.index.json"
+                    location_str.rsplit(".safetensors", 1)[0] + ".safetensors.index.json"
                 )
             else:
                 index_filename = location_str + ".index.json"
@@ -309,8 +300,7 @@ def save_safetensors(
     format: str | None = None,
     size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
-    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]
-    | None = None,
+    callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 

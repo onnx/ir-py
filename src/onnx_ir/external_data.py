@@ -161,11 +161,7 @@ def _compute_new_offset(
     if align_offset and tensor_size > align_threshold:
         alignment_factor = max(4096, allocation_granularity)
         # Align to the next page or alloc granularity
-        return (
-            (current_offset + alignment_factor - 1)
-            // alignment_factor
-            * alignment_factor
-        )
+        return (current_offset + alignment_factor - 1) // alignment_factor * alignment_factor
     return current_offset
 
 
@@ -348,9 +344,7 @@ def convert_tensors_to_external(
     # Create external tensor objects
     external_tensors: list[_core.ExternalTensor] = [
         _create_external_tensor(tensor, external_info, base_dir, relative_path)
-        for tensor, external_info in zip(
-            sorted_tensors, external_data_infos, strict=True
-        )
+        for tensor, external_info in zip(sorted_tensors, external_data_infos, strict=True)
     ]
 
     # Sort external_tensors based on original key order. So that it can match the input tensor order
