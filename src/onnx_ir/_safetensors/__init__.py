@@ -38,10 +38,12 @@ _SAFETENSORS_DTYPE_TO_IR_DTYPE = {
     "U16": ir.DataType.UINT16,
     "U32": ir.DataType.UINT32,
     "U64": ir.DataType.UINT64,
+    "C64": ir.DataType.COMPLEX64,
 }
+# https://github.com/huggingface/safetensors/blob/806426784adb43631e9a1102d4621126bb589347/bindings/python/src/view.rs#L77
 _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
     ir.DataType.BOOL: "bool",
-    ir.DataType.FLOAT4E2M1: "f4",
+    ir.DataType.FLOAT4E2M1: "float4_e2m1fn_x2",
     ir.DataType.FLOAT8E5M2: "float8_e5m2",
     ir.DataType.FLOAT8E4M3FN: "float8_e4m3fn",
     ir.DataType.FLOAT8E8M0: "float8_e8m0",
@@ -63,6 +65,7 @@ _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
     ir.DataType.UINT16: "uint16",
     ir.DataType.UINT32: "uint32",
     ir.DataType.UINT64: "uint64",
+    ir.DataType.COMPLEX64: "complex64",
 }
 
 
@@ -467,11 +470,14 @@ def _migrate_tensor_shape_dtype(
     if (
         model_tensor.dtype
         in {
-            # Float 8 types that safetensors does not support directly
+            # Types that safetensors does not support directly
             ir.DataType.FLOAT8E4M3FNUZ,
             ir.DataType.FLOAT8E5M2FNUZ,
+            ir.DataType.INT4,
+            ir.DataType.INT2,
+            ir.DataType.UINT4,
+            ir.DataType.UINT2,
         }
-        or model_tensor.dtype.bitwidth < 8
     ):
         return ir.ExternalTensor(
             location=safe_tensor.location,
