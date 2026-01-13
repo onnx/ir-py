@@ -34,10 +34,7 @@ def load(path: str | os.PathLike, format: str | None = None) -> _core.Model:
     base_dir = os.path.dirname(path)
     # Set the base directory for external data to the directory of the ONNX file
     # so that relative paths are resolved correctly.
-    for graph in model.graphs():
-        # The base_dir is set recursively for all subgraphs. This may increase
-        # model load time.
-        _external_data.set_base_dir(graph, base_dir)
+    _external_data.set_base_dir(model.graph, base_dir)
     return model
 
 

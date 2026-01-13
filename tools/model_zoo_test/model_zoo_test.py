@@ -33,22 +33,25 @@ def test_model(model_info: hub.ModelInfo) -> float:
         # is not thread-safe.
         hub.set_dir(temp_dir)
         model = hub.load(model_name)
-    assert model is not None
-    onnx.checker.check_model(model)
-    # Fix the missing graph name of some test models
-    model.graph.name = "main_graph"
 
-    # Profile the serialization and deserialization process
-    start = time.time()
-    ir_model = ir.serde.deserialize_model(model)
-    serialized = ir.serde.serialize_model(ir_model)
-    end = time.time()
-    onnx_ir.testing.assert_onnx_proto_equal(
-        serialized, model, ignore_initializer_value_proto=True
-    )
-    onnx.checker.check_model(serialized)
-    # Check the model can be loaded with onnxruntime
-    ort.InferenceSession(serialized.SerializeToString())
+        assert model is not None
+        onnx.checker.check_model(model)
+        # Fix the missing graph name of some test models
+        model.graph.name = "main_graph"
+
+        # Profile the serialization and deserialization process
+        start = time.time()
+        ir_model = ir.serde.deserialize_model(model)
+        ir.save(ir_model, f"{temp_dir}/temp.onnx")
+        ir_model = ir.load(f"{temp_dir}/temp.onnx")
+        serialized = ir.serde.serialize_model(ir_model)
+        end = time.time()
+        onnx_ir.testing.assert_onnx_proto_equal(
+            serialized, model, ignore_initializer_value_proto=True
+        )
+        onnx.checker.check_model(serialized)
+        # Check the model can be loaded with onnxruntime
+        ort.InferenceSession(serialized.SerializeToString())
     return end - start
 
 

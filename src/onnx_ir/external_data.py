@@ -69,7 +69,7 @@ class CallbackInfo:
 
 
 def _all_tensors(
-    graph: _core.Graph | _core.GraphView, include_attributes: bool = False
+    graph: _core.Graph, include_attributes: bool = False
 ) -> Iterator[_protocols.TensorProtocol]:
     """Iterate over all tensors in the graph.
 
@@ -95,10 +95,19 @@ def _all_tensors(
                 yield attr.value
             elif attr.type == _enums.AttributeType.TENSORS and attr.value is not None:
                 yield from attr.value
+            elif attr.type == _enums.AttributeType.GRAPH and attr.value is not None:
+                for value in graph.initializers.values():
+                    if value.const_value is not None:
+                        yield value.const_value
+            elif attr.type == _enums.AttributeType.GRAPHS and attr.value is not None:
+                for g in attr.value:
+                    for value in graph.initializers.values():
+                        if value.const_value is not None:
+                            yield value.const_value
 
 
-def set_base_dir(graph: _core.Graph | _core.GraphView, base_dir: str | os.PathLike) -> None:
-    """Set the base directory for external data in a graph.
+def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
+    """Set the base directory for external data in a graph (including all of its subgraphs).
 
     Args:
         graph: The graph to traverse tensors on.
@@ -152,7 +161,11 @@ def _compute_new_offset(
     if align_offset and tensor_size > align_threshold:
         alignment_factor = max(4096, allocation_granularity)
         # Align to the next page or alloc granularity
-        return (current_offset + alignment_factor - 1) // alignment_factor * alignment_factor
+        return (
+            (current_offset + alignment_factor - 1)
+            // alignment_factor
+            * alignment_factor
+        )
     return current_offset
 
 
@@ -335,7 +348,9 @@ def convert_tensors_to_external(
     # Create external tensor objects
     external_tensors: list[_core.ExternalTensor] = [
         _create_external_tensor(tensor, external_info, base_dir, relative_path)
-        for tensor, external_info in zip(sorted_tensors, external_data_infos, strict=True)
+        for tensor, external_info in zip(
+            sorted_tensors, external_data_infos, strict=True
+        )
     ]
 
     # Sort external_tensors based on original key order. So that it can match the input tensor order
