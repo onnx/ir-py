@@ -70,9 +70,9 @@ def _add_default_attributes_to_node(node: ir.Node, onnx_opset_version: int) -> b
         return False
 
     # Get the operator schema
-    onnx_opset_version = node.version or onnx_opset_version
+    effective_opset_version = node.version or onnx_opset_version
     try:
-        op_schema = onnx.defs.get_schema(node.op_type, onnx_opset_version, domain=node.domain)
+        op_schema = onnx.defs.get_schema(node.op_type, effective_opset_version, domain=node.domain)
     except onnx.defs.SchemaError:
         logger.debug(
             "Schema not found for %s, skipping default attribute addition",
