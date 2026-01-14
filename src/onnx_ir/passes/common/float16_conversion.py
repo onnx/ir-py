@@ -235,12 +235,12 @@ class ConvertFloatToFloat16Pass(ir.passes.InPlacePass):
 
         # Convert node attributes and value types
         for node in graph:
+            # Convert attributes and output types only for non-blocked nodes
             if not self._is_node_blocked(node):
                 if self._convert_node_attributes(node):
                     modified = True
 
-            # Convert output value types for non-blocked nodes
-            if not self._is_node_blocked(node):
+                # Convert output value types
                 for output_val in node.outputs:
                     if output_val is not None and self._convert_value_type(output_val):
                         modified = True
