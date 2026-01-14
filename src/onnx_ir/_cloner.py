@@ -99,6 +99,7 @@ class Cloner:
             # values when the initial graph is a main graph and when we are cloning subgraphs.
             mapped = value_map.get(value, value)
             value_map[value] = mapped
+            assert mapped is not None
             return mapped
 
         new_value = _core.Value(
