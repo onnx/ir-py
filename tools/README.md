@@ -35,28 +35,6 @@ python tools/convert_float_to_float16.py model.onnx model_fp16.onnx --keep-io-ty
 python tools/convert_float_to_float16.py model.onnx model_fp16.onnx --op-block-list Resize TopK
 ```
 
-**Programmatic Usage:**
-
-```python
-import onnx_ir as ir
-from onnx_ir.passes.common import ConvertFloatToFloat16Pass
-
-# Load model
-model = ir.load("model.onnx")
-
-# Create and apply conversion pass
-pass_ = ConvertFloatToFloat16Pass(
-    min_positive_val=1e-7,
-    max_finite_val=1e4,
-    keep_io_types=False,
-)
-result = pass_(model)
-
-# Save converted model
-if result.modified:
-    ir.save(result.model, "model_fp16.onnx")
-```
-
 ### onnx_printer.py
 
 Pretty-print ONNX models in a human-readable format.

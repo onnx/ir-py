@@ -13,7 +13,6 @@ from __future__ import annotations
 
 __all__ = [
     "ConvertFloatToFloat16Pass",
-    "convert_np_to_float16",
     "DEFAULT_OP_BLOCK_LIST",
 ]
 
@@ -63,7 +62,11 @@ DEFAULT_OP_BLOCK_LIST = frozenset(
 )
 
 
-def convert_np_to_float16(
+def _between(a: float, b: np.ndarray, c: float) -> np.ndarray:
+    return np.logical_and(a < b, b < c)
+
+
+def _convert_np_to_float16(
     np_array: np.ndarray, min_positive_val: float = 1e-7, max_finite_val: float = 1e4
 ) -> np.ndarray:
     """Convert float32 numpy array to float16 without changing sign or finiteness.
@@ -80,10 +83,6 @@ def convert_np_to_float16(
     Returns:
         The converted float16 numpy array.
     """
-
-    def between(a: float, b: np.ndarray, c: float) -> np.ndarray:
-        return np.logical_and(a < b, b < c)
-
     # Warn about potential truncation
     pos_values = np_array[np.where(np_array > 0)]
     if pos_values.shape[0] > 0:
@@ -120,13 +119,13 @@ def convert_np_to_float16(
             )
 
     # Clamp values to the specified range
-    np_array = np.where(between(0, np_array, min_positive_val), min_positive_val, np_array)
-    np_array = np.where(between(-min_positive_val, np_array, 0), -min_positive_val, np_array)
+    np_array = np.where(_between(0, np_array, min_positive_val), min_positive_val, np_array)
+    np_array = np.where(_between(-min_positive_val, np_array, 0), -min_positive_val, np_array)
     np_array = np.where(
-        between(max_finite_val, np_array, float("inf")), max_finite_val, np_array
+        _between(max_finite_val, np_array, float("inf")), max_finite_val, np_array
     )
     np_array = np.where(
-        between(float("-inf"), np_array, -max_finite_val), -max_finite_val, np_array
+        _between(float("-inf"), np_array, -max_finite_val), -max_finite_val, np_array
     )
     return np.asarray(np_array, dtype=np.float16)
 
@@ -299,7 +298,7 @@ class ConvertFloatToFloat16Pass(ir.passes.InPlacePass):
                 return False
 
             # Convert to float16 with clamping
-            fp16_array = convert_np_to_float16(
+            fp16_array = _convert_np_to_float16(
                 np_array, self.min_positive_val, self.max_finite_val
             )
 
@@ -409,7 +408,7 @@ class ConvertFloatToFloat16Pass(ir.passes.InPlacePass):
             if np_array.dtype != np.float32:
                 return None
 
-            fp16_array = convert_np_to_float16(
+            fp16_array = _convert_np_to_float16(
                 np_array, self.min_positive_val, self.max_finite_val
             )
             return ir.tensor(
