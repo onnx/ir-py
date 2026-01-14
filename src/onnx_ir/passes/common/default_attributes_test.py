@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.passes.common import add_default_attributes
+from onnx_ir.passes.common import default_attributes
 
 
 class TestAddDefaultAttributesPass(unittest.TestCase):
@@ -44,7 +44,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         self.assertNotIn("auto_pad", conv_node.attributes)
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass was applied
@@ -99,7 +99,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         self.assertNotIn("training_mode", bn_node.attributes)
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass was applied
@@ -145,7 +145,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         )
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass was applied (added auto_pad but not group)
@@ -184,7 +184,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         )
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass didn't modify anything
@@ -223,7 +223,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         self.assertNotIn("mode", pad_node.attributes)
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass was applied
@@ -314,7 +314,7 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         self.assertNotIn("group", then_conv.attributes)
 
         # Apply the pass
-        pass_instance = add_default_attributes.AddDefaultAttributesPass()
+        pass_instance = default_attributes.AddDefaultAttributesPass()
         result = pass_instance(model)
 
         # Check that the pass was applied

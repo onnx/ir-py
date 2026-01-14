@@ -23,7 +23,6 @@ __all__ = [
     "TopologicalSortPass",
 ]
 
-from onnx_ir.passes.common.add_default_attributes import AddDefaultAttributesPass
 from onnx_ir.passes.common.clear_metadata_and_docstring import (
     ClearMetadataAndDocStringPass,
 )
@@ -36,6 +35,7 @@ from onnx_ir.passes.common.constant_manipulation import (
     LiftSubgraphInitializersToMainGraphPass,
     RemoveInitializersFromInputsPass,
 )
+from onnx_ir.passes.common.default_attributes import AddDefaultAttributesPass
 from onnx_ir.passes.common.identity_elimination import IdentityEliminationPass
 from onnx_ir.passes.common.initializer_deduplication import (
     DeduplicateHashedInitializersPass,
