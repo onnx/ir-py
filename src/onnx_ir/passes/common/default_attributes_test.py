@@ -324,6 +324,231 @@ class TestAddDefaultAttributesPass(unittest.TestCase):
         self.assertIn("group", then_conv.attributes)
         self.assertEqual(then_conv.attributes["group"].value, 1)
 
+    def test_unknown_op_type_is_skipped(self):
+        """Test that nodes with unknown op types are skipped (SchemaError case)."""
+        # Create a node with an unknown op type
+        input_val = ir.Value(
+            name="input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+
+        unknown_node = ir.node(
+            "UnknownOpThatDoesNotExist",
+            inputs=[input_val],
+            num_outputs=1,
+        )
+
+        model = ir.Model(
+            graph=ir.Graph(
+                inputs=[input_val],
+                outputs=unknown_node.outputs,
+                nodes=[unknown_node],
+                opset_imports={"": 20},
+            ),
+            ir_version=10,
+        )
+
+        # Apply the pass - should not raise an exception
+        pass_instance = default_attributes.AddDefaultAttributesPass()
+        result = pass_instance(model)
+
+        # Check that the pass didn't modify anything since schema was not found
+        self.assertFalse(result.modified)
+        self.assertEqual(len(unknown_node.attributes), 0)
+
+    def test_add_default_attributes_in_function(self):
+        """Test adding default attributes to nodes in an ONNX function."""
+        # Create a function with a Conv node
+        func_input = ir.Value(
+            name="func_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+        func_weight = ir.Value(
+            name="func_weight",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((64, 3, 7, 7)),
+        )
+
+        conv_node = ir.node(
+            "Conv",
+            inputs=[func_input, func_weight],
+            num_outputs=1,
+        )
+
+        function = ir.Function(
+            domain="test.domain",
+            name="TestFunction",
+            graph=ir.Graph(
+                inputs=[func_input, func_weight],
+                outputs=conv_node.outputs,
+                nodes=[conv_node],
+                opset_imports={"": 20},
+            ),
+            attributes=[],
+        )
+
+        # Create a simple model that uses the function
+        model_input = ir.Value(
+            name="model_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+
+        identity_node = ir.node(
+            "Identity",
+            inputs=[model_input],
+            num_outputs=1,
+        )
+
+        model = ir.Model(
+            graph=ir.Graph(
+                inputs=[model_input],
+                outputs=identity_node.outputs,
+                nodes=[identity_node],
+                opset_imports={"": 20},
+            ),
+            ir_version=10,
+            functions=[function],
+        )
+
+        # Verify the Conv node in function doesn't have default attributes
+        self.assertNotIn("group", conv_node.attributes)
+        self.assertNotIn("auto_pad", conv_node.attributes)
+
+        # Apply the pass
+        pass_instance = default_attributes.AddDefaultAttributesPass()
+        result = pass_instance(model)
+
+        # Check that the pass was applied
+        self.assertTrue(result.modified)
+
+        # Check that default attributes were added to Conv in function
+        self.assertIn("group", conv_node.attributes)
+        self.assertEqual(conv_node.attributes["group"].value, 1)
+        self.assertIn("auto_pad", conv_node.attributes)
+        self.assertEqual(conv_node.attributes["auto_pad"].value, "NOTSET")
+
+    def test_add_default_attributes_in_function_with_subgraph(self):
+        """Test adding default attributes to nodes in a function with subgraphs."""
+        # Create a function with an If node containing Conv in a subgraph
+        func_cond = ir.Value(
+            name="func_cond", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(())
+        )
+        func_input = ir.Value(
+            name="func_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+        func_weight = ir.Value(
+            name="func_weight",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((64, 3, 7, 7)),
+        )
+
+        # Create Conv node in then branch
+        then_input = ir.Value(
+            name="then_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+        then_weight = ir.Value(
+            name="then_weight",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((64, 3, 7, 7)),
+        )
+        then_conv = ir.node(
+            "Conv",
+            inputs=[then_input, then_weight],
+            num_outputs=1,
+        )
+        then_branch = ir.Graph(
+            inputs=[then_input, then_weight],
+            outputs=then_conv.outputs,
+            nodes=[then_conv],
+            opset_imports={"": 20},
+        )
+
+        # Create Identity node in else branch
+        else_input = ir.Value(
+            name="else_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+        else_identity = ir.node(
+            "Identity",
+            inputs=[else_input],
+            num_outputs=1,
+        )
+        else_branch = ir.Graph(
+            inputs=[else_input],
+            outputs=else_identity.outputs,
+            nodes=[else_identity],
+            opset_imports={"": 20},
+        )
+
+        # Create If node
+        if_node = ir.node(
+            "If",
+            inputs=[func_cond],
+            attributes={
+                "then_branch": ir.Attr("then_branch", ir.AttributeType.GRAPH, then_branch),
+                "else_branch": ir.Attr("else_branch", ir.AttributeType.GRAPH, else_branch),
+            },
+            num_outputs=1,
+        )
+
+        function = ir.Function(
+            domain="test.domain",
+            name="TestFunctionWithSubgraph",
+            graph=ir.Graph(
+                inputs=[func_cond, func_input, func_weight],
+                outputs=if_node.outputs,
+                nodes=[if_node],
+                opset_imports={"": 20},
+            ),
+            attributes=[],
+        )
+
+        # Create a simple model
+        model_input = ir.Value(
+            name="model_input",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape((1, 3, 224, 224)),
+        )
+
+        identity_node = ir.node(
+            "Identity",
+            inputs=[model_input],
+            num_outputs=1,
+        )
+
+        model = ir.Model(
+            graph=ir.Graph(
+                inputs=[model_input],
+                outputs=identity_node.outputs,
+                nodes=[identity_node],
+                opset_imports={"": 20},
+            ),
+            ir_version=10,
+            functions=[function],
+        )
+
+        # Verify the Conv node in function's subgraph doesn't have default attributes
+        self.assertNotIn("group", then_conv.attributes)
+
+        # Apply the pass
+        pass_instance = default_attributes.AddDefaultAttributesPass()
+        result = pass_instance(model)
+
+        # Check that the pass was applied
+        self.assertTrue(result.modified)
+
+        # Check that default attributes were added to Conv in function's subgraph
+        self.assertIn("group", then_conv.attributes)
+        self.assertEqual(then_conv.attributes["group"].value, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
