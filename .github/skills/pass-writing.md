@@ -156,7 +156,7 @@ if "training_mode" in node.attributes:
     node.attributes.pop("training_mode")
 
 # Add new attributes
-node.attributes["new_attr"] = ir.Attr("value", ir.AttributeType.STRING)
+node.attributes["new_attr"] = ir.Attr("new_attr", ir.AttributeType.STRING, "value")
 ```
 
 ### 3. Value Manipulation
