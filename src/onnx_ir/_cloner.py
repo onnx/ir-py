@@ -93,7 +93,7 @@ class Cloner:
             return known_value
 
         # If the value is not in the value map, it may be a graph input or an outer-scope value.
-        if (self._preserve_outer_scope_values) and (value not in self._top_scope_local_values):
+        if self._preserve_outer_scope_values and (value not in self._top_scope_local_values):
             # Preserve outer-scope values when the initial graph being cloned is a subgraph
             # Map to clones if they already exist because we still want to use the cloned
             # values when the initial graph is a main graph and when we are cloning subgraphs.
