@@ -20,6 +20,7 @@ The ONNX IR pass infrastructure is designed for graph construction, analysis, an
 All passes inherit from one of these base classes defined in `onnx_ir.passes`:
 
 #### `InPlacePass`
+
 ```python
 class MyPass(ir.passes.InPlacePass):
     """Most common pass type - modifies model in place."""
@@ -33,10 +34,12 @@ class MyPass(ir.passes.InPlacePass):
 **Use when**: You want efficient in-place mutation (recommended for most passes)
 
 **Properties**:
+
 - `in_place = True` (automatically set)
 - `changes_input = True` (automatically set)
 
 #### `FunctionalPass`
+
 ```python
 class MyPass(ir.passes.FunctionalPass):
     """Pure functional pass - does not modify input."""
@@ -51,6 +54,7 @@ class MyPass(ir.passes.FunctionalPass):
 **Use when**: You need to preserve the original model unchanged
 
 **Properties**:
+
 - `in_place = False` (automatically set)
 - `changes_input = False` (automatically set)
 
@@ -85,6 +89,7 @@ class MyPass(ir.passes.InPlacePass):
 ### 1. Graph Traversal
 
 #### Traverse All Nodes (Including Subgraphs)
+
 ```python
 import onnx_ir as ir
 
@@ -97,6 +102,7 @@ for node in ir.traversal.RecursiveGraphIterator(model.graph):
 ```
 
 #### Process Functions
+
 ```python
 # Don't forget to process functions in the model
 for function in model.functions.values():
@@ -106,6 +112,7 @@ for function in model.functions.values():
 ```
 
 #### Simple Graph Iteration
+
 ```python
 # For non-recursive iteration of the main graph
 for node in model.graph:
@@ -121,12 +128,14 @@ for node in reversed(model.graph):
 ### 2. Node Manipulation
 
 #### Safely Remove Nodes
+
 ```python
 # Always use safe=True to ensure proper cleanup
 graph.remove(node, safe=True)
 ```
 
 #### Create New Nodes
+
 ```python
 # Create a node with the ir.node() helper
 new_node = ir.node(
@@ -150,6 +159,7 @@ graph.append(new_node)
 ```
 
 #### Modify Node Attributes
+
 ```python
 # Access attributes as a dictionary
 if "training_mode" in node.attributes:
@@ -162,6 +172,7 @@ node.attributes["new_attr"] = ir.Attr("new_attr", ir.AttributeType.STRING, "valu
 ### 3. Value Manipulation
 
 #### Replace All Uses of a Value
+
 ```python
 import onnx_ir.convenience as convenience
 
@@ -180,6 +191,7 @@ convenience.replace_all_uses_with(
 ```
 
 #### Check Value Usage
+
 ```python
 # Check if a value is used
 if output_value.uses():
@@ -198,6 +210,7 @@ if value.is_graph_input():
 ```
 
 #### Merge Value Information
+
 ```python
 # When eliminating nodes, preserve shape/type information
 def merge_shapes(shape1: ir.Shape | None, shape2: ir.Shape | None) -> ir.Shape | None:
@@ -217,6 +230,7 @@ if input_value.type is None:
 ### 4. Initializers and Constants
 
 #### Work with Initializers
+
 ```python
 # Access initializers by name
 initializers = graph.initializers
@@ -242,6 +256,7 @@ for init in list(initializers.values()):
 ```
 
 #### Lift Constants to Initializers
+
 ```python
 # Check if node is a Constant
 if node.op_type == "Constant" and node.domain in ("", "onnx.ai"):
@@ -553,10 +568,10 @@ def test_my_pass():
     # ...
 ```
 
-
 ## Common Pitfalls to Avoid
 
 1. **Modifying while iterating**: ONNX IR's iterators are robust and support modification during iteration
+
    ```python
    # Forward iteration with removal is safe in onnx_ir
    for node in graph:
@@ -574,6 +589,7 @@ def test_my_pass():
 2. **Forgetting subgraphs**: Always use `RecursiveGraphIterator` or manually process subgraphs
 
 3. **Not checking for None inputs**: Nodes can have optional None inputs
+
    ```python
    for input_value in node.inputs:
        if input_value is not None:  # Always check
@@ -582,6 +598,7 @@ def test_my_pass():
    ```
 
 4. **Modifying graph outputs incorrectly**: Be careful when replacing graph output values
+
    ```python
    # Update graph outputs properly
    if output_value.is_graph_output():
@@ -600,11 +617,13 @@ def test_my_pass():
 1. **Use in-place passes** when possible (most efficient)
 2. **Minimize graph traversals**: Combine multiple checks in one traversal
 3. **Use frozenset for lookups**: When checking membership in graph inputs/outputs
+
    ```python
    graph_outputs = frozenset(graph.outputs)
    if value in graph_outputs:  # O(1) lookup
        pass
    ```
+
 4. **Batch operations**: Remove multiple nodes in one traversal rather than multiple passes
 5. **Early exit**: Return early if no modifications are needed
 
