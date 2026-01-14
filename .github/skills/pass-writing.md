@@ -553,16 +553,6 @@ def test_my_pass():
     # ...
 ```
 
-### Using Test Utilities
-
-```python
-# Compare graphs
-from onnx_ir._graph_comparison import GraphComparer
-
-expected_graph = create_expected_graph()
-comparer = GraphComparer()
-assert comparer.compare(result.model.graph, expected_graph)
-```
 
 ## Common Pitfalls to Avoid
 
