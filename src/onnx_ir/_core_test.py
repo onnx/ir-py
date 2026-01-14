@@ -4007,6 +4007,231 @@ class GraphCloneTest(unittest.TestCase):
         self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
         self.assertIs(cloned_nodes[2].inputs[1], cloned_nodes[0].outputs[0])
 
+    def test_clone_with_preserve_outer_scope_values_false(self):
+        """Test that outer scope values are cloned when preserve_outer_scope_values=False (default)."""
+        # Create main graph
+        v0 = _core.Value(name="main_input")
+
+        # Create subgraph that references the outer scope value v0
+        sub_node = _core.Node("", "Add", inputs=(v0, v0), name="sub_add")
+        subgraph = _core.Graph(
+            inputs=(),  # No inputs - references outer scope
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="subgraph",
+        )
+
+        # Clone the subgraph with preserve_outer_scope_values=False (default)
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=False)
+
+        # The outer scope value v0 should be cloned
+        cloned_sub_node = cloned_subgraph[0]
+        self.assertIsNot(cloned_sub_node.inputs[0], v0)
+        self.assertIsNot(cloned_sub_node.inputs[1], v0)
+        # Both inputs should be the same cloned value
+        self.assertIs(cloned_sub_node.inputs[0], cloned_sub_node.inputs[1])
+        self.assertEqual(cloned_sub_node.inputs[0].name, v0.name)
+
+    def test_clone_with_preserve_outer_scope_values_true(self):
+        """Test that outer scope values are preserved when preserve_outer_scope_values=True."""
+        # Create main graph
+        v0 = _core.Value(name="main_input")
+
+        # Create subgraph that references the outer scope value v0
+        sub_node = _core.Node("", "Add", inputs=(v0, v0), name="sub_add")
+        subgraph = _core.Graph(
+            inputs=(),  # No inputs - references outer scope
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="subgraph",
+        )
+
+        # Clone the subgraph with preserve_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=True)
+
+        # The outer scope value v0 should NOT be cloned, it should be preserved
+        cloned_sub_node = cloned_subgraph[0]
+        self.assertIs(cloned_sub_node.inputs[0], v0)
+        self.assertIs(cloned_sub_node.inputs[1], v0)
+
+    def test_clone_with_preserve_outer_scope_values_mixed_scope(self):
+        """Test preserve_outer_scope_values with both inner and outer scope values."""
+        # Create outer scope values
+        outer_v1 = _core.Value(name="outer_value1")
+        outer_v2 = _core.Value(name="outer_value2")
+
+        # Create subgraph with its own input and using outer scope values
+        inner_input = _core.Value(name="inner_input")
+        sub_node1 = _core.Node("", "Add", inputs=(inner_input, outer_v1))
+        sub_node2 = _core.Node("", "Mul", inputs=(sub_node1.outputs[0], outer_v2))
+        subgraph = _core.Graph(
+            inputs=(inner_input,),
+            outputs=(sub_node2.outputs[0],),
+            nodes=(sub_node1, sub_node2),
+            name="mixed_subgraph",
+        )
+
+        # Clone with preserve_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=True)
+
+        # Inner input should be cloned
+        cloned_inner_input = cloned_subgraph.inputs[0]
+        self.assertIsNot(cloned_inner_input, inner_input)
+        self.assertEqual(cloned_inner_input.name, inner_input.name)
+
+        # Outer scope values should be preserved
+        cloned_node1 = cloned_subgraph[0]
+        cloned_node2 = cloned_subgraph[1]
+
+        self.assertIs(cloned_node1.inputs[0], cloned_inner_input)  # Cloned inner
+        self.assertIs(cloned_node1.inputs[1], outer_v1)  # Preserved outer
+        self.assertIs(cloned_node2.inputs[1], outer_v2)  # Preserved outer
+
+    def test_clone_with_preserve_outer_scope_values_nested_subgraphs(self):
+        """Test preserve_outer_scope_values with nested subgraphs."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create inner subgraph that uses outer value
+        inner_node = _core.Node("", "Identity", inputs=(outer_value,))
+        inner_subgraph = _core.Graph(
+            inputs=(),
+            outputs=(inner_node.outputs[0],),
+            nodes=(inner_node,),
+            name="inner_subgraph",
+        )
+
+        # Create middle subgraph with If node containing the inner subgraph
+        condition = _core.Value(name="condition")
+        if_node = _core.Node(
+            "",
+            "If",
+            inputs=(condition,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", inner_subgraph),
+                ir.AttrGraph("else_branch", inner_subgraph),
+            ],
+        )
+        middle_subgraph = _core.Graph(
+            inputs=(condition,),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+            name="middle_subgraph",
+        )
+
+        # Clone with preserve_outer_scope_values=True
+        cloned_middle = middle_subgraph.clone(preserve_outer_scope_values=True)
+
+        # Condition should be cloned (it's an input)
+        cloned_condition = cloned_middle.inputs[0]
+        self.assertIsNot(cloned_condition, condition)
+
+        # Check nested subgraphs preserve outer values
+        cloned_if = cloned_middle[0]
+        cloned_then = cloned_if.attributes["then_branch"].value
+        cloned_else = cloned_if.attributes["else_branch"].value
+
+        # Inner subgraphs should preserve the outer_value
+        self.assertIs(cloned_then[0].inputs[0], outer_value)
+        self.assertIs(cloned_else[0].inputs[0], outer_value)
+
+    def test_clone_with_preserve_outer_scope_values_with_initializers(self):
+        """Test that initializers in the subgraph are cloned, not preserved."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create subgraph with initializer
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="weights")
+        v_init = _core.Value(name="weights", const_value=initializer_tensor)
+        sub_node = _core.Node("", "Add", inputs=(outer_value, v_init))
+        subgraph = _core.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            initializers=(v_init,),
+            name="subgraph_with_init",
+        )
+
+        # Clone with preserve_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=True)
+
+        # Outer value should be preserved
+        cloned_node = cloned_subgraph[0]
+        self.assertIs(cloned_node.inputs[0], outer_value)
+
+        # Initializer should be cloned (it's local to the subgraph)
+        cloned_init = cloned_subgraph.initializers["weights"]
+        self.assertIsNot(cloned_init, v_init)
+        self.assertEqual(cloned_init.name, v_init.name)
+        # But the tensor itself should be shared
+        self.assertIs(cloned_init.const_value, initializer_tensor)
+
+    def test_clone_with_preserve_outer_scope_values_outer_initializer(self):
+        """Test that initializers from outer graph are preserved when preserve_outer_scope_values=True."""
+        # Create outer graph with initializer
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="outer_weights")
+        outer_init = _core.Value(name="outer_weights", const_value=initializer_tensor)
+        outer_input = _core.Value(name="outer_input")
+        outer_node = _core.Node("", "Add", inputs=(outer_input, outer_init))
+        _outer_graph = _core.Graph(
+            inputs=(outer_input,),
+            outputs=(outer_node.outputs[0],),
+            nodes=(outer_node,),
+            initializers=(outer_init,),
+            name="outer_graph",
+        )
+
+        # Create subgraph that references the outer initializer
+        inner_value = _core.Value(name="inner_value")
+        sub_node = _core.Node("", "Mul", inputs=(inner_value, outer_init))
+        subgraph = _core.Graph(
+            inputs=(inner_value,),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            initializers=(),  # No local initializers, references outer
+            name="subgraph",
+        )
+
+        # Clone the subgraph with preserve_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=True)
+
+        # The outer initializer should be preserved (not cloned)
+        cloned_node = cloned_subgraph[0]
+        self.assertIs(cloned_node.inputs[1], outer_init)
+
+        # The inner input should be cloned
+        cloned_inner = cloned_subgraph.inputs[0]
+        self.assertIsNot(cloned_inner, inner_value)
+        self.assertEqual(cloned_inner.name, inner_value.name)
+
+    def test_clone_with_preserve_outer_scope_values_node_outputs(self):
+        """Test that node outputs within the subgraph are cloned, not preserved."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create subgraph with chain of nodes
+        node1 = _core.Node("", "Identity", inputs=(outer_value,))
+        node2 = _core.Node("", "Identity", inputs=(node1.outputs[0],))
+        subgraph = _core.Graph(
+            inputs=(),
+            outputs=(node2.outputs[0],),
+            nodes=(node1, node2),
+            name="chained_subgraph",
+        )
+
+        # Clone with preserve_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(preserve_outer_scope_values=True)
+
+        # Outer value should be preserved
+        cloned_node1 = cloned_subgraph[0]
+        self.assertIs(cloned_node1.inputs[0], outer_value)
+
+        # Internal connection should use cloned values
+        cloned_node2 = cloned_subgraph[1]
+        self.assertIsNot(cloned_node2.inputs[0], node1.outputs[0])
+        self.assertIs(cloned_node2.inputs[0], cloned_node1.outputs[0])
+
 
 class ModelCloneTest(unittest.TestCase):
     """Test the Model.clone() method."""
