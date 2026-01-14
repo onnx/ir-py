@@ -556,17 +556,20 @@ def test_my_pass():
 
 ## Common Pitfalls to Avoid
 
-1. **Modifying while iterating**: Use list copy or reversed iteration when removing nodes
+1. **Modifying while iterating**: ONNX IR's iterators are robust and support modification during iteration
    ```python
-   # Bad: Can cause iteration issues
+   # Forward iteration with removal is safe in onnx_ir
    for node in graph:
-       graph.remove(node)
+       if should_remove(node):
+           graph.remove(node, safe=True)
    
-   # Good: Iterate in reverse
+   # Reversed iteration is useful for dependency order
    for node in reversed(graph):
        if should_remove(node):
            graph.remove(node, safe=True)
    ```
+   
+   Note: Unlike standard Python iterators, onnx_ir's graph iterators are specifically designed to handle modifications during iteration. Choose forward or reverse iteration based on your algorithm's needs, not safety concerns.
 
 2. **Forgetting subgraphs**: Always use `RecursiveGraphIterator` or manually process subgraphs
 
