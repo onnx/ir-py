@@ -3079,7 +3079,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
-    def clone(self) -> Graph:
+    def clone(self, preserve_outer_scope_values: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3089,6 +3089,14 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+        .. versionadded:: 0.1.15
+            Added ``preserve_outer_scope_values`` argument.
+
+        Args:
+            preserve_outer_scope_values: If True, values that are from outer scopes
+                (not defined in this graph) will not be cloned. Instead, the cloned
+                graph will reference the same outer scope values. This is useful
+                when cloning subgraphs that reference values from the outer graph.
 
         Returns:
             A deep copy of this graph.
@@ -3100,6 +3108,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             value_map={},
             metadata_props={},
             resolve_ref_attrs=False,
+            preserve_outer_scope_values=preserve_outer_scope_values,
         )
         return cloner.clone_graph(self)
 
