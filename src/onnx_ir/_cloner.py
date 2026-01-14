@@ -200,8 +200,10 @@ class Cloner:
     @_capture_error_context
     def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
-        if self._preserve_outer_scope_values:
+        if self._preserve_outer_scope_values and not self._top_scope_local_values:
             # Collect local values only when we are preserving outer-scope values.
+            # Only set this once for the top-level graph so nested subgraphs can
+            # correctly identify outer-scope values.
             self._top_scope_local_values = _collect_local_values(graph)
 
         input_values = [self._clone_value(v) for v in graph.inputs]
