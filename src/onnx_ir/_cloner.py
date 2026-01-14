@@ -7,7 +7,9 @@ from __future__ import annotations
 import functools
 import typing
 from collections.abc import Callable, Mapping
-from typing import Concatenate, ParamSpec, TypeVar
+from typing import TypeVar
+
+from typing_extensions import Concatenate, ParamSpec
 
 from onnx_ir import _core, _enums
 
@@ -34,13 +36,13 @@ def _capture_error_context(
 
 def _collect_local_values(graph: _core.Graph | _core.GraphView) -> set[_core.Value]:
     """Collects all values that are local (not defined externally) to the given graph."""
-    local: set[_core.Value] = set()
-    local.update(graph.inputs)
-    local.update(graph.outputs)
-    local.update(graph.initializers.values())
+    local_values: set[_core.Value] = set()
+    local_values.update(graph.inputs)
+    local_values.update(graph.outputs)
+    local_values.update(graph.initializers.values())
     for node in graph:
-        local.update(node.outputs)
-    return local
+        local_values.update(node.outputs)
+    return local_values
 
 
 class Cloner:
