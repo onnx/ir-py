@@ -1,25 +1,20 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the implicit use analysis pass."""
+"""Tests for the implicit usage analysis."""
 
 from __future__ import annotations
 
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.passes.common import implicit_use_analysis
+from onnx_ir.analysis import _implicit_usage
 
 
-class ImplicitUseAnalysisPassTest(unittest.TestCase):
-    """Test cases for ImplicitUseAnalysisPass."""
+class AnalyzeImplicitUsageTest(unittest.TestCase):
+    """Test cases for analyze_implicit_usage."""
 
-    def test_pass_is_in_place(self):
-        """Verify the pass is in-place."""
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        self.assertTrue(pass_instance.in_place)
-
-    def test_no_subgraphs_no_modification(self):
-        """Test that pass doesn't modify models without subgraphs."""
+    def test_no_subgraphs_returns_empty_dict(self):
+        """Test that function returns empty dict for graphs without subgraphs."""
         # Create a simple model without subgraphs
         input_val = ir.val("input", dtype=ir.DataType.FLOAT, shape=[2, 2])
         add_node = ir.node(
@@ -33,17 +28,12 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[add_node],
             name="test_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
-        # Verify no modification
-        self.assertFalse(result.modified)
-        self.assertNotIn(
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY, graph.meta
-        )
+        # Verify empty dict is returned
+        self.assertEqual(result, {})
 
     def test_simple_if_node_with_captured_values(self):
         """Test If node with subgraphs that capture values from outer scope."""
@@ -96,27 +86,20 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[if_node],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
-
-        # Verify modification
-        self.assertTrue(result.modified)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
         # Check then_branch captured values
-        then_captured = then_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        self.assertIn(then_graph, result)
+        then_captured = result[then_graph]
         self.assertEqual(len(then_captured), 2)
         self.assertIn(x, then_captured)
         self.assertIn(y, then_captured)
 
         # Check else_branch captured values
-        else_captured = else_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        self.assertIn(else_graph, result)
+        else_captured = result[else_graph]
         self.assertEqual(len(else_captured), 1)
         self.assertIn(x, else_captured)
 
@@ -168,24 +151,15 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[if_node],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
-
-        # Verify modification (metadata is still added, even if empty)
-        self.assertTrue(result.modified)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
         # Check captured values are empty
-        then_captured = then_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
-        else_captured = else_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
-        self.assertEqual(len(then_captured), 0)
-        self.assertEqual(len(else_captured), 0)
+        self.assertIn(then_graph, result)
+        self.assertIn(else_graph, result)
+        self.assertEqual(len(result[then_graph]), 0)
+        self.assertEqual(len(result[else_graph]), 0)
 
     def test_nested_subgraphs(self):
         """Test nested subgraphs (If inside If)."""
@@ -244,26 +218,19 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[outer_if],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
-
-        # Verify modification
-        self.assertTrue(result.modified)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
         # Check innermost graph captures x from main graph
-        inner_captured = inner_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        self.assertIn(inner_graph, result)
+        inner_captured = result[inner_graph]
         self.assertEqual(len(inner_captured), 1)
         self.assertIn(x, inner_captured)
 
         # Check middle graph captures x and condition2
-        middle_captured = middle_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        self.assertIn(middle_graph, result)
+        middle_captured = result[middle_graph]
         self.assertGreater(len(middle_captured), 0)
         # Middle graph should capture x (used by inner graph) and condition2 (used by middle_if)
         self.assertIn(x, middle_captured)
@@ -309,19 +276,13 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[loop_node],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
-
-        # Verify modification
-        self.assertTrue(result.modified)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
         # Check loop body captured values
-        body_captured = loop_body.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        self.assertIn(loop_body, result)
+        body_captured = result[loop_body]
         self.assertEqual(len(body_captured), 1)
         self.assertIn(captured_val, body_captured)
 
@@ -372,25 +333,19 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[if_node],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
-        # Verify modification
-        self.assertTrue(result.modified)
-
-        # Check that x appears only once in captured values
-        then_captured = then_graph.meta[
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY
-        ]
+        # Check that x appears only once in captured values (set deduplication)
+        self.assertIn(then_graph, result)
+        then_captured = result[then_graph]
         self.assertEqual(len(then_captured), 1)
-        self.assertEqual(then_captured[0], x)
+        self.assertIn(x, then_captured)
 
     def test_multiple_subgraphs_in_graphs_attribute(self):
         """Test node with GRAPHS attribute (multiple subgraphs)."""
-        # Create a Scan node which has multiple subgraphs
+        # Create a custom node with GRAPHS attribute
         scan_input = ir.val("scan_input", dtype=ir.DataType.FLOAT, shape=[3])
         captured = ir.val("captured", dtype=ir.DataType.FLOAT, shape=[3])
 
@@ -438,31 +393,21 @@ class ImplicitUseAnalysisPassTest(unittest.TestCase):
             nodes=[custom_node],
             name="main_graph",
         )
-        model = ir.Model(graph, ir_version=10)
 
-        # Run the pass
-        pass_instance = implicit_use_analysis.ImplicitUseAnalysisPass()
-        result = pass_instance(model)
-
-        # Verify modification
-        self.assertTrue(result.modified)
+        # Run the analysis
+        result = _implicit_usage.analyze_implicit_usage(graph)
 
         # Check both bodies captured the value
-        body1_captured = body1.meta[implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY]
-        body2_captured = body2.meta[implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY]
+        self.assertIn(body1, result)
+        self.assertIn(body2, result)
+        body1_captured = result[body1]
+        body2_captured = result[body2]
 
         self.assertEqual(len(body1_captured), 1)
         self.assertIn(captured, body1_captured)
 
         self.assertEqual(len(body2_captured), 1)
         self.assertIn(captured, body2_captured)
-
-    def test_metadata_key_is_accessible(self):
-        """Test that the METADATA_KEY constant is properly set."""
-        self.assertEqual(
-            implicit_use_analysis.ImplicitUseAnalysisPass.METADATA_KEY,
-            "pkg.onnx_ir.ImplicitUseAnalysisPass.values",
-        )
 
 
 if __name__ == "__main__":
