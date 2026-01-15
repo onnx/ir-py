@@ -97,8 +97,7 @@ class Cloner:
             # Preserve outer-scope values when the initial graph being cloned is a subgraph
             # Map to clones if they already exist because we still want to use the cloned
             # values when the initial graph is a main graph and when we are cloning subgraphs.
-            mapped = value_map.get(value, value)
-            value_map[value] = mapped
+            mapped = value_map.setdefault(value, value)
             assert mapped is not None
             return mapped
 
