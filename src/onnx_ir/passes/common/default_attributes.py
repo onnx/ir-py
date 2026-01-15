@@ -33,28 +33,19 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
     3. If the attribute is not present in the node, adds it with the default value
     """
 
-    def requires(self, model: ir.Model) -> None:
-        if "" not in model.graph.opset_imports:
-            raise ir.passes.PreconditionError(
-                'AddDefaultAttributesPass requires the main ONNX domain (`""`) opset version to be specified.'
-            )
-
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         """Main entry point for the add default attributes pass."""
         modified = False
 
-        # Get the opset version for the main ONNX domain
-        onnx_opset_version = model.graph.opset_imports[""]
-
         # Process all nodes in the model graph and subgraphs
         for node in ir.traversal.RecursiveGraphIterator(model.graph):
-            if _add_default_attributes_to_node(node, onnx_opset_version):
+            if _add_default_attributes_to_node(node, model.graph.opset_imports):
                 modified = True
 
         # Process nodes in functions
         for function in model.functions.values():
             for node in ir.traversal.RecursiveGraphIterator(function):
-                if _add_default_attributes_to_node(node, onnx_opset_version):
+                if _add_default_attributes_to_node(node, model.graph.opset_imports):
                     modified = True
 
         if modified:
@@ -63,14 +54,23 @@ class AddDefaultAttributesPass(ir.passes.InPlacePass):
         return ir.passes.PassResult(model, modified=modified)
 
 
-def _add_default_attributes_to_node(node: ir.Node, onnx_opset_version: int) -> bool:
+def _add_default_attributes_to_node(node: ir.Node, opset_imports: dict[str, int]) -> bool:
     """Add default attributes to a single node. Returns True if modified."""
     # Get the operator schema
-    effective_opset_version = node.version or onnx_opset_version
-    try:
-        op_schema = onnx.defs.get_schema(
-            node.op_type, effective_opset_version, domain=node.domain
+    if node.version is not None:
+        opset_version = node.version
+    elif node.domain in opset_imports:
+        opset_version = opset_imports[node.domain]
+    else:
+        logger.warning(
+            "OpSet version for domain '%s' not found. Skipping node %s",
+            node.domain,
+            node,
         )
+        return False
+
+    try:
+        op_schema = onnx.defs.get_schema(node.op_type, opset_version, domain=node.domain)
     except onnx.defs.SchemaError:
         logger.debug(
             "Schema not found for %s, skipping default attribute addition",
