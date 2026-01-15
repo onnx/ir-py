@@ -9,7 +9,6 @@ __all__ = [
     "DeduplicateHashedInitializersPass",
     "DeduplicateInitializersPass",
     "IdentityEliminationPass",
-    "ImplicitUseAnalysisPass",
     "InlinePass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
