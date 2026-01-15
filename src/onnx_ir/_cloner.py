@@ -92,6 +92,7 @@ class Cloner:
             assert known_value is not None, f"BUG: Value {value} mapped to None in value map"
             return known_value
 
+        # FIXME: This logic assumes no subgraphs will have inputs, which is false
         # If the value is not in the value map, it may be a graph input or an outer-scope value.
         if self._preserve_outer_scope_values and (value not in self._top_scope_local_values):
             # Preserve outer-scope values when the initial graph being cloned is a subgraph
