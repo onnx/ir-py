@@ -9,3 +9,13 @@ __all__ = [
 ]
 
 from onnx_ir.analysis._implicit_usage import analyze_implicit_usage
+
+
+def __set_module() -> None:
+    """Set the module of all functions in this module to this public module."""
+    global_dict = globals()
+    for name in __all__:
+        global_dict[name].__module__ = __name__
+
+
+__set_module()
