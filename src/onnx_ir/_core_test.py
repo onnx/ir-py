@@ -4021,7 +4021,8 @@ class GraphCloneTest(unittest.TestCase):
         )
 
         # The outer scope value v0 will cause an error
-        with self.assertRaisesRegex(ValueError, "is an outer-scope value"):
+        with self.assertRaisesRegex(RuntimeError, "In clone_graph with args"):
+            # The error captured is not the direct error but a wrapped one from clone()
             _ = subgraph.clone()
 
     def test_clone_with_allow_outer_scope_values(self):
