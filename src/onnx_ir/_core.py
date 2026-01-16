@@ -3079,7 +3079,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
-    def clone(self, preserve_outer_scope_values: bool = False) -> Graph:
+    def clone(self, no_outer_scope_values: bool = True) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3090,16 +3090,22 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         .. versionadded:: 0.1.14
         .. versionadded:: 0.1.15
-            Added ``preserve_outer_scope_values`` argument.
+            Added ``no_outer_scope_values`` argument.
 
         Args:
-            preserve_outer_scope_values: If True, values that are from outer scopes
+            no_outer_scope_values: When False, values that are from outer scopes
                 (not defined in this graph) will not be cloned. Instead, the cloned
                 graph will reference the same outer scope values. This is useful
                 when cloning subgraphs that reference values from the outer graph.
+                When True (default), values from outer scopes will cause an error if they
+                are referenced in the cloned graph.
 
         Returns:
             A deep copy of this graph.
+
+        Raises:
+            ValueError: If ``no_outer_scope_values`` is True and the graph
+                references values from outer scopes.
         """
         from onnx_ir import _cloner
 
@@ -3108,7 +3114,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             value_map={},
             metadata_props={},
             resolve_ref_attrs=False,
-            preserve_outer_scope_values=preserve_outer_scope_values,
+            no_outer_scope_values=no_outer_scope_values,
         )
         return cloner.clone_graph(self)
 

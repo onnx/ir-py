@@ -44,7 +44,7 @@ class Cloner:
         metadata_props: dict[str, str],
         post_process: Callable[[_core.Node], None] = lambda _: None,
         resolve_ref_attrs: bool = False,
-        preserve_outer_scope_values: bool = False,
+        no_outer_scope_values: bool = True,
     ) -> None:
         """Initializes the cloner.
 
@@ -58,16 +58,23 @@ class Cloner:
                 processing on the cloned node.
             resolve_ref_attrs: Whether to resolve reference attributes using the attr_map.
                 Set to True when inlining functions.
-            preserve_outer_scope_values: Whether to preserve outer-scope values (not defined
-                in the graph being cloned) instead of cloning them. This is useful when cloning
-                subgraphs that reference values from an outer graph.
+            no_outer_scope_values: When False, values that are from outer scopes
+                (not defined in this graph) will not be cloned. Instead, the cloned
+                graph will reference the same outer scope values. This is useful
+                when cloning subgraphs that reference values from the outer graph.
+                When True, values from outer scopes will cause an error if they
+                are referenced in the cloned graph.
         """
         self._value_map = value_map
         self._attr_map = attr_map
         self._metadata_props = metadata_props
         self._post_process = post_process
         self._resolve_ref_attrs = resolve_ref_attrs
-        self._preserve_outer_scope_values = preserve_outer_scope_values
+        self._no_outer_scope_values = no_outer_scope_values
+
+    @_capture_error_context
+    def _get_value(self, value: _core.Value) -> _core.Value:
+        return self._value_map[value]  # type: ignore[return-value]
 
     @_capture_error_context
     def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
@@ -134,14 +141,20 @@ class Cloner:
         for input in node.inputs:
             if input is None:
                 new_inputs.append(input)
-            elif self._preserve_outer_scope_values and input not in self._value_map:
+            elif input not in self._value_map:
                 # If the node input cannot be found in the value map, it must be an outer-scope
                 # value, given that the nodes are sorted topologically.
-
+                if self._no_outer_scope_values:
+                    graph_name = input.graph.name if input.graph else "<anonymous>"
+                    raise ValueError(
+                        f"Value '{input}' used by node '{node}' is an outer-scope value (from graph '{graph_name}'), "
+                        "but 'no_outer_scope_values' is set to True. Consider creating a GraphView and add the value to its "
+                        "inputs then clone, or setting 'no_outer_scope_values' to False to allow referencing outer-scope values."
+                    )
                 # When preserving outer-scope values, pass them through unchanged instead of cloning.
                 new_inputs.append(input)
             else:
-                new_inputs.append(self._clone_or_get_value(input))
+                new_inputs.append(self._get_value(input))
         new_attributes = [
             new_value
             for key, value in node.attributes.items()
@@ -180,7 +193,7 @@ class Cloner:
         initializers = [self._clone_or_get_value(init) for init in graph.initializers.values()]
         nodes = [self.clone_node(node) for node in graph]
         output_values = [
-            self._clone_or_get_value(v) for v in graph.outputs
+            self._get_value(v) for v in graph.outputs
         ]  # Looks up already cloned values
 
         new_graph = _core.Graph(
