@@ -34,17 +34,6 @@ def _capture_error_context(
     return wrapper
 
 
-def _collect_local_values(graph: _core.Graph | _core.GraphView) -> set[_core.Value]:
-    """Collects all values that are local (not defined externally) to the given graph."""
-    local_values: set[_core.Value] = set()
-    local_values.update(graph.inputs)
-    local_values.update(graph.outputs)
-    local_values.update(graph.initializers.values())
-    for node in graph:
-        local_values.update(node.outputs)
-    return local_values
-
-
 class Cloner:
     """Utilities for creating a copy of IR objects with substitutions for attributes/input values."""
 
@@ -81,26 +70,13 @@ class Cloner:
         self._resolve_ref_attrs = resolve_ref_attrs
         self._preserve_outer_scope_values = preserve_outer_scope_values
 
-        self._top_scope_local_values: set[_core.Value] = set()
-        """Set of values local to the top-level graph being cloned."""
-
     @_capture_error_context
-    def _clone_value(self, value: _core.Value) -> _core.Value:
+    def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
         value_map = self._value_map
         if value in value_map:
             known_value = value_map[value]
             assert known_value is not None, f"BUG: Value {value} mapped to None in value map"
             return known_value
-
-        # FIXME: This logic assumes no subgraphs will have inputs, which is false
-        # If the value is not in the value map, it may be a graph input or an outer-scope value.
-        if self._preserve_outer_scope_values and (value not in self._top_scope_local_values):
-            # Preserve outer-scope values when the initial graph being cloned is a subgraph
-            # Map to clones if they already exist because we still want to use the cloned
-            # values when the initial graph is a main graph and when we are cloning subgraphs.
-            mapped = value_map.setdefault(value, value)
-            assert mapped is not None
-            return mapped
 
         new_value = _core.Value(
             name=value.name,
@@ -112,17 +88,6 @@ class Cloner:
         )
         value_map[value] = new_value
         return new_value
-
-    @typing.overload
-    def clone_optional_value(self, value: _core.Value) -> _core.Value: ...
-    @typing.overload
-    def clone_optional_value(self, value: None) -> None: ...
-
-    @_capture_error_context  # type: ignore[misc]
-    def clone_optional_value(self, value):
-        if value is None:
-            return None
-        return self._clone_value(value)
 
     @_capture_error_context
     def clone_attr(self, key: str, attr: _core.Attr) -> _core.Attr | None:
@@ -166,7 +131,14 @@ class Cloner:
 
     @_capture_error_context
     def clone_node(self, node: _core.Node) -> _core.Node:
-        new_inputs = [self.clone_optional_value(input) for input in node.inputs]
+        new_inputs = []
+        for input in node.inputs:
+            if input is None or (
+                self._preserve_outer_scope_values and input not in self._value_map
+            ):
+                new_inputs.append(input)
+            else:
+                new_inputs.append(self._clone_or_get_value(input))
         new_attributes = [
             new_value
             for key, value in node.attributes.items()
@@ -200,17 +172,11 @@ class Cloner:
     @_capture_error_context
     def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
-        if self._preserve_outer_scope_values and not self._top_scope_local_values:
-            # Collect local values only when we are preserving outer-scope values.
-            # Only set this once for the top-level graph so nested subgraphs can
-            # correctly identify outer-scope values.
-            self._top_scope_local_values = _collect_local_values(graph)
-
-        input_values = [self._clone_value(v) for v in graph.inputs]
+        input_values = [self._clone_or_get_value(v) for v in graph.inputs]
+        initializers = [self._clone_or_get_value(init) for init in graph.initializers.values()]
         nodes = [self.clone_node(node) for node in graph]
-        initializers = [self._clone_value(init) for init in graph.initializers.values()]
         output_values = [
-            self._clone_value(v) for v in graph.outputs
+            self._clone_or_get_value(v) for v in graph.outputs
         ]  # Looks up already cloned values
 
         return _core.Graph(
