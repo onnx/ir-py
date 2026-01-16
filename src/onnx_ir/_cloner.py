@@ -183,7 +183,7 @@ class Cloner:
             self._clone_or_get_value(v) for v in graph.outputs
         ]  # Looks up already cloned values
 
-        graph = _core.Graph(
+        new_graph = _core.Graph(
             input_values,
             output_values,
             nodes=nodes,
@@ -193,5 +193,5 @@ class Cloner:
             name=graph.name,
             metadata_props=graph.metadata_props.copy(),
         )
-        graph.meta.update(graph.meta)
-        return graph
+        new_graph.meta.update(graph.meta)
+        return new_graph
