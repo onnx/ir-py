@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import functools
-import typing
 from collections.abc import Callable, Mapping
 from typing import TypeVar
 
