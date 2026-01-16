@@ -138,7 +138,7 @@ class Cloner:
                 # If the node input cannot be found in the value map, it must be an outer-scope
                 # value, given that the nodes are sorted topologically.
 
-                # Break out the conditions for clarity
+                # When preserving outer-scope values, pass them through unchanged instead of cloning.
                 new_inputs.append(input)
             else:
                 new_inputs.append(self._clone_or_get_value(input))
