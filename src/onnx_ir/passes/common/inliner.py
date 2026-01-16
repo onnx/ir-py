@@ -215,8 +215,6 @@ class InlinePass(ir.passes.InPlacePass):
                 )
             else:
                 for attr in node.attributes.values():
-                    if not isinstance(attr, ir.Attr):
-                        continue
                     if attr.type == ir.AttributeType.GRAPH:
                         self._inline_calls_in(attr.as_graph())
                     elif attr.type == ir.AttributeType.GRAPHS:

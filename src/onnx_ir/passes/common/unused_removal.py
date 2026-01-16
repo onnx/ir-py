@@ -103,8 +103,6 @@ def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph
             if onnx_opset_version is not None:
                 _remove_unused_optional_outputs(node, graph_outputs, onnx_opset_version)
             for attr in node.attributes.values():
-                if not isinstance(attr, ir.Attr):
-                    continue
                 if attr.type == ir.AttributeType.GRAPH:
                     count += _remove_unused_nodes_in_graph_like(attr.as_graph())
                 elif attr.type == ir.AttributeType.GRAPHS:
