@@ -71,12 +71,12 @@ class Cloner:
 
     @_capture_error_context
     def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
-        value_map = self._value_map
-        if value in value_map:
-            known_value = value_map[value]
+        if value in self._value_map:
+            known_value = self._value_map[value]
             assert known_value is not None, f"BUG: Value {value} mapped to None in value map"
             return known_value
-
+        # If the value is not in the value map, it must be a graph input.
+        # Note: value.producer() may not be None when the value is an input of a GraphView
         new_value = _core.Value(
             name=value.name,
             type=value.type,
@@ -85,7 +85,7 @@ class Cloner:
             const_value=value.const_value,
             metadata_props=value.metadata_props.copy(),
         )
-        value_map[value] = new_value
+        self._value_map[value] = new_value
         return new_value
 
     @_capture_error_context
