@@ -130,7 +130,7 @@ class Cloner:
 
     @_capture_error_context
     def clone_node(self, node: _core.Node) -> _core.Node:
-        new_inputs = []
+        new_inputs: list[_core.Value | None] = []
         for input in node.inputs:
             if input is None:
                 new_inputs.append(input)
