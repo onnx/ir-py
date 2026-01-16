@@ -160,6 +160,7 @@ class Cloner:
             doc_string=node.doc_string,
             metadata_props=new_metadata,
         )
+        new_node.meta.update(node.meta)
         new_outputs = new_node.outputs
         for i, output in enumerate(node.outputs):
             self._value_map[output] = new_outputs[i]
@@ -178,7 +179,7 @@ class Cloner:
             self._clone_or_get_value(v) for v in graph.outputs
         ]  # Looks up already cloned values
 
-        return _core.Graph(
+        graph = _core.Graph(
             input_values,
             output_values,
             nodes=nodes,
@@ -188,3 +189,5 @@ class Cloner:
             name=graph.name,
             metadata_props=graph.metadata_props.copy(),
         )
+        graph.meta.update(graph.meta)
+        return graph
