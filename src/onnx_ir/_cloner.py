@@ -132,9 +132,13 @@ class Cloner:
     def clone_node(self, node: _core.Node) -> _core.Node:
         new_inputs = []
         for input in node.inputs:
-            if input is None or (
-                self._preserve_outer_scope_values and input not in self._value_map
-            ):
+            if input is None:
+                new_inputs.append(input)
+            elif self._preserve_outer_scope_values and input not in self._value_map:
+                # If the node input cannot be found in the value map, it must be an outer-scope
+                # value, given that the nodes are sorted topologically.
+
+                # Break out the conditions for clarity
                 new_inputs.append(input)
             else:
                 new_inputs.append(self._clone_or_get_value(input))
