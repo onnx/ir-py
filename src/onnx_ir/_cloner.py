@@ -206,7 +206,7 @@ class Cloner:
     def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
         input_values = [self._clone_or_get_value(v) for v in graph.inputs]
-        initializers = [self._clone_or_get_value(init) for init in graph.initializers.values()]
+        initializers = [self._clone_or_get_value(v) for v in graph.initializers.values()]
         nodes = [self.clone_node(node) for node in graph]
         # Looks up already cloned values. Here we know graph outputs will not be None
         output_values = typing.cast(
