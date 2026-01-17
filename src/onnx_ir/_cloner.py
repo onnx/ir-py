@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable, Mapping
 from typing import TypeVar
+import typing
 
 from typing_extensions import Concatenate, ParamSpec
 
@@ -73,8 +74,8 @@ class Cloner:
         self._allow_outer_scope_values = allow_outer_scope_values
 
     @_capture_error_context
-    def _get_value(self, value: _core.Value) -> _core.Value:
-        return self._value_map[value]  # type: ignore[return-value]
+    def _get_value(self, value: _core.Value) -> _core.Value | None:
+        return self._value_map[value]
 
     @_capture_error_context
     def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
@@ -181,9 +182,14 @@ class Cloner:
         )
         new_node.meta.update(node.meta)
         new_outputs = new_node.outputs
-        for i, output in enumerate(node.outputs):
-            self._value_map[output] = new_outputs[i]
-            new_outputs[i].name = output.name
+        for output, new_output in zip(node.outputs, new_outputs):
+            self._value_map[output] = new_output
+            new_output.name = output.name
+            new_output.shape = output.shape
+            new_output.type = output.type
+            new_output.const_value = output.const_value
+            new_output.doc_string = output.doc_string
+            new_output.metadata_props.update(output.metadata_props)
 
         self._post_process(new_node)
         return new_node
@@ -194,9 +200,10 @@ class Cloner:
         input_values = [self._clone_or_get_value(v) for v in graph.inputs]
         initializers = [self._clone_or_get_value(init) for init in graph.initializers.values()]
         nodes = [self.clone_node(node) for node in graph]
-        output_values = [
-            self._get_value(v) for v in graph.outputs
-        ]  # Looks up already cloned values
+        # Looks up already cloned values
+        output_values = typing.cast(
+            list["_core.Value"], [self._get_value(v) for v in graph.outputs]
+        )
 
         new_graph = _core.Graph(
             input_values,
