@@ -145,7 +145,9 @@ class Cloner:
                 # If the node input cannot be found in the value map, it must be an outer-scope
                 # value, given that the nodes are sorted topologically.
                 if self._no_outer_scope_values:
-                    graph_name = input.graph.name if input.graph else "<anonymous>"
+                    graph_name = (
+                        input.graph.name or "<anonymous>" if input.graph else "<unknown>"
+                    )
                     raise ValueError(
                         f"Value '{input}' used by node '{node}' is an outer-scope value (from graph '{graph_name}'), "
                         "but 'no_outer_scope_values' is set to True. Consider creating a GraphView and add the value to its "
