@@ -14,8 +14,11 @@ __all__ = [
     "PreconditionError",
     "PostconditionError",
     "PassError",
+    "lineage",
+    "track_lineage",
 ]
 
+from onnx_ir.passes import lineage
 from onnx_ir.passes._pass_infra import (
     FunctionalPass,
     InPlacePass,
@@ -28,6 +31,7 @@ from onnx_ir.passes._pass_infra import (
     PreconditionError,
     Sequential,
     functionalize,
+    track_lineage,
 )
 
 
