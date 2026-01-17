@@ -3966,6 +3966,38 @@ class GraphCloneTest(unittest.TestCase):
         self.assertEqual(len(cloned_graph.inputs), len(graph.inputs))
         self.assertEqual(len(cloned_graph.outputs), len(graph.outputs))
 
+    def test_clone_preserves_node_output_types_and_shapes(self):
+        """Test that cloning preserves shape and type information on node outputs."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        # Set shape, type, and other metadata on the node output
+        node.outputs[0].shape = _core.Shape([1, 3, 224, 224])
+        node.outputs[0].type = _core.TensorType(ir.DataType.FLOAT)
+        node.outputs[0].doc_string = "output doc"
+        node.outputs[0].const_value = ir.tensor([1.0])
+        node.outputs[0].metadata_props["key"] = "value"
+
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph.clone()
+        cloned_output = cloned_graph.outputs[0]
+        original_output = node.outputs[0]
+
+        # Verify output shapes and types are preserved
+        self.assertEqual(cloned_output.shape, original_output.shape)
+        self.assertEqual(cloned_output.dtype, original_output.dtype)
+        self.assertEqual(cloned_output.doc_string, original_output.doc_string)
+        self.assertEqual(cloned_output.const_value, original_output.const_value)
+        self.assertEqual(cloned_output.metadata_props, original_output.metadata_props)
+
+        # Verify the values are cloned, not the same objects
+        self.assertIsNot(cloned_output, original_output)
+        self.assertIsNot(cloned_output.metadata_props, original_output.metadata_props)
+
     def test_clone_empty_graph(self):
         """Test cloning an empty graph."""
         graph = _core.Graph(inputs=(), outputs=(), nodes=())

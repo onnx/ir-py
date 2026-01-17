@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import functools
+import typing
 from collections.abc import Callable, Mapping
 from typing import TypeVar
-import typing
 
 from typing_extensions import Concatenate, ParamSpec
 
