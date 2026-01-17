@@ -44,7 +44,7 @@ class Cloner:
         metadata_props: dict[str, str],
         post_process: Callable[[_core.Node], None] = lambda _: None,
         resolve_ref_attrs: bool = False,
-        no_outer_scope_values: bool = True,
+        allow_outer_scope_values: bool = False,
     ) -> None:
         """Initializes the cloner.
 
@@ -58,11 +58,11 @@ class Cloner:
                 processing on the cloned node.
             resolve_ref_attrs: Whether to resolve reference attributes using the attr_map.
                 Set to True when inlining functions.
-            no_outer_scope_values: When False, values that are from outer scopes
+            allow_outer_scope_values: When True, values that are from outer scopes
                 (not defined in this graph) will not be cloned. Instead, the cloned
                 graph will reference the same outer scope values. This is useful
                 when cloning subgraphs that reference values from the outer graph.
-                When True, values from outer scopes will cause an error if they
+                When False (default), values from outer scopes will cause an error if they
                 are referenced in the cloned graph.
         """
         self._value_map = value_map
@@ -70,7 +70,7 @@ class Cloner:
         self._metadata_props = metadata_props
         self._post_process = post_process
         self._resolve_ref_attrs = resolve_ref_attrs
-        self._no_outer_scope_values = no_outer_scope_values
+        self._allow_outer_scope_values = allow_outer_scope_values
 
     @_capture_error_context
     def _get_value(self, value: _core.Value) -> _core.Value:
@@ -144,14 +144,14 @@ class Cloner:
             elif input not in self._value_map:
                 # If the node input cannot be found in the value map, it must be an outer-scope
                 # value, given that the nodes are sorted topologically.
-                if self._no_outer_scope_values:
+                if not self._allow_outer_scope_values:
                     graph_name = (
                         input.graph.name or "<anonymous>" if input.graph else "<unknown>"
                     )
                     raise ValueError(
                         f"Value '{input}' used by node '{node}' is an outer-scope value (from graph '{graph_name}'), "
-                        "but 'no_outer_scope_values' is set to True. Consider creating a GraphView and add the value to its "
-                        "inputs then clone, or setting 'no_outer_scope_values' to False to allow referencing outer-scope values."
+                        "but 'allow_outer_scope_values' is set to False. Consider creating a GraphView and add the value to its "
+                        "inputs then clone, or setting 'allow_outer_scope_values' to True to allow referencing outer-scope values."
                     )
                 # When preserving outer-scope values, pass them through unchanged instead of cloning.
                 new_inputs.append(input)
