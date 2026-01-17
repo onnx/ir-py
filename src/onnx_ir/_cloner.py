@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import typing
 from collections.abc import Callable, Mapping
 from typing import TypeVar
 
@@ -73,8 +74,8 @@ class Cloner:
         self._allow_outer_scope_values = allow_outer_scope_values
 
     @_capture_error_context
-    def _get_value(self, value: _core.Value) -> _core.Value:
-        return self._value_map[value]  # type: ignore[return-value]
+    def _get_value(self, value: _core.Value) -> _core.Value | None:
+        return self._value_map[value]
 
     @_capture_error_context
     def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
@@ -90,8 +91,11 @@ class Cloner:
             shape=value.shape.copy() if value.shape is not None else None,
             doc_string=value.doc_string,
             const_value=value.const_value,
-            metadata_props=value.metadata_props.copy(),
         )
+        if value.metadata_props:
+            new_value.metadata_props.update(value.metadata_props)
+        if value.meta:
+            new_value.meta.update(value.meta)
         self._value_map[value] = new_value
         return new_value
 
@@ -179,11 +183,21 @@ class Cloner:
             doc_string=node.doc_string,
             metadata_props=new_metadata,
         )
-        new_node.meta.update(node.meta)
-        new_outputs = new_node.outputs
-        for i, output in enumerate(node.outputs):
-            self._value_map[output] = new_outputs[i]
-            new_outputs[i].name = output.name
+        if node.meta:
+            new_node.meta.update(node.meta)
+
+        # Copy output properties
+        for output, new_output in zip(node.outputs, new_node.outputs):
+            self._value_map[output] = new_output
+            new_output.name = output.name
+            new_output.shape = output.shape.copy() if output.shape is not None else None
+            new_output.type = output.type
+            new_output.const_value = output.const_value
+            new_output.doc_string = output.doc_string
+            if output.metadata_props:
+                new_output.metadata_props.update(output.metadata_props)
+            if output.meta:
+                new_output.meta.update(output.meta)
 
         self._post_process(new_node)
         return new_node
@@ -192,11 +206,12 @@ class Cloner:
     def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
         input_values = [self._clone_or_get_value(v) for v in graph.inputs]
-        initializers = [self._clone_or_get_value(init) for init in graph.initializers.values()]
+        initializers = [self._clone_or_get_value(v) for v in graph.initializers.values()]
         nodes = [self.clone_node(node) for node in graph]
-        output_values = [
-            self._get_value(v) for v in graph.outputs
-        ]  # Looks up already cloned values
+        # Looks up already cloned values. Here we know graph outputs will not be None
+        output_values = typing.cast(
+            list["_core.Value"], [self._get_value(v) for v in graph.outputs]
+        )
 
         new_graph = _core.Graph(
             input_values,
@@ -206,7 +221,9 @@ class Cloner:
             doc_string=graph.doc_string,
             opset_imports=graph.opset_imports.copy(),
             name=graph.name,
-            metadata_props=graph.metadata_props.copy(),
         )
-        new_graph.meta.update(graph.meta)
+        if graph.metadata_props:
+            new_graph.metadata_props.update(graph.metadata_props)
+        if graph.meta:
+            new_graph.meta.update(graph.meta)
         return new_graph
