@@ -185,7 +185,7 @@ class Cloner:
         for output, new_output in zip(node.outputs, new_outputs):
             self._value_map[output] = new_output
             new_output.name = output.name
-            new_output.shape = output.shape
+            new_output.shape = (output.shape.copy() if output.shape is not None else None,)
             new_output.type = output.type
             new_output.const_value = output.const_value
             new_output.doc_string = output.doc_string
