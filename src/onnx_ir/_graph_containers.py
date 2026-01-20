@@ -156,6 +156,7 @@ class GraphInputs(_GraphIO):
                 f"Value '{value}' is already owned by a different graph. Please remove the value from the previous graph first"
             )
         if value.producer() is not None:
+            print(f"DEBUG_FAIL: Value {value.name} (id={id(value)}) has producer {value.producer()} (id={id(value.producer())})")
             raise ValueError(
                 f"Value '{value}' is produced by a node and cannot be an input to the graph. Please create new Values for graph inputs"
             )

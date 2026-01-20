@@ -3116,7 +3116,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             resolve_ref_attrs=False,
             allow_outer_scope_values=allow_outer_scope_values,
         )
-        return cloner.clone_graph(self)
+        try:
+             res = cloner.clone_graph(self)
+             return res
+        except Exception as e:
+             print(f"DEBUG: cloning failed: {e}")
+             raise
 
     # Mutation methods
     def append(self, node: Node, /) -> None:

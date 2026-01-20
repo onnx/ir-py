@@ -92,6 +92,7 @@ class Cloner:
             const_value=value.const_value,
             metadata_props=value.metadata_props.copy(),
         )
+        new_value.meta.update(value.meta)
         self._value_map[value] = new_value
         return new_value
 
@@ -184,6 +185,12 @@ class Cloner:
         for i, output in enumerate(node.outputs):
             self._value_map[output] = new_outputs[i]
             new_outputs[i].name = output.name
+            # Preserve type, shape, and metadata
+            new_outputs[i].type = output.type
+            if output.shape is not None:
+                new_outputs[i].shape = output.shape.copy()
+            new_outputs[i].metadata_props.update(output.metadata_props)
+            new_outputs[i].meta.update(output.meta)
 
         self._post_process(new_node)
         return new_node
@@ -198,6 +205,9 @@ class Cloner:
             self._get_value(v) for v in graph.outputs
         ]  # Looks up already cloned values
 
+        for i, val in enumerate(input_values):
+             print(f"DEBUG: input_values[{i}]={val.name} producer={val.producer()}")
+        
         new_graph = _core.Graph(
             input_values,
             output_values,
