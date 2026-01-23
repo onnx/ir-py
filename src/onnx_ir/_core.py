@@ -60,6 +60,7 @@ from onnx_ir import (
     _name_authority,
     _protocols,
     _type_casting,
+    journaling as _journaling,
 )
 
 if typing.TYPE_CHECKING:
@@ -2396,6 +2397,9 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         self._is_graph_output: bool = False
         self._is_initializer: bool = False
 
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(self, "initialize", repr(self))
+
     def __repr__(self) -> str:
         value_name = self.name if self.name else "anonymous:" + str(id(self))
         type_text = f", type={self.type!r}" if self.type is not None else ""
@@ -2506,6 +2510,9 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @name.setter
     def name(self, value: str | None) -> None:
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(self, "set_name", details=repr(value))
+
         if self._name == value:
             return
 
