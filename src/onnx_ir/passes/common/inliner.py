@@ -116,7 +116,7 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_node_names = set()
         self._node_context = {}
 
-    def requires(self, model: ir.Model):
+    def requires(self, model: ir.Model) -> None:
         self._reset(model)
         # No cyclic dependencies allowed in functions
         try:
