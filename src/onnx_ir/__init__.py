@@ -84,8 +84,11 @@ __all__ = [
     # IO
     "load",
     "save",
+    "save_safetensors",
     # Flags
     "DEBUG",
+    # Others
+    "set_value_magic_handler",
 ]
 
 import types
@@ -128,6 +131,7 @@ from onnx_ir._core import (
     TensorType,
     TypeAndShape,
     Value,
+    set_value_magic_handler,
 )
 from onnx_ir._enums import (
     AttributeType,
@@ -153,6 +157,7 @@ from onnx_ir._protocols import (
     TypeProtocol,
     ValueProtocol,
 )
+from onnx_ir._safetensors import save_safetensors
 from onnx_ir.serde import TensorProtoTensor, from_onnx_text, from_proto, to_onnx_text, to_proto
 
 DEBUG = False
@@ -168,4 +173,4 @@ def __set_module() -> None:
 
 
 __set_module()
-__version__ = "0.1.13"
+__version__ = "0.1.16"

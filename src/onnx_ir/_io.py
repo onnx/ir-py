@@ -106,11 +106,11 @@ def save(
         base_dir = os.path.dirname(path)
 
         # Store the original initializer values so they can be restored if modify_model=False
-        initializer_values: list[_core.Value] = []
+        initialized_values: list[_core.Value] = []
         for graph in model.graphs():
             # Collect from all subgraphs as well
-            initializer_values.extend(graph.initializers.values())
-        tensors = [v.const_value for v in initializer_values]
+            initialized_values.extend(graph.initializers.values())
+        tensors = [v.const_value for v in initialized_values]
 
         try:
             model = _external_data.unload_from_model(
@@ -125,7 +125,7 @@ def save(
 
         finally:
             # Restore the original initializer values so the model is unchanged
-            for initializer, tensor in zip(initializer_values, tensors, strict=True):
+            for initializer, tensor in zip(initialized_values, tensors, strict=True):
                 initializer.const_value = tensor
 
     else:

@@ -1,5 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: N802
 from __future__ import annotations
 
 import copy
@@ -1324,7 +1325,460 @@ class ValueTest(unittest.TestCase):
         input_value.name = "renamed_input"
         self.assertEqual(input_value.name, "renamed_input")
 
+    def test_merge_shapes_with_equal_dimensions(self):
+        value = _core.Value(shape=_core.Shape([1, 2, 3]))
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [1, 2, 3])
+
+    def test_merge_shapes_with_symbolic_dimensions_equal(self):
+        value = _core.Value(shape=_core.Shape(["batch", "seq_len", 3]))
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", "seq_len", 3])
+
+    def test_merge_shapes_prefers_concrete_over_symbolic_from_shape1(self):
+        value = _core.Value(shape=_core.Shape([64, 128, 3]))
+        shape2 = _core.Shape(["batch", "seq_len", 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [64, 128, 3])
+
+    def test_merge_shapes_prefers_concrete_over_symbolic_from_shape2(self):
+        value = _core.Value(shape=_core.Shape(["batch", "seq_len", 3]))
+        shape2 = _core.Shape([64, 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [64, 128, 3])
+
+    def test_merge_shapes_with_none_dimensions_prefers_named_symbolic(self):
+        value = _core.Value(shape=_core.Shape([None, 128, 3]))
+        shape2 = _core.Shape(["batch", 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128, 3])
+
+    def test_merge_shapes_with_none_dimensions_keeps_named_symbolic_from_shape1(self):
+        value = _core.Value(shape=_core.Shape(["batch", 128, 3]))
+        shape2 = _core.Shape([None, 128, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128, 3])
+
+    def test_merge_shapes_with_conflicting_concrete_dimensions_raises(self):
+        value = _core.Value(shape=_core.Shape([64, 128, 3]))
+        shape2 = _core.Shape([32, 128, 3])
+        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_with_mixed_dimensions(self):
+        value = _core.Value(shape=_core.Shape([64, "seq_len", 3, None]))
+        shape2 = _core.Shape(["batch", 128, 3, "hidden"])
+        value.merge_shapes(shape2)
+        # 64 (concrete) wins over "batch" (symbolic)
+        # 128 (concrete) wins over "seq_len" (symbolic)
+        # 3 (equal) stays the same
+        # "hidden" (named symbolic) wins over None
+        self.assertEqual(value.shape[0], 64)
+        self.assertEqual(value.shape[1], 128)
+        self.assertEqual(value.shape[2], 3)
+        self.assertEqual(value.shape[3], "hidden")
+
+    def test_merge_shapes_with_different_named_symbolic_dimensions_takes_shape1(self):
+        # When merging two shapes with different named symbolic dimensions,
+        # the first shape's dimension is taken following the documented precedence rule.
+        value = _core.Value(shape=_core.Shape(["batch", 128]))
+        shape2 = _core.Shape(["sequence", 128])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128])
+
+    def test_merge_shapes_with_empty_shapes(self):
+        value = _core.Value(shape=_core.Shape([]))
+        shape2 = _core.Shape([])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [])
+
+    def test_merge_shapes_raises_on_different_ranks(self):
+        value = _core.Value(shape=_core.Shape([1, 2, 3]))
+        shape2 = _core.Shape([1, 2])
+        with self.assertRaisesRegex(ValueError, "same rank"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_when_other_is_none_keeps_shape_unchanged(self):
+        original_shape = _core.Shape([1, 2, 3])
+        value = _core.Value(shape=original_shape)
+        value.merge_shapes(None)
+        self.assertEqual(value.shape, [1, 2, 3])
+        # Verify it's still the same instance when not frozen
+        self.assertIs(value.shape, original_shape)
+
+    def test_merge_shapes_modifies_value_shape_in_place_if_not_frozen(self):
+        original_shape = _core.Shape([1, 2, 3])
+        value = _core.Value(shape=original_shape)
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        # Verify the value's shape is updated in place
+        self.assertIs(value.shape, original_shape)
+
+    def test_merge_shapes_when_value_has_no_shape_creates_copy(self):
+        value = _core.Value()
+        shape2 = _core.Shape([1, 2, 3])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, [1, 2, 3])
+        # Verify it's a copy, not the same instance
+        self.assertIsNot(value.shape, shape2)
+
+    def test_merge_shapes_with_frozen_shape_creates_new_shape(self):
+        frozen_shape = _core.Shape([1, 2, 3], frozen=True)
+        value = _core.Value(shape=frozen_shape)
+        shape2 = _core.Shape([1, 2, 4])
+        # Should raise because conflicting concrete dimensions
+        with self.assertRaisesRegex(ValueError, "Conflicting dimensions"):
+            value.merge_shapes(shape2)
+
+    def test_merge_shapes_with_symbolic_dim_objects(self):
+        sym1 = _core.SymbolicDim("batch")
+        sym2 = _core.SymbolicDim("batch")
+        value = _core.Value(shape=_core.Shape([sym1, 128]))
+        shape2 = _core.Shape([sym2, 128])
+        value.merge_shapes(shape2)
+        self.assertEqual(value.shape, ["batch", 128])
+
+    def test_merge_shapes_with_none_symbolic_dims(self):
+        value = _core.Value(shape=_core.Shape([None, None, 3]))
+        shape2 = _core.Shape([None, None, 3])
+        value.merge_shapes(shape2)
+        self.assertTrue(value.shape.is_unknown_dim(0))
+        self.assertTrue(value.shape.is_unknown_dim(1))
+        self.assertEqual(value.shape[2], 3)
+
     # TODO(justinchuby): Test all methods
+
+
+class SetValueMagicHandlerTest(unittest.TestCase):
+    """Tests for the set_value_magic_handler function and Value arithmetic operations."""
+
+    def setUp(self):
+        """Create test values for arithmetic operations."""
+        self.value1 = ir.Value(name="value1")
+        self.value2 = ir.Value(name="value2")
+
+    def tearDown(self):
+        """Reset the handler after each test."""
+        ir.set_value_magic_handler(None)
+
+    def test_raises_error_when_no_handler_set(self):
+        """Test that arithmetic operations raise an error when no handler is set."""
+        with self.assertRaises(ValueError) as cm:
+            _ = self.value1 + self.value2
+        self.assertIn("No magic handler is set", str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            _ = self.value1 - self.value2
+        self.assertIn("No magic handler is set", str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            _ = self.value1 * self.value2
+        self.assertIn("No magic handler is set", str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            _ = self.value1 / self.value2
+        self.assertIn("No magic handler is set", str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            _ = -self.value1
+        self.assertIn("No magic handler is set", str(cm.exception))
+
+    def test_sets_and_returns_old_handler(self):
+        """Test that the function properly sets and returns the old handler."""
+        # Handler should be None initially
+        self.assertIsNone(_core.WithArithmeticMethods._magic_handler)
+
+        class MockHandler:
+            def Add(self, lhs, rhs):
+                return ir.Value(name="add_result")
+
+        handler = MockHandler()
+        old_handler = ir.set_value_magic_handler(handler)
+
+        # Old handler should be None
+        self.assertIsNone(old_handler)
+        # Handler should be set
+        self.assertIs(_core.WithArithmeticMethods._magic_handler, handler)
+
+        # Reset handler
+        ir.set_value_magic_handler(None)
+        self.assertIsNone(_core.WithArithmeticMethods._magic_handler)
+
+    def test_returns_previous_handler(self):
+        """Test that the function returns the previous handler when setting a new one."""
+
+        class Handler1:
+            pass
+
+        class Handler2:
+            pass
+
+        handler1 = Handler1()
+        handler2 = Handler2()
+
+        # Set first handler
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIsNone(old)
+
+        # Set second handler, should return first
+        old = ir.set_value_magic_handler(handler2)
+        self.assertIs(old, handler1)
+        self.assertIs(_core.WithArithmeticMethods._magic_handler, handler2)
+
+    def test_add_handler(self):
+        """Test the __add__ magic method."""
+
+        class MockHandler:
+            def Add(self, lhs, rhs):
+                result = ir.Value(name="add_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 + self.value2
+        self.assertEqual(result.name, "add_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
+
+    def test_sub_handler(self):
+        """Test the __sub__ magic method."""
+
+        class MockHandler:
+            def Sub(self, lhs, rhs):
+                result = ir.Value(name="sub_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 - self.value2
+        self.assertEqual(result.name, "sub_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
+
+    def test_mul_handler(self):
+        """Test the __mul__ magic method."""
+
+        class MockHandler:
+            def Mul(self, lhs, rhs):
+                result = ir.Value(name="mul_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 * self.value2
+        self.assertEqual(result.name, "mul_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
+
+    def test_truediv_handler(self):
+        """Test the __truediv__ magic method."""
+
+        class MockHandler:
+            def Div(self, lhs, rhs):
+                result = ir.Value(name="div_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        ir.set_value_magic_handler(MockHandler())
+        result = self.value1 / self.value2
+        self.assertEqual(result.name, "div_result")
+        self.assertIs(result.lhs, self.value1)
+        self.assertIs(result.rhs, self.value2)
+
+    def test_neg_handler(self):
+        """Test the __neg__ magic method."""
+
+        class MockHandler:
+            def Neg(self, operand):
+                result = ir.Value(name="neg_result")
+                result.operand = operand
+                return result
+
+        ir.set_value_magic_handler(MockHandler())
+        result = -self.value1
+        self.assertEqual(result.name, "neg_result")
+        self.assertIs(result.operand, self.value1)
+
+    def test_radd_handler(self):
+        """Test the __radd__ magic method."""
+
+        class MockHandler:
+            def Add(self, lhs, rhs):
+                result = ir.Value(name="radd_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        # Create a mock object that doesn't have __add__
+        class MockObject:
+            pass
+
+        mock_obj = MockObject()
+        ir.set_value_magic_handler(MockHandler())
+        # When mock_obj + value1 is called, it should fall back to value1.__radd__(mock_obj)
+        # __radd__ calls Add(other, self), so other is lhs and self is rhs
+        result = self.value1.__radd__(mock_obj)
+        self.assertEqual(result.name, "radd_result")
+        self.assertIs(result.lhs, mock_obj)
+        self.assertIs(result.rhs, self.value1)
+
+    def test_rsub_handler(self):
+        """Test the __rsub__ magic method."""
+
+        class MockHandler:
+            def Sub(self, lhs, rhs):
+                result = ir.Value(name="rsub_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        class MockObject:
+            pass
+
+        mock_obj = MockObject()
+        ir.set_value_magic_handler(MockHandler())
+        # __rsub__ calls Sub(other, self), so other is lhs and self is rhs
+        result = self.value1.__rsub__(mock_obj)
+        self.assertEqual(result.name, "rsub_result")
+        self.assertIs(result.lhs, mock_obj)
+        self.assertIs(result.rhs, self.value1)
+
+    def test_rmul_handler(self):
+        """Test the __rmul__ magic method."""
+
+        class MockHandler:
+            def Mul(self, lhs, rhs):
+                result = ir.Value(name="rmul_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        class MockObject:
+            pass
+
+        mock_obj = MockObject()
+        ir.set_value_magic_handler(MockHandler())
+        # __rmul__ calls Mul(other, self), so other is lhs and self is rhs
+        result = self.value1.__rmul__(mock_obj)
+        self.assertEqual(result.name, "rmul_result")
+        self.assertIs(result.lhs, mock_obj)
+        self.assertIs(result.rhs, self.value1)
+
+    def test_rtruediv_handler(self):
+        """Test the __rtruediv__ magic method."""
+
+        class MockHandler:
+            def Div(self, lhs, rhs):
+                result = ir.Value(name="rdiv_result")
+                result.lhs = lhs
+                result.rhs = rhs
+                return result
+
+        class MockObject:
+            pass
+
+        mock_obj = MockObject()
+        ir.set_value_magic_handler(MockHandler())
+        # __rtruediv__ calls Div(other, self), so other is lhs and self is rhs
+        result = self.value1.__rtruediv__(mock_obj)
+        self.assertEqual(result.name, "rdiv_result")
+        self.assertIs(result.lhs, mock_obj)
+        self.assertIs(result.rhs, self.value1)
+
+    def test_all_handler_methods_required(self):
+        """Test that all handler methods are called correctly."""
+
+        class CompleteHandler:
+            def __init__(self):
+                self.calls = []
+
+            def Add(self, lhs, rhs):
+                self.calls.append(("add", lhs, rhs))
+                return ir.Value(name="result")
+
+            def Sub(self, lhs, rhs):
+                self.calls.append(("sub", lhs, rhs))
+                return ir.Value(name="result")
+
+            def Mul(self, lhs, rhs):
+                self.calls.append(("mul", lhs, rhs))
+                return ir.Value(name="result")
+
+            def Div(self, lhs, rhs):
+                self.calls.append(("div", lhs, rhs))
+                return ir.Value(name="result")
+
+            def Neg(self, operand):
+                self.calls.append(("neg", operand))
+                return ir.Value(name="result")
+
+        handler = CompleteHandler()
+        ir.set_value_magic_handler(handler)
+        _ = self.value1 + self.value2
+        _ = self.value1 - self.value2
+        _ = self.value1 * self.value2
+        _ = self.value1 / self.value2
+        _ = -self.value1
+        _ = self.value1.__radd__(self.value2)
+        _ = self.value1.__rsub__(self.value2)
+        _ = self.value1.__rmul__(self.value2)
+        _ = self.value1.__rtruediv__(self.value2)
+
+        # Verify all methods were called
+        self.assertEqual(len(handler.calls), 9)
+        self.assertEqual(handler.calls[0][0], "add")
+        self.assertEqual(handler.calls[1][0], "sub")
+        self.assertEqual(handler.calls[2][0], "mul")
+        self.assertEqual(handler.calls[3][0], "div")
+        self.assertEqual(handler.calls[4][0], "neg")
+        self.assertEqual(handler.calls[5][0], "add")  # radd uses Add
+        self.assertEqual(handler.calls[6][0], "sub")  # rsub uses Sub
+        self.assertEqual(handler.calls[7][0], "mul")  # rmul uses Mul
+        self.assertEqual(handler.calls[8][0], "div")  # rtruediv uses Div
+
+    def test_handler_swap(self):
+        """Test swapping handlers using the return value."""
+
+        class Handler1:
+            def Add(self, lhs, rhs):
+                return ir.Value(name="handler1_result")
+
+        class Handler2:
+            def Add(self, lhs, rhs):
+                return ir.Value(name="handler2_result")
+
+        handler1 = Handler1()
+        handler2 = Handler2()
+
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIsNone(old)
+        result1 = self.value1 + self.value2
+        self.assertEqual(result1.name, "handler1_result")
+
+        old = ir.set_value_magic_handler(handler2)
+        self.assertIs(old, handler1)
+        result2 = self.value1 + self.value2
+        self.assertEqual(result2.name, "handler2_result")
+
+        # Restore handler1
+        old = ir.set_value_magic_handler(handler1)
+        self.assertIs(old, handler2)
+        result3 = self.value1 + self.value2
+        self.assertEqual(result3.name, "handler1_result")
+
+        # Reset to None
+        old = ir.set_value_magic_handler(None)
+        self.assertIs(old, handler1)
+
+        # Should raise error with no handler
+        with self.assertRaises(ValueError):
+            _ = self.value1 + self.value2
 
 
 class NodeTest(unittest.TestCase):
@@ -3512,6 +3966,38 @@ class GraphCloneTest(unittest.TestCase):
         self.assertEqual(len(cloned_graph.inputs), len(graph.inputs))
         self.assertEqual(len(cloned_graph.outputs), len(graph.outputs))
 
+    def test_clone_preserves_node_output_types_and_shapes(self):
+        """Test that cloning preserves shape and type information on node outputs."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        # Set shape, type, and other metadata on the node output
+        node.outputs[0].shape = _core.Shape([1, 3, 224, 224])
+        node.outputs[0].type = _core.TensorType(ir.DataType.FLOAT)
+        node.outputs[0].doc_string = "output doc"
+        node.outputs[0].const_value = ir.tensor([1.0])
+        node.outputs[0].metadata_props["key"] = "value"
+
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph.clone()
+        cloned_output = cloned_graph.outputs[0]
+        original_output = node.outputs[0]
+
+        # Verify output shapes and types are preserved
+        self.assertEqual(cloned_output.shape, original_output.shape)
+        self.assertEqual(cloned_output.dtype, original_output.dtype)
+        self.assertEqual(cloned_output.doc_string, original_output.doc_string)
+        self.assertEqual(cloned_output.const_value, original_output.const_value)
+        self.assertEqual(cloned_output.metadata_props, original_output.metadata_props)
+
+        # Verify the values are cloned, not the same objects
+        self.assertIsNot(cloned_output, original_output)
+        self.assertIsNot(cloned_output.metadata_props, original_output.metadata_props)
+
     def test_clone_empty_graph(self):
         """Test cloning an empty graph."""
         graph = _core.Graph(inputs=(), outputs=(), nodes=())
@@ -3552,6 +4038,224 @@ class GraphCloneTest(unittest.TestCase):
         # node3 should take input from node2's output and node1's output
         self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
         self.assertIs(cloned_nodes[2].inputs[1], cloned_nodes[0].outputs[0])
+
+    def test_clone_with_allow_outer_scope_values_false_raises_error(self):
+        # Create main graph
+        v0 = _core.Value(name="main_input")
+
+        # Create subgraph that references the outer scope value v0
+        sub_node = _core.Node("", "Add", inputs=(v0, v0), name="sub_add")
+        subgraph = _core.Graph(
+            inputs=(),  # No inputs - references outer scope
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="subgraph",
+        )
+
+        # The outer scope value v0 will cause an error
+        with self.assertRaisesRegex(RuntimeError, "In clone_graph with args"):
+            # The error captured is not the direct error but a wrapped one from clone()
+            _ = subgraph.clone()
+
+    def test_clone_with_allow_outer_scope_values(self):
+        """Test that outer scope values are preserved when allow_outer_scope_values=True."""
+        # Create main graph
+        v0 = _core.Value(name="main_input")
+
+        # Create subgraph that references the outer scope value v0
+        sub_node = _core.Node("", "Add", inputs=(v0, v0), name="sub_add")
+        subgraph = _core.Graph(
+            inputs=(),  # No inputs - references outer scope
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="subgraph",
+        )
+
+        # Clone the subgraph with allow_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(allow_outer_scope_values=True)
+
+        # The outer scope value v0 should NOT be cloned, it should be preserved
+        cloned_sub_node = cloned_subgraph[0]
+        self.assertIs(cloned_sub_node.inputs[0], v0)
+        self.assertIs(cloned_sub_node.inputs[1], v0)
+
+    def test_clone_with_allow_outer_scope_values_mixed_scope(self):
+        """Test allow_outer_scope_values with both inner and outer scope values."""
+        # Create outer scope values
+        outer_v1 = _core.Value(name="outer_value1")
+        outer_v2 = _core.Value(name="outer_value2")
+
+        # Create subgraph with its own input and using outer scope values
+        inner_input = _core.Value(name="inner_input")
+        sub_node1 = _core.Node("", "Add", inputs=(inner_input, outer_v1))
+        sub_node2 = _core.Node("", "Mul", inputs=(sub_node1.outputs[0], outer_v2))
+        subgraph = _core.Graph(
+            inputs=(inner_input,),
+            outputs=(sub_node2.outputs[0],),
+            nodes=(sub_node1, sub_node2),
+            name="mixed_subgraph",
+        )
+
+        # Clone with allow_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(allow_outer_scope_values=True)
+
+        # Inner input should be cloned
+        cloned_inner_input = cloned_subgraph.inputs[0]
+        self.assertIsNot(cloned_inner_input, inner_input)
+        self.assertEqual(cloned_inner_input.name, inner_input.name)
+
+        # Outer scope values should be preserved
+        cloned_node1 = cloned_subgraph[0]
+        cloned_node2 = cloned_subgraph[1]
+
+        self.assertIs(cloned_node1.inputs[0], cloned_inner_input)  # Cloned inner
+        self.assertIs(cloned_node1.inputs[1], outer_v1)  # Preserved outer
+        self.assertIs(cloned_node2.inputs[1], outer_v2)  # Preserved outer
+
+    def test_clone_with_allow_outer_scope_values_nested_subgraphs(self):
+        """Test allow_outer_scope_values with nested subgraphs."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create inner subgraph that uses outer value
+        inner_node = _core.Node("", "Identity", inputs=(outer_value,))
+        inner_subgraph = _core.Graph(
+            inputs=(),
+            outputs=(inner_node.outputs[0],),
+            nodes=(inner_node,),
+            name="inner_subgraph",
+        )
+
+        # Create middle subgraph with If node containing the inner subgraph
+        condition = _core.Value(name="condition")
+        if_node = _core.Node(
+            "",
+            "If",
+            inputs=(condition,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", inner_subgraph),
+                ir.AttrGraph("else_branch", inner_subgraph),
+            ],
+        )
+        middle_subgraph = _core.Graph(
+            inputs=(condition,),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+            name="middle_subgraph",
+        )
+
+        # Clone with allow_outer_scope_values=True
+        cloned_middle = middle_subgraph.clone(allow_outer_scope_values=True)
+
+        # Condition should be cloned (it's an input)
+        cloned_condition = cloned_middle.inputs[0]
+        self.assertIsNot(cloned_condition, condition)
+
+        # Check nested subgraphs preserve outer values
+        cloned_if = cloned_middle[0]
+        cloned_then = cloned_if.attributes["then_branch"].value
+        cloned_else = cloned_if.attributes["else_branch"].value
+
+        # Inner subgraphs should preserve the outer_value
+        self.assertIs(cloned_then[0].inputs[0], outer_value)
+        self.assertIs(cloned_else[0].inputs[0], outer_value)
+
+    def test_clone_with_allow_outer_scope_values_with_initializers(self):
+        """Test that initializers in the subgraph are cloned, not preserved."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create subgraph with initializer
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="weights")
+        v_init = _core.Value(name="weights", const_value=initializer_tensor)
+        sub_node = _core.Node("", "Add", inputs=(outer_value, v_init))
+        subgraph = _core.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            initializers=(v_init,),
+            name="subgraph_with_init",
+        )
+
+        # Clone with allow_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(allow_outer_scope_values=True)
+
+        # Outer value should be preserved
+        cloned_node = cloned_subgraph[0]
+        self.assertIs(cloned_node.inputs[0], outer_value)
+
+        # Initializer should be cloned (it's local to the subgraph)
+        cloned_init = cloned_subgraph.initializers["weights"]
+        self.assertIsNot(cloned_init, v_init)
+        self.assertEqual(cloned_init.name, v_init.name)
+        # But the tensor itself should be shared
+        self.assertIs(cloned_init.const_value, initializer_tensor)
+
+    def test_clone_with_allow_outer_scope_values_outer_initializer(self):
+        """Test that initializers from outer graph are preserved when allow_outer_scope_values=True."""
+        # Create outer graph with initializer
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="outer_weights")
+        outer_init = _core.Value(name="outer_weights", const_value=initializer_tensor)
+        outer_input = _core.Value(name="outer_input")
+        outer_node = _core.Node("", "Add", inputs=(outer_input, outer_init))
+        _outer_graph = _core.Graph(
+            inputs=(outer_input,),
+            outputs=(outer_node.outputs[0],),
+            nodes=(outer_node,),
+            initializers=(outer_init,),
+            name="outer_graph",
+        )
+
+        # Create subgraph that references the outer initializer
+        inner_value = _core.Value(name="inner_value")
+        sub_node = _core.Node("", "Mul", inputs=(inner_value, outer_init))
+        subgraph = _core.Graph(
+            inputs=(inner_value,),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            initializers=(),  # No local initializers, references outer
+            name="subgraph",
+        )
+
+        # Clone the subgraph with allow_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(allow_outer_scope_values=True)
+
+        # The outer initializer should be preserved (not cloned)
+        cloned_node = cloned_subgraph[0]
+        self.assertIs(cloned_node.inputs[1], outer_init)
+
+        # The inner input should be cloned
+        cloned_inner = cloned_subgraph.inputs[0]
+        self.assertIsNot(cloned_inner, inner_value)
+        self.assertEqual(cloned_inner.name, inner_value.name)
+
+    def test_clone_with_allow_outer_scope_values_node_outputs(self):
+        """Test that node outputs within the subgraph are cloned, not preserved."""
+        # Create outer value
+        outer_value = _core.Value(name="outer")
+
+        # Create subgraph with chain of nodes
+        node1 = _core.Node("", "Identity", inputs=(outer_value,))
+        node2 = _core.Node("", "Identity", inputs=(node1.outputs[0],))
+        subgraph = _core.Graph(
+            inputs=(),
+            outputs=(node2.outputs[0],),
+            nodes=(node1, node2),
+            name="chained_subgraph",
+        )
+
+        # Clone with allow_outer_scope_values=True
+        cloned_subgraph = subgraph.clone(allow_outer_scope_values=True)
+
+        # Outer value should be preserved
+        cloned_node1 = cloned_subgraph[0]
+        self.assertIs(cloned_node1.inputs[0], outer_value)
+
+        # Internal connection should use cloned values
+        cloned_node2 = cloned_subgraph[1]
+        self.assertIsNot(cloned_node2.inputs[0], node1.outputs[0])
+        self.assertIs(cloned_node2.inputs[0], cloned_node1.outputs[0])
 
 
 class ModelCloneTest(unittest.TestCase):
@@ -3880,6 +4584,371 @@ class FunctionCloneTest(unittest.TestCase):
 
         self.assertIsNot(cloned_then, original_then)
         self.assertEqual(len(cloned_then), len(original_then))
+
+
+class GraphViewCloneTest(unittest.TestCase):
+    """Test the GraphView.clone() method."""
+
+    def test_clone_simple_graph_view(self):
+        """Test cloning a simple GraphView with basic nodes."""
+        v0 = ir.Value(name="input1")
+        v1 = ir.Value(name="input2")
+        node = ir.Node("", "Add", inputs=(v0, v1), num_outputs=1, name="add_node")
+        graph_view = ir.GraphView(
+            inputs=(v0, v1),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            name="simple_graph_view",
+            doc_string="A simple graph view",
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify the clone returns a Graph, not a GraphView
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertNotIsInstance(cloned_graph, ir.GraphView)
+
+        # Verify graph properties are copied
+        self.assertEqual(cloned_graph.name, graph_view.name)
+        self.assertEqual(cloned_graph.doc_string, graph_view.doc_string)
+        self.assertIsNot(cloned_graph, graph_view)
+
+        # Verify nodes are different objects
+        self.assertEqual(len(cloned_graph), len(graph_view))
+        cloned_node = cloned_graph[0]
+        self.assertIsNot(cloned_node, node)
+        self.assertEqual(cloned_node.op_type, node.op_type)
+        self.assertEqual(cloned_node.name, node.name)
+
+        # Verify inputs are different objects
+        self.assertEqual(len(cloned_graph.inputs), len(graph_view.inputs))
+        self.assertIsNot(cloned_graph.inputs[0], v0)
+        self.assertIsNot(cloned_graph.inputs[1], v1)
+        self.assertEqual(cloned_graph.inputs[0].name, v0.name)
+        self.assertEqual(cloned_graph.inputs[1].name, v1.name)
+
+        # Verify outputs are different objects
+        self.assertEqual(len(cloned_graph.outputs), len(graph_view.outputs))
+        self.assertIsNot(cloned_graph.outputs[0], node.outputs[0])
+
+    def test_clone_graph_view_with_initializers(self):
+        """Test cloning a GraphView with initializers."""
+        v0 = ir.Value(name="input1")
+        initializer_tensor = ir.tensor([1.0, 2.0, 3.0], name="weights")
+        v_init = ir.Value(name="weights", const_value=initializer_tensor)
+        node = ir.Node("", "Mul", inputs=(v0, v_init), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            initializers=(v_init,),
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify initializers are cloned
+        self.assertEqual(len(cloned_graph.initializers), len(graph_view.initializers))
+        self.assertIn("weights", cloned_graph.initializers)
+        cloned_init = cloned_graph.initializers["weights"]
+        self.assertIsNot(cloned_init, v_init)
+        self.assertEqual(cloned_init.name, v_init.name)
+
+        # Verify tensor is shared (not deep copied)
+        self.assertIsNotNone(cloned_init.const_value)
+        self.assertIs(cloned_init.const_value, initializer_tensor)
+
+    def test_clone_graph_view_with_subgraphs(self):
+        """Test cloning a GraphView with subgraphs (e.g., If node)."""
+        v0 = ir.Value(name="condition")
+        v1 = ir.Value(name="x")
+        v2 = ir.Value(name="y")
+
+        # Create then branch
+        add_node = ir.Node("", "Add", inputs=(v1, v2), num_outputs=1)
+        then_graph = ir.Graph(
+            inputs=(),
+            outputs=(add_node.outputs[0],),
+            nodes=(add_node,),
+            name="then_branch",
+        )
+
+        # Create else branch
+        sub_node = ir.Node("", "Sub", inputs=(v1, v2), num_outputs=1)
+        else_graph = ir.Graph(
+            inputs=(),
+            outputs=(sub_node.outputs[0],),
+            nodes=(sub_node,),
+            name="else_branch",
+        )
+
+        # Create If node
+        if_node = ir.Node(
+            "",
+            "If",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+        )
+        graph_view = ir.GraphView(
+            inputs=(v0, v1, v2),
+            outputs=(if_node.outputs[0],),
+            nodes=(if_node,),
+            name="main_graph_view",
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify subgraphs are cloned
+        cloned_if_node = cloned_graph[0]
+        self.assertIsNot(cloned_if_node, if_node)
+
+        cloned_then = cloned_if_node.attributes["then_branch"].value
+        cloned_else = cloned_if_node.attributes["else_branch"].value
+
+        self.assertIsNot(cloned_then, then_graph)
+        self.assertIsNot(cloned_else, else_graph)
+        self.assertEqual(cloned_then.name, then_graph.name)
+        self.assertEqual(cloned_else.name, else_graph.name)
+
+        # Verify nodes in subgraphs are cloned
+        self.assertEqual(len(cloned_then), len(then_graph))
+        cloned_then_node = cloned_then[0]
+        self.assertIsNot(cloned_then_node, add_node)
+        self.assertEqual(cloned_then_node.op_type, add_node.op_type)
+
+    def test_clone_graph_view_with_metadata(self):
+        """Test cloning a GraphView with metadata."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            metadata_props={"prop_key": "prop_value"},
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify metadata_props are copied
+        self.assertEqual(
+            cloned_graph.metadata_props["prop_key"], graph_view.metadata_props["prop_key"]
+        )
+        self.assertIsNot(cloned_graph.metadata_props, graph_view.metadata_props)
+
+    def test_clone_graph_view_preserves_value_types_and_shapes(self):
+        """Test that cloning a GraphView preserves value types and shapes."""
+        v0 = ir.Value(
+            name="input",
+            shape=ir.Shape([1, 3, 224, 224]),
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_input = cloned_graph.inputs[0]
+
+        # Verify input shapes and types are preserved
+        self.assertEqual(cloned_input.shape, v0.shape)
+        self.assertEqual(cloned_input.dtype, v0.dtype)
+
+        # Verify the cloned graph has the same structure
+        self.assertEqual(len(cloned_graph.inputs), len(graph_view.inputs))
+        self.assertEqual(len(cloned_graph.outputs), len(graph_view.outputs))
+
+    def test_clone_empty_graph_view(self):
+        """Test cloning an empty GraphView."""
+        graph_view = ir.GraphView(inputs=(), outputs=(), nodes=())
+        cloned_graph = graph_view.clone()
+
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertIsNot(cloned_graph, graph_view)
+        self.assertEqual(len(cloned_graph.inputs), 0)
+        self.assertEqual(len(cloned_graph.outputs), 0)
+        self.assertEqual(len(list(cloned_graph)), 0)
+
+    def test_clone_graph_view_maintains_topology(self):
+        """Test that cloning a GraphView preserves the graph topology."""
+        v0 = ir.Value(name="input")
+        node1 = ir.Node("", "Add", inputs=(v0, v0), num_outputs=1, name="add1")
+        node2 = ir.Node("", "Mul", inputs=(node1.outputs[0], v0), num_outputs=1, name="mul")
+        node3 = ir.Node(
+            "", "Sub", inputs=(node2.outputs[0], node1.outputs[0]), num_outputs=1, name="sub"
+        )
+
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node3.outputs[0],),
+            nodes=(node1, node2, node3),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_nodes = list(cloned_graph)
+
+        # Verify nodes are in the same order
+        self.assertEqual(len(cloned_nodes), 3)
+        self.assertEqual(cloned_nodes[0].name, "add1")
+        self.assertEqual(cloned_nodes[1].name, "mul")
+        self.assertEqual(cloned_nodes[2].name, "sub")
+
+        # Verify connections are preserved
+        # node2 should take input from node1's output
+        self.assertIs(cloned_nodes[1].inputs[0], cloned_nodes[0].outputs[0])
+        # node3 should take input from node2's output and node1's output
+        self.assertIs(cloned_nodes[2].inputs[0], cloned_nodes[1].outputs[0])
+        self.assertIs(cloned_nodes[2].inputs[1], cloned_nodes[0].outputs[0])
+
+    def test_clone_graph_view_with_opset_imports(self):
+        """Test that cloning a GraphView preserves opset imports."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+            opset_imports={"": 18, "com.microsoft": 1},
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify opset imports are copied
+        self.assertEqual(cloned_graph.opset_imports, graph_view.opset_imports)
+        self.assertIsNot(cloned_graph.opset_imports, graph_view.opset_imports)
+
+    def test_clone_graph_view_is_mutable(self):
+        """Test that the cloned Graph from a GraphView is mutable."""
+        v0 = ir.Value(name="input")
+        node = ir.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+
+        # Verify we can mutate the cloned graph (should be a Graph, not GraphView)
+        new_node = ir.Node("", "Relu", inputs=(cloned_graph.inputs[0],), num_outputs=1)
+        cloned_graph.append(new_node)
+
+        self.assertEqual(len(cloned_graph), 2)
+        self.assertEqual(len(graph_view), 1)
+
+    def test_clone_graph_view_preserves_node_attributes(self):
+        """Test that cloning a GraphView preserves node attributes."""
+        v0 = ir.Value(name="input")
+        node = ir.Node(
+            "",
+            "Clip",
+            inputs=(v0,),
+            num_outputs=1,
+            attributes=[
+                ir.AttrFloat32("min", -1.0),
+                ir.AttrFloat32("max", 1.0),
+            ],
+        )
+        graph_view = ir.GraphView(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph_view.clone()
+        cloned_node = cloned_graph[0]
+
+        # Verify attributes are cloned
+        self.assertEqual(len(cloned_node.attributes), len(node.attributes))
+        self.assertEqual(cloned_node.attributes["min"].value, -1.0)
+        self.assertEqual(cloned_node.attributes["max"].value, 1.0)
+
+    def test_clone_graph_view_with_intermediate_values(self):
+        """Test cloning a GraphView created from intermediate values of a larger graph."""
+        # Create a larger graph: input -> relu -> add -> mul -> output
+        v_input = ir.Value(name="graph_input")
+        v_const = ir.Value(
+            name="const_value", const_value=ir.tensor([2.0], name="const_value")
+        )
+
+        node_relu = ir.Node("", "Relu", inputs=(v_input,), num_outputs=1, name="relu")
+        node_add = ir.Node(
+            "", "Add", inputs=(node_relu.outputs[0], v_const), num_outputs=1, name="add"
+        )
+        node_mul = ir.Node(
+            "", "Mul", inputs=(node_add.outputs[0], v_const), num_outputs=1, name="mul"
+        )
+
+        # Create the full graph
+        full_graph = ir.Graph(
+            inputs=(v_input,),
+            outputs=(node_mul.outputs[0],),
+            nodes=(node_relu, node_add, node_mul),
+            initializers=(v_const,),
+            name="full_graph",
+        )
+
+        # Create a GraphView that extracts only the middle "add" and "mul" nodes
+        # The inputs to the view are intermediate values (relu output and const)
+        # The output is also an intermediate value (mul output, which is the final output here)
+        subgraph_inputs = [node_relu.outputs[0], v_const]
+        subgraph_outputs = [node_mul.outputs[0]]
+        subgraph_nodes = [node_add, node_mul]
+
+        graph_view = ir.GraphView(
+            inputs=subgraph_inputs,
+            outputs=subgraph_outputs,
+            nodes=subgraph_nodes,
+            initializers=(v_const,),
+            name="subgraph_view",
+        )
+
+        # Clone the graph view
+        cloned_graph = graph_view.clone()
+
+        # Verify the clone is a Graph instance
+        self.assertIsInstance(cloned_graph, ir.Graph)
+        self.assertNotIsInstance(cloned_graph, ir.GraphView)
+
+        # Verify structure is preserved
+        self.assertEqual(len(cloned_graph), 2)
+        self.assertEqual(len(cloned_graph.inputs), 2)
+        self.assertEqual(len(cloned_graph.outputs), 1)
+        self.assertEqual(len(cloned_graph.initializers), 1)
+
+        # Verify nodes are cloned
+        cloned_add = cloned_graph[0]
+        cloned_mul = cloned_graph[1]
+        self.assertIsNot(cloned_add, node_add)
+        self.assertIsNot(cloned_mul, node_mul)
+        self.assertEqual(cloned_add.name, "add")
+        self.assertEqual(cloned_mul.name, "mul")
+
+        # Verify inputs are cloned
+        cloned_inputs = list(cloned_graph.inputs)
+        self.assertIsNot(cloned_inputs[0], node_relu.outputs[0])
+        self.assertIsNot(cloned_inputs[1], v_const)
+
+        # Verify the topology is preserved within the cloned subgraph
+        # The mul node should take input from the add node's output
+        self.assertIs(cloned_mul.inputs[0], cloned_add.outputs[0])
+
+        # Verify initializers are cloned
+        self.assertIn("const_value", cloned_graph.initializers)
+        cloned_const = cloned_graph.initializers["const_value"]
+        self.assertIsNot(cloned_const, v_const)
+
+        # Verify the original full graph is unchanged
+        self.assertEqual(len(full_graph), 3)
+        self.assertEqual(full_graph[0].name, "relu")
+        self.assertEqual(full_graph[1].name, "add")
+        self.assertEqual(full_graph[2].name, "mul")
 
 
 if __name__ == "__main__":

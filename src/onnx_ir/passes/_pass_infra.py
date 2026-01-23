@@ -217,7 +217,19 @@ class FunctionalPass(PassBase):
 
 
 class Sequential(PassBase):
-    """Run a sequence of passes in order."""
+    """Run a sequence of passes in order.
+
+    Example::
+        import onnx_ir as ir
+        import onnx_ir.passes.common as common_passes
+
+        passes = ir.passes.Sequential(
+            common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+            common_passes.CommonSubexpressionEliminationPass(),
+            common_passes.ClearMetadataAndDocStringPass(),
+        )
+        result = passes(model)
+    """
 
     def __init__(self, *passes: PassBase):
         if not passes:
@@ -260,6 +272,31 @@ class PassManager(Sequential):
     """Pass manager for the IR.
 
     The PassManager is a Pass that runs a sequence of passes on a model.
+
+    Example::
+        import onnx_ir as ir
+        import onnx_ir.passes.common as common_passes
+
+        model = ir.load("model.onnx")
+        passes = ir.passes.PassManager(
+            [
+                # Pass managers can be nested
+                ir.passes.PassManager(
+                    [
+                        common_passes.DeduplicateHashedInitializersPass(size_limit=1024 * 1024),
+                        common_passes.CommonSubexpressionEliminationPass(),
+                    ],
+                    steps=2,
+                    early_stop=True,
+                ),
+                common_passes.ClearMetadataAndDocStringPass(),
+            ],
+            steps=2,
+            early_stop=False,
+        )
+
+        # Apply the passes to the model
+        result = passes(model)
 
     Attributes:
         passes: The passes to run.

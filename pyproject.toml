@@ -82,10 +82,6 @@ ignore = [
     "E1", "E2", "E3", # Pycodestyle formatting rules that conflicts with the formatter
     "E501", # Line length. Not enforced because black will handle formatting
     "SIM103", # "Return the condition directly" obscures logic sometimes
-    "N802", # Nxx: ONNX Script function sometimes use upper case for names.
-    "N803",
-    "N806",
-    "N999", # Invalid module name
     "NPY002", # We may not always need a generator
     "PERF203", # try-except in loops sometimes necessary
     "PERF401", # List comprehension is not always readable
@@ -93,6 +89,7 @@ ignore = [
     "RUF022", # We don't need to sort __all__ for elements to be grouped
     "RUF031", # Parentheses for tuple in subscripts is more readable
     "RUF052", # Variables with `_` prefix may not be dummy variables in all cases
+    "RUF067", # More relaxed __init__.py files
     "SIM102", # Collapible if statements are not always more readable
     "SIM108", # We don't always encourage ternary operators
     "SIM114", # Don't always combine if branches for debugability

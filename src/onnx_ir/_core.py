@@ -16,6 +16,7 @@ import abc
 import contextlib
 import dataclasses
 import heapq
+import logging
 import math
 import mmap
 import os
@@ -37,8 +38,10 @@ from collections.abc import (
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Generic,
     NamedTuple,
+    Protocol,
     SupportsInt,
     Union,
 )
@@ -86,6 +89,8 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.UINT2,
     )
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _compatible_with_numpy(obj: Any) -> TypeGuard[_protocols.ArrayCompatible]:
@@ -752,7 +757,8 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             _enums.DataType.UINT2,
         }:
             # Use uint8 to read in the full byte. Otherwise ml_dtypes.int4 will clip the values
-            dt = np.dtype(np.uint8).newbyteorder("<")
+            # No need to set endianness for uint8
+            dt = np.dtype(np.uint8)
             count = self.size // 2 + self.size % 2
         else:
             # Handle the byte order correctly by always using little endian
@@ -765,6 +771,11 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         if self.dtype.bitwidth == 4:
             # Unpack the 4bit arrays
             self._array = _type_casting.unpack_4bitx2(self._array, shape).view(
+                self.dtype.numpy()
+            )
+        elif self.dtype.bitwidth == 2:
+            # Unpack the 2bit arrays
+            self._array = _type_casting.unpack_2bitx4(self._array, shape).view(
                 self.dtype.numpy()
             )
         else:
@@ -2182,7 +2193,100 @@ class OptionalType(_RecursiveTypeBase):
     """A type that represents an optional element."""
 
 
-class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
+class _OpHandlerProtocol(Protocol):
+    """Protocol for an object that can handle magic methods on Values.
+
+    .. note::
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+    """
+
+    def Add(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Sub(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Mul(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Div(self, lhs, rhs) -> Value: ...  # noqa: N802
+    def Neg(self, operand) -> Value: ...  # noqa: N802
+
+
+def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
+    """Set the magic handler for Value arithmetic methods.
+
+    Framework authors can implement custom context managers that set
+    the magic handler to enable arithmetic operations on Values.
+
+    Example::
+        class MyOpHandler:
+            def Add(self, lhs, rhs):
+                # Implement addition logic here
+                pass
+            ...
+
+        @contextlib.contextmanager
+        def graph_context(graph):
+            old_handler = onnx_ir.set_value_magic_handler(MyOpHandler(graph))
+            try:
+                yield
+            finally:
+                onnx_ir.set_value_magic_handler(old_handler)
+
+    Args:
+        handler: The magic handler to set.
+
+    Returns:
+        The previous magic handler.
+    """
+    old_handler = WithArithmeticMethods._magic_handler
+    WithArithmeticMethods._magic_handler = handler
+    return old_handler
+
+
+class WithArithmeticMethods:
+    """Mixin class that adds arithmetic methods to Value.
+
+    This class is used to add arithmetic methods to Value that support arithmetic operations.
+    """
+
+    _magic_handler: ClassVar[_OpHandlerProtocol | None] = None
+
+    def _get_magic_handler(self):
+        if self._magic_handler is None:
+            raise ValueError(
+                "No magic handler is set. Please use 'onnx_ir.set_value_magic_handler' to set a handler."
+            )
+        return self._magic_handler
+
+    # Magic methods for arithmetic operations
+    def __add__(self, other, /):
+        return self._get_magic_handler().Add(self, other)  # type: ignore[union-attr]
+
+    def __sub__(self, other, /):
+        return self._get_magic_handler().Sub(self, other)  # type: ignore[union-attr]
+
+    def __mul__(self, other, /):
+        return self._get_magic_handler().Mul(self, other)  # type: ignore[union-attr]
+
+    def __truediv__(self, other, /):
+        return self._get_magic_handler().Div(self, other)  # type: ignore[union-attr]
+
+    def __neg__(self):
+        return self._get_magic_handler().Neg(self)  # type: ignore[union-attr]
+
+    def __radd__(self, other, /):
+        return self._get_magic_handler().Add(other, self)  # type: ignore[union-attr]
+
+    def __rsub__(self, other, /):
+        return self._get_magic_handler().Sub(other, self)  # type: ignore[union-attr]
+
+    def __rmul__(self, other, /):
+        return self._get_magic_handler().Mul(other, self)  # type: ignore[union-attr]
+
+    def __rtruediv__(self, other, /):
+        return self._get_magic_handler().Div(other, self)  # type: ignore[union-attr]
+
+
+class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrintable):
     """IR Value.
 
     A value is a named entity that can be used to represent an input or output of a graph,
@@ -2205,6 +2309,16 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
     use :meth:`is_graph_input`, :meth:`is_graph_output` or :meth:`is_initializer`.
 
     Use :attr:`graph` to get the graph that owns the value.
+
+    .. note:: Magic methods
+        Only the basic arithmetic magic methods are supported on Values.
+
+        Importantly, ``__eq__`` is not included because Values may need to be compared for identity.
+        For consistency, none of the other comparison operators are included.
+
+    .. versionadded:: 0.1.14
+        Value now supports arithmetic magic methods when a handler is set via
+        :func:`onnx_ir.set_value_magic_handler`.
     """
 
     __slots__ = (
@@ -2594,9 +2708,66 @@ class Value(_protocols.ValueProtocol, _display.PrettyPrintable):
         for user_node, index in self.uses():
             user_node.replace_input_with(index, replacement)
 
+    def merge_shapes(self, other: Shape | None, /) -> None:
+        """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
+
+        Two dimensions are merged as follows:
+
+        * If both dimensions are equal, the merged dimension is the same.
+        * If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
+        * If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
+        * In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+
+        .. versionadded:: 0.1.14
+
+        Args:
+            other: The other shape to merge with.
+
+        Returns:
+            A new shape that is the result of merging this shape with the other shape.
+
+        Raises:
+            ValueError: If the shapes have different ranks.
+            ValueError: If there are conflicting concrete dimensions.
+        """
+        if other is None:
+            return
+
+        merged_shape = self.shape
+        if merged_shape is None:
+            self._shape = other.copy()
+            return
+
+        if merged_shape.frozen:
+            merged_shape = merged_shape.copy()
+
+        if len(merged_shape) != len(other):
+            raise ValueError(f"Shapes must have the same rank, got self={self}, other={other}")
+
+        def merge_dims(dim1, dim2):
+            if dim1 == dim2:
+                return dim1
+            if isinstance(dim1, int) and isinstance(dim2, int):
+                raise ValueError(  # noqa: TRY004
+                    f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
+                    f"{self} and {other}."
+                )
+            if not isinstance(dim1, SymbolicDim):
+                return dim1  # Prefer int value over symbolic dim
+            if not isinstance(dim2, SymbolicDim):
+                return dim2
+            if dim1.value is None:
+                return dim2
+            return dim1
+
+        for i, (dim1, dim2) in enumerate(zip(merged_shape, other)):
+            merged_shape[i] = merge_dims(dim1, dim2)
+
+        self._shape = merged_shape
+
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
-def Input(
+def Input(  # noqa: N802
     name: str | None = None,
     shape: Shape | None = None,
     type: _protocols.TypeProtocol | None = None,
@@ -2908,7 +3079,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
-    def clone(self) -> Graph:
+    def clone(self, allow_outer_scope_values: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -2918,9 +3089,23 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+        .. versionadded:: 0.1.15
+            Added ``allow_outer_scope_values`` argument.
+
+        Args:
+            allow_outer_scope_values: When True, values that are from outer scopes
+                (not defined in this graph) will not be cloned. Instead, the cloned
+                graph will reference the same outer scope values. This is useful
+                when cloning subgraphs that reference values from the outer graph.
+                When False (default), values from outer scopes will cause an error if they
+                are referenced in the cloned graph.
 
         Returns:
             A deep copy of this graph.
+
+        Raises:
+            ValueError: If ``allow_outer_scope_values`` is False and the graph
+                references values from outer scopes.
         """
         from onnx_ir import _cloner
 
@@ -2929,6 +3114,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             value_map={},
             metadata_props={},
             resolve_ref_attrs=False,
+            allow_outer_scope_values=allow_outer_scope_values,
         )
         return cloner.clone_graph(self)
 
@@ -3284,7 +3470,11 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         self.name = name
         self.inputs = tuple(inputs)
         self.outputs = tuple(outputs)
-        self.initializers = {initializer.name: initializer for initializer in initializers}
+        self.initializers: dict[str, Value] = {}
+        for initializer in initializers:
+            if not initializer.name:
+                raise ValueError(f"Initializer must have a name: {initializer!r}")
+            self.initializers[initializer.name] = initializer
         self.doc_string = doc_string
         self.opset_imports = opset_imports or {}
         self._metadata: _metadata.MetadataStore | None = None
@@ -3330,6 +3520,30 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
     def __repr__(self) -> str:
         return _graph_repr(self)
+
+    def clone(self) -> Graph:
+        """Create a deep copy of this graph in O(#nodes + #values) time.
+
+        All nodes, values, and subgraphs are cloned. The cloned graph will have
+        the same structure as this graph, but all nodes and values will be different
+        objects.
+
+        Tensors in initializers and constant values will be shared.
+
+        .. versionadded:: 0.1.14
+
+        Returns:
+            A deep copy of this graph.
+        """
+        from onnx_ir import _cloner
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={},
+            metadata_props={},
+            resolve_ref_attrs=False,
+        )
+        return cloner.clone_graph(self)
 
 
 class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
@@ -4024,7 +4238,7 @@ class Attr(
 # NOTE: The following functions are just for convenience
 
 
-def RefAttr(
+def RefAttr(  # noqa: N802
     name: str,
     ref_attr_name: str,
     type: _enums.AttributeType,
@@ -4045,7 +4259,7 @@ def RefAttr(
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4056,7 +4270,7 @@ def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = 
     )
 
 
-def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4067,7 +4281,7 @@ def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None)
     )
 
 
-def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:
+def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a str attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4078,7 +4292,7 @@ def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrTensor(
+def AttrTensor(  # noqa: N802
     name: str, value: _protocols.TensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a tensor attribute."""
@@ -4091,7 +4305,7 @@ def AttrTensor(
     )
 
 
-def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:
+def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a graph attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4102,7 +4316,7 @@ def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:
     )
 
 
-def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:
+def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a float sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4113,7 +4327,7 @@ def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = Non
     )
 
 
-def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:
+def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create an int sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4124,7 +4338,7 @@ def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -
     )
 
 
-def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:
+def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a string sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4135,7 +4349,7 @@ def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) 
     )
 
 
-def AttrTensors(
+def AttrTensors(  # noqa: N802
     name: str, value: Sequence[_protocols.TensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a tensor sequence attribute."""
@@ -4148,7 +4362,7 @@ def AttrTensors(
     )
 
 
-def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:
+def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a graph sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4160,7 +4374,7 @@ def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None)
 
 
 # NOTE: SparseTensor should be a sparse tensor proto
-def AttrSparseTensor(
+def AttrSparseTensor(  # noqa: N802
     name: str, value: _protocols.SparseTensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor attribute."""
@@ -4173,7 +4387,7 @@ def AttrSparseTensor(
     )
 
 
-def AttrSparseTensors(
+def AttrSparseTensors(  # noqa: N802
     name: str, value: Sequence[_protocols.SparseTensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor sequence attribute."""
@@ -4197,7 +4411,7 @@ class TypeAndShape:
     shape: Shape | None
 
 
-def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:
+def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # noqa: N802
     """Create a type attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4208,7 +4422,7 @@ def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None)
     )
 
 
-def AttrTypeProtos(
+def AttrTypeProtos(  # noqa: N802
     name: str, value: Sequence[TypeAndShape], doc_string: str | None = None
 ) -> Attr:
     """Create a type sequence attribute."""
