@@ -452,6 +452,30 @@ class InlinerTopologicalSortTest(unittest.TestCase):
         self.assertEqual(nodes[0].op_type, "Mul")
         self.assertEqual(nodes[1].op_type, "Add")
 
+    def test_cyclic_function_dependency_raises_error(self):
+        """Test that cyclic function dependencies raise an error."""
+        input_model = """
+            <ir_version: 8, opset_import: [ "" : 17, "local" : 1 ]>
+            agraph (float[N] X) => (float[N] Y)
+            {
+                Y = local.funcA (X)
+            }
+
+            <opset_import: [ "" : 17, "local" : 1 ], domain: "local">
+            funcA (x) => (y) {
+                y = local.funcB(x)
+            }
+
+            <opset_import: [ "" : 17, "local" : 1 ], domain: "local">
+            funcB (x) => (y) {
+                y = local.funcA(x)
+            }
+        """
+        model_ir = ir.from_onnx_text(input_model)
+
+        with self.assertRaises(ir.passes.PreconditionError):
+            inliner.InlinePass()(model_ir)
+
     def test_independent_functions_are_all_inlined(self):
         """Test that independent functions (no dependencies between them) are all inlined."""
         input_model = """

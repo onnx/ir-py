@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import dataclasses
+import graphlib
 from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
@@ -72,6 +73,29 @@ def _abbreviate(
     return {id: id_abbreviation(id) for id in function_ids}
 
 
+def _topological_sort_functions(model: ir.Model) -> list[ir.Function]:
+    """Sort functions so that callees come before callers.
+
+    This ensures that when we inline function A which calls function B,
+    function B has already been inlined into A's body.
+
+    Raises:
+        graphlib.CycleError: If there is a cyclic dependency between functions.
+    """
+    # Build dependency graph: function_id -> set of function_ids it calls
+    dependencies: dict[ir.OperatorIdentifier, set[ir.OperatorIdentifier]] = {}
+
+    for func_id, function in model.functions.items():
+        for node in function.all_nodes():
+            op_id = node.op_identifier()
+            if op_id in model.functions:
+                dependencies.setdefault(func_id, set()).add(op_id)
+
+    sorter = graphlib.TopologicalSorter(dependencies)
+
+    return [model.functions[func_id] for func_id in sorter.static_order()]
+
+
 @dataclasses.dataclass
 class InlinePassResult(ir.passes.PassResult):
     id_count: dict[ir.OperatorIdentifier, int]
@@ -115,6 +139,16 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_value_names = set()
         self._used_node_names = set()
         self._node_context = {}
+
+    def requires(self, model: ir.Model) -> None:
+        self._reset(model)
+        # No cyclic dependencies allowed in functions
+        try:
+            _ = _topological_sort_functions(model)
+        except graphlib.CycleError as e:
+            raise ir.passes.PreconditionError(
+                "Cyclic dependency detected between functions in model"
+            ) from e
 
     def call(self, model: ir.Model) -> InlinePassResult:
         self._reset(model)
