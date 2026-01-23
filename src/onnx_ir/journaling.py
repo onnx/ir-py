@@ -5,7 +5,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-__all__ = ["Journal", "JournalEntry"]
+__all__ = ["Journal", "JournalEntry", "get_journal"]
 
 import dataclasses
 import datetime
