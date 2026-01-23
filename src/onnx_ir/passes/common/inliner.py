@@ -89,9 +89,8 @@ def _detect_function_cycles(model: ir.Model) -> None:
                 dependencies.setdefault(func_id, set()).add(op_id)
 
     sorter = graphlib.TopologicalSorter(dependencies)
-
-    # Perform the sort to detect cycles.
-    _ = tuple(sorter.static_order())
+    # Call prepare to detect cycles
+    sorter.prepare()
     return
 
 
