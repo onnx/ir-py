@@ -28,7 +28,8 @@ class JournalEntry:
         class_: The class of the object on which the operation was performed.
         class_name: The name of the class of the object.
         ref: A weak reference to the object on which the operation was performed.
-            To access the object, call object().
+            To access the object, call ``ref()``. Note that ``ref`` may be ``None``,
+            and ``ref()`` may return ``None`` if the object has been garbage-collected.
         object_id: The unique identifier of the object (id()).
         stack_trace: The stack trace at the time of the operation.
         details: Additional details about the operation.
