@@ -1716,7 +1716,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         if isinstance(attributes, Mapping):
             attributes = tuple(attributes.values())
         self._attributes: _graph_containers.Attributes = _graph_containers.Attributes(
-            attributes
+            attributes, owner=self
         )
         self._overload: str = overload
         # TODO(justinchuby): Potentially support a version range
@@ -2742,7 +2742,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             journal.record(
                 self,
                 "replace_all_uses_with",
-                details=f"replacement: {replacement!r}, replace_graph_outputs: {replace_graph_outputs}",
+                details=f"replacement={replacement!r}, replace_graph_outputs={replace_graph_outputs}",
             )
 
         # NOTE: Why we don't replace the value name when the value is an output:
@@ -2791,7 +2791,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         """
         if (journal := _journaling.get_journal()) is not None:
             journal.record(
-                self, "merge_shapes", details=f"original: {self._shape!r}, other: {other!r}"
+                self, "merge_shapes", details=f"original={self._shape!r}, other={other!r}"
             )
 
         if other is None:
@@ -3244,7 +3244,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             ValueError: (When ``safe=True``) If the node is still being used by other nodes not to be removed.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "remove", details=f"nodes: {nodes!r}, safe: {safe}")
+            journal.record(self, "remove", details=f"nodes={nodes!r}, safe={safe}")
 
         if not isinstance(nodes, Iterable):
             nodes_set: AbstractSet[Node] = {nodes}
@@ -3280,7 +3280,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         """
         if (journal := _journaling.get_journal()) is not None:
             journal.record(
-                self, "insert_after", details=f"node: {node!r}, new_nodes: {new_nodes!r}"
+                self, "insert_after", details=f"node={node!r}, new_nodes={new_nodes!r}"
             )
 
         if isinstance(new_nodes, Node):
@@ -3302,7 +3302,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         """
         if (journal := _journaling.get_journal()) is not None:
             journal.record(
-                self, "insert_before", details=f"node: {node!r}, new_nodes: {new_nodes!r}"
+                self, "insert_before", details=f"node={node!r}, new_nodes={new_nodes!r}"
             )
 
         if isinstance(new_nodes, Node):
@@ -3847,7 +3847,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         self._graph = graph
         if isinstance(attributes, Mapping):
             attributes = tuple(attributes.values())
-        self._attributes = _graph_containers.Attributes(attributes)
+        self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
         if (journal := _journaling.get_journal()) is not None:
             journal.record(self, "initialize", details=repr(self))

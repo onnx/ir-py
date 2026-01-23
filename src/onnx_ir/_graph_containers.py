@@ -18,6 +18,7 @@ from typing import SupportsIndex, TypeVar
 
 import onnx_ir
 from onnx_ir import _core, _protocols
+from onnx_ir import journaling as _journaling
 
 T = TypeVar("T")
 
@@ -57,6 +58,11 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def append(self, item: _core.Value) -> None:
         """Add a new input to the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph, "append_io", details=f"[{self.__class__.__name__}] {item!r}"
+            )
+
         # Perform checks first in _set_graph before modifying the data structure
         self._set_graph(item)
         super().append(item)
@@ -64,6 +70,11 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def extend(self, other) -> None:
         """Extend the list of inputs or outputs."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph, "extend_io", details=f"[{self.__class__.__name__}] {other!r}"
+            )
+
         other = tuple(other)
         for item in other:
             self._set_graph(item)
@@ -71,12 +82,22 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def insert(self, i: int, item: _core.Value) -> None:
         """Insert an input/output to the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph, "insert_io", details=f"[{self.__class__.__name__}] {item!r}"
+            )
+
         super().insert(i, item)
         self._set_graph(item)
         self._check_invariance()
 
     def pop(self, i: int = -1) -> _core.Value:
         """Remove an input/output from the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph, "pop_io", details=f"[{self.__class__.__name__}] index={i}"
+            )
+
         value = super().pop(i)
         self._maybe_unset_graph(value)
         self._check_invariance()
@@ -84,12 +105,20 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def remove(self, item: _core.Value) -> None:
         """Remove an input/output from the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph, "remove_io", details=f"[{self.__class__.__name__}] {item!r}"
+            )
+
         super().remove(item)
         self._maybe_unset_graph(item)
         self._check_invariance()
 
     def clear(self) -> None:
         """Clear the list."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(self._graph, "clear_io", details=f"[{self.__class__.__name__}]")
+
         for value in self.data:
             self._maybe_unset_graph(value)
         super().clear()
@@ -101,6 +130,13 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def __setitem__(self, i, item) -> None:
         """Replace an input/output to the node."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph,
+                "set_io",
+                details=f"[{self.__class__.__name__}] index={i}, item={item!r}",
+            )
+
         if isinstance(item, Iterable) and isinstance(i, slice):
             # Modify a slice of the list
             for value in self.data[i]:
@@ -251,6 +287,13 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 
     def __setitem__(self, key: str, value: _core.Value) -> None:
         """Set an initializer for the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._graph,
+                "set_initializer",
+                details=f"key={key!r}, value={value!r}",
+            )
+
         if not isinstance(value, _core.Value):
             raise TypeError(f"value must be a Value object, not {type(value)}")
         if not isinstance(key, str):
@@ -279,6 +322,9 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 
     def __delitem__(self, key: str) -> None:
         """Delete an initializer from the graph."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(self._graph, "delete_initializer", details=f"key={key!r}")
+
         value = self.data[key]
         # Must call _maybe_unset_graph before super().__delitem__ so that when there is an error,
         # the dictionary is not modified
@@ -293,11 +339,21 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 class Attributes(collections.UserDict[str, "_core.Attr"]):
     """The attributes of a Node as ``dict[str, Attr]`` with additional access methods."""
 
-    def __init__(self, attrs: Iterable[_core.Attr]):
+    def __init__(
+        self, attrs: Iterable[_core.Attr], owner: _core.Node | _core.Function
+    ) -> None:
         super().__init__({attr.name: attr for attr in attrs})
+        self._owner = owner
 
     def __setitem__(self, key: str, value: _core.Attr) -> None:
         """Set an attribute for the node."""
+        if (journal := _journaling.get_journal()) is not None:
+            journal.record(
+                self._owner,
+                "set_attribute",
+                details=f"key={key!r}, value={value!r}",
+            )
+
         if type(key) is not str:
             raise TypeError(f"Key must be a string, not {type(key)}")
         if not isinstance(value, _core.Attr):
