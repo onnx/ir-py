@@ -112,6 +112,9 @@ class InlinePass(ir.passes.InPlacePass):
     .. versionadded:: 0.1.16
         The ``criteria`` parameter.
 
+    Requires:
+        No cyclic dependencies between functions in the model.
+
     Attributes:
         criteria: Optional function that takes a node and returns True if the node
             should be inlined. If None, all function calls are inlined.
