@@ -516,6 +516,102 @@ class InlinerTopologicalSortTest(unittest.TestCase):
         self.assertIn("Tanh", op_types)
         self.assertEqual(op_types.count("Add"), 2)
 
+    def test_main_calls_foo_and_bar_foo_calls_bar_only_foo_inlined(self):
+        """Test selective inlining when main->foo, main->bar, foo->bar, and only foo is inlined.
+
+        After inlining only foo:
+        - foo's body (which calls bar) should be inlined into main
+        - bar should remain as function calls (both from main and from inlined foo body)
+        """
+        input_model = """
+            <ir_version: 8, opset_import: [ "" : 17, "local" : 1 ]>
+            agraph (float[N] X) => (float[N] Y)
+            {
+                T1 = local.foo (X)
+                T2 = local.bar (X)
+                Y = Add(T1, T2)
+            }
+
+            <opset_import: [ "" : 17, "local" : 1 ], domain: "local">
+            foo (x) => (y) {
+                temp = local.bar(x)
+                y = Relu(temp)
+            }
+
+            <opset_import: [ "" : 17 ], domain: "local">
+            bar (x) => (y) {
+                y = Mul(x, x)
+            }
+        """
+        model_ir = ir.from_onnx_text(input_model)
+
+        # Only inline foo, not bar
+        def criteria(node: ir.Node) -> bool:
+            return node.op_type == "foo"
+
+        inliner.InlinePass(criteria=criteria)(model_ir)
+
+        # Expected: bar (from foo's inlined body), Relu, bar (original), Add
+        # foo is inlined, bar calls remain
+        self.assertEqual(len(model_ir.graph), 4)
+        nodes = list(model_ir.graph)
+        op_types = [n.op_type for n in nodes]
+        self.assertEqual(op_types, ["bar", "Relu", "bar", "Add"])
+        # Both bar calls should still be function calls
+        self.assertEqual(nodes[0].domain, "local")
+        self.assertEqual(nodes[2].domain, "local")
+
+    def test_main_calls_foo_and_bar_foo_calls_bar_only_bar_inlined(self):
+        """Test selective inlining when main->foo, main->bar, foo->bar, and only bar is inlined.
+
+        After inlining only bar:
+        - bar's body should be inlined into foo first (topological order)
+        - bar's body should be inlined into main
+        - foo should remain as a function call in main
+        """
+        input_model = """
+            <ir_version: 8, opset_import: [ "" : 17, "local" : 1 ]>
+            agraph (float[N] X) => (float[N] Y)
+            {
+                T1 = local.foo (X)
+                T2 = local.bar (X)
+                Y = Add(T1, T2)
+            }
+
+            <opset_import: [ "" : 17, "local" : 1 ], domain: "local">
+            foo (x) => (y) {
+                temp = local.bar(x)
+                y = Relu(temp)
+            }
+
+            <opset_import: [ "" : 17 ], domain: "local">
+            bar (x) => (y) {
+                y = Mul(x, x)
+            }
+        """
+        model_ir = ir.from_onnx_text(input_model)
+
+        # Only inline bar, not foo
+        def criteria(node: ir.Node) -> bool:
+            return node.op_type == "bar"
+
+        inliner.InlinePass(criteria=criteria)(model_ir)
+
+        # Expected in main graph: foo (not inlined), Mul (bar inlined), Add
+        # bar inside foo should also be inlined (foo now contains Mul, Relu)
+        self.assertEqual(len(model_ir.graph), 3)
+        nodes = list(model_ir.graph)
+        op_types = [n.op_type for n in nodes]
+        self.assertEqual(op_types, ["foo", "Mul", "Add"])
+        # foo should still be a function call
+        self.assertEqual(nodes[0].domain, "local")
+
+        # Also verify that bar was inlined inside foo's body
+        foo_func = model_ir.functions[("local", "foo", "")]
+        foo_nodes = list(foo_func)
+        foo_op_types = [n.op_type for n in foo_nodes]
+        self.assertEqual(foo_op_types, ["Mul", "Relu"])
+
 
 if __name__ == "__main__":
     unittest.main()

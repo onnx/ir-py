@@ -10,13 +10,13 @@ from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
 
+import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-import logging
 
 import onnx_ir as ir
-from onnx_ir.passes.common import unused_removal as _unused_removal
 from onnx_ir import _cloner
+from onnx_ir.passes.common import unused_removal as _unused_removal
 
 # A replacement for a node specifies a list of nodes that replaces the original node,
 # and a list of values that replaces the original node's outputs.
