@@ -109,10 +109,6 @@ class InlinePass(ir.passes.InPlacePass):
     When a node calls a function defined in the model and when ``criteria`` is True or
     unspecified, the function body is inlined into the graph in place of the call node.
 
-    .. warning::
-        The local functions must not contain cycles (i.e., recursive calls). If there are cycles,
-        the pass will not terminate.
-
     .. versionadded:: 0.1.16
         The ``criteria`` parameter.
 
