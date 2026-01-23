@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import graphlib
+import typing
 from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
@@ -238,6 +239,7 @@ class InlinePass(ir.passes.InPlacePass):
 
         nodes = [cloner.clone_node(node) for node in function]
         output_values = [value_map[output] for output in function.outputs]
+        output_values = typing.cast("list[ir.Value]", output_values)
         return nodes, output_values
 
     def _inline_calls_in(self, graph: ir.Graph) -> dict[ir.OperatorIdentifier, int]:
