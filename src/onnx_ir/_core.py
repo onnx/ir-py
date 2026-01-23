@@ -2111,7 +2111,11 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     @graph.setter
     def graph(self, value: Graph | None) -> None:
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_graph", details=f"{(value.name if isinstance(value, Graph) else value)!r}")
+            journal.record(
+                self,
+                "set_graph",
+                details=f"{(value.name if isinstance(value, Graph) else value)!r}",
+            )
 
         self._graph = value
 
