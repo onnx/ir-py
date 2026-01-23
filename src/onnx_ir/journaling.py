@@ -138,7 +138,7 @@ class Journal:
         _current_journal = self
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(self, exc_type, exc_value, exc_tb) -> None:
         global _current_journal
         _current_journal = self._previous_journal
 
