@@ -116,6 +116,7 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
     """Convenience Shared methods for classes implementing TensorProtocol."""
 
     __slots__ = (
+        "__weakref__",
         "_doc_string",
         "_metadata",
         "_metadata_props",
@@ -1648,6 +1649,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     """
 
     __slots__ = (
+        "__weakref__",
         "_attributes",
         "_domain",
         "_graph",
@@ -2362,6 +2364,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     """
 
     __slots__ = (
+        "__weakref__",
         "_const_value",
         "_graph",
         "_index",
@@ -2920,6 +2923,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
     """
 
     __slots__ = (
+        "__weakref__",
         "_doc_string",
         "_initializers",
         "_inputs",
@@ -3540,6 +3544,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
     """
 
     __slots__ = (
+        "__weakref__",
         "_metadata",
         "_metadata_props",
         "doc_string",
@@ -3644,6 +3649,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
 class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
     __slots__ = (
+        "__weakref__",
         "_functions",
         "_metadata",
         "_metadata_props",
@@ -3827,6 +3833,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     """
 
     __slots__ = (
+        "__weakref__",
         "_attributes",
         "_domain",
         "_graph",
@@ -4132,7 +4139,14 @@ class Attr(
 ):
     """Base class for ONNX attributes or references."""
 
-    __slots__ = ("_metadata", "_name", "_ref_attr_name", "_type", "_value", "doc_string")
+    __slots__ = (
+        "_metadata",
+        "_name",
+        "_ref_attr_name",
+        "_type",
+        "_value",
+        "doc_string",
+    )
 
     def __init__(
         self,
