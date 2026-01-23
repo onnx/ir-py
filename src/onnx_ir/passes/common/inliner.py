@@ -73,7 +73,7 @@ def _abbreviate(
     return {id: id_abbreviation(id) for id in function_ids}
 
 
-def _topological_sort_functions(model: ir.Model) -> list[ir.Function]:
+def _topological_sort_functions(model: ir.Model) -> None:
     """Sort functions so that callees come before callers.
 
     This ensures that when we inline function A which calls function B,
@@ -93,7 +93,9 @@ def _topological_sort_functions(model: ir.Model) -> list[ir.Function]:
 
     sorter = graphlib.TopologicalSorter(dependencies)
 
-    return [model.functions[func_id] for func_id in sorter.static_order()]
+    # Perform the sort to detect cycles.
+    _ = tuple(sorter.static_order())
+    return
 
 
 @dataclasses.dataclass
@@ -144,7 +146,7 @@ class InlinePass(ir.passes.InPlacePass):
         self._reset(model)
         # No cyclic dependencies allowed in functions
         try:
-            _ = _topological_sort_functions(model)
+            _topological_sort_functions(model)
         except graphlib.CycleError as e:
             raise ir.passes.PreconditionError(
                 "Cyclic dependency detected between functions in model"
