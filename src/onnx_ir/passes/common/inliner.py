@@ -10,7 +10,6 @@ from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
 
-import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
@@ -28,9 +27,6 @@ NodeReplacement = tuple[Sequence[ir.Node], Sequence[ir.Value]]
 # primarily for generating unique names for values in the inlined functions.
 CallSiteId = str
 CallStack = list[CallSiteId]
-
-
-logger = logging.getLogger(__name__)
 
 
 def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> str:  # pylint: disable=unused-argument
