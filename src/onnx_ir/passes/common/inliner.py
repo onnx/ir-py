@@ -85,7 +85,10 @@ class InlinePass(ir.passes.InPlacePass):
     When a node calls a function defined in the model and when ``criteria`` is True or
     unspecified, the function body is inlined into the graph in place of the call node.
 
-    Args:
+    .. versionadded:: 0.1.16
+        The ``criteria`` parameter.
+
+    Attributes:
         criteria: Optional function that takes a node and returns True if the node
             should be inlined. If None, all function calls are inlined.
     """
