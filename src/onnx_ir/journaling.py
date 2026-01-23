@@ -114,9 +114,11 @@ class Journal:
     It can be used as a context manager to automatically record operations within a block.
 
     Example::
+        from onnx_ir.journaling import Journal
+
         journal = Journal()
 
-        with onnx_ir.Journal() as journal:
+        with Journal() as journal:
             # Perform operations on the ONNX IR
             pass
 
