@@ -270,11 +270,10 @@ class InlinePass(ir.passes.InPlacePass):
         next_id: dict[ir.OperatorIdentifier, int] = defaultdict(int)
         for node in graph:
             op_id = node.op_identifier()
-            if self.criteria is not None and not self.criteria(node):
-                logger.debug("Skipping inlining for node '%r' due to criteria", node)
-                continue
-
             if op_id in self._functions:
+                if self.criteria is not None and not self.criteria(node):
+                    logger.debug("Skipping inlining for node '%r' due to criteria", node)
+                    continue
                 # If there are multiple calls to same function, we use a prefix to disambiguate
                 # the different call-sites:
                 if id_count[op_id] > 1:
