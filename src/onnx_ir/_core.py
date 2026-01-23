@@ -134,7 +134,7 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
         self._doc_string: str | None = doc_string
 
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
+            journal.record(self, "initialize")
 
     def _printable_type_shape(self) -> str:
         """Return a string representation of the shape and data type."""
@@ -2111,7 +2111,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     @graph.setter
     def graph(self, value: Graph | None) -> None:
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_graph", details=f"{self._graph!r} -> {value!r}")
+            journal.record(self, "set_graph", details=f"{(value.name if isinstance(value, Graph) else value)!r}")
 
         self._graph = value
 
@@ -2962,7 +2962,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         self.extend(nodes)
 
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
+            journal.record(self, "initialize", details=str(name))
 
     @property
     def inputs(self) -> MutableSequence[Value]:

@@ -8,8 +8,6 @@ import collections
 from collections.abc import Mapping
 from typing import Any
 
-from onnx_ir import journaling as _journaling
-
 
 class MetadataStore(collections.UserDict):
     """Class for storing metadata about the IR objects.
@@ -26,16 +24,10 @@ class MetadataStore(collections.UserDict):
         self._invalid_keys: set[str] = set()
 
     def __setitem__(self, key: str, item: Any) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_metadata", details=f"key={key!r}, item={item!r}")
-
         self.data[key] = item
         self._invalid_keys.discard(key)
 
     def invalidate(self, key: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "invalidate_metadata", details=f"key={key!r}")
-
         self._invalid_keys.add(key)
 
     def is_valid(self, key: str) -> bool:

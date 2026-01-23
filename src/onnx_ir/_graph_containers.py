@@ -342,8 +342,8 @@ class Attributes(collections.UserDict[str, "_core.Attr"]):
     def __init__(
         self, attrs: Iterable[_core.Attr], owner: _core.Node | _core.Function
     ) -> None:
-        super().__init__({attr.name: attr for attr in attrs})
         self._owner = owner
+        super().__init__({attr.name: attr for attr in attrs})
 
     def __setitem__(self, key: str, value: _core.Attr) -> None:
         """Set an attribute for the node."""

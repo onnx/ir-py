@@ -10,6 +10,7 @@ __all__ = ["Journal"]
 import dataclasses
 import traceback
 from collections.abc import Sequence
+import time
 
 from typing_extensions import Self
 
@@ -21,6 +22,7 @@ class _JournalEntry:
     """A single journal entry recording an operation on the IR.
 
     Attributes:
+        timestamp: The time at which the operation was performed.
         operation: The name of the operation performed.
         class_: The class of the object on which the operation was performed.
         class_name: The name of the class of the object.
@@ -31,6 +33,7 @@ class _JournalEntry:
         details: Additional details about the operation.
     """
 
+    timestamp: float
     operation: str
     class_: type
     class_name: str
@@ -86,10 +89,11 @@ class Journal:
         global _current_journal
         _current_journal = self._previous_journal
 
-    def record(self, obj: Any, operation: str, *, details: str | None = None) -> None:
+    def record(self, obj: Any, operation: str, details: str | None = None) -> None:
         """Record a new journal entry."""
         entry = _JournalEntry(
-            operation,
+            timestamp=time.time(),
+            operation=operation,
             class_=obj.__class__,
             class_name=obj.__class__.__name__,
             ref=weakref.ref(obj),
@@ -113,3 +117,10 @@ class Journal:
         if class_name is not None:
             result = [entry for entry in result if entry.class_name == class_name]
         return result
+
+    def display(self) -> None:
+        """Display all journal entries."""
+        for entry in self._entries:
+            obj = entry.ref() if entry.ref is not None else None
+            details = f" [{entry.details}]" if entry.details else ""
+            print(f"{entry.operation} | {entry.class_name}(id={entry.object_id}) | {obj} | {details}")
