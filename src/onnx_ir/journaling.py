@@ -1,11 +1,11 @@
 """Journaling system for ONNX IR operations."""
 
 from __future__ import annotations
-from typing import Any
+
 import weakref
+from typing import Any
 
-
-__all__ = ["Journal", "JournalEntry", "get_journal"]
+__all__ = ["Journal"]
 
 import dataclasses
 import traceback
@@ -17,13 +17,25 @@ _current_journal: Journal | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class JournalEntry:
-    """A single journal entry recording an operation on the IR."""
+class _JournalEntry:
+    """A single journal entry recording an operation on the IR.
+
+    Attributes:
+        operation: The name of the operation performed.
+        class_: The class of the object on which the operation was performed.
+        class_name: The name of the class of the object.
+        ref: A weak reference to the object on which the operation was performed.
+            To access the object, call object().
+        object_id: The unique identifier of the object (id()).
+        stack_trace: The stack trace at the time of the operation.
+        details: Additional details about the operation.
+    """
 
     operation: str
     class_: type
     class_name: str
-    object: weakref.ref | None
+    ref: weakref.ref | None
+    object_id: int
     stack_trace: str
     details: str | None
 
@@ -53,27 +65,16 @@ class Journal:
             pass
 
         entries = journal.get_entries()
+        for entry in entries:
+            print(f"Operation: {entry.operation} on {entry.class_name}")
+
+    You can also filter the entries by operation or class name using the `filter` method::
+        filtered_entries = journal.filter(operation="set_name", class_name="Node")
     """
 
     def __init__(self) -> None:
-        self._entries: list[JournalEntry] = []
+        self._entries: list[_JournalEntry] = []
         self._previous_journal: Journal | None = None
-
-    def record(self, obj: Any, operation: str, *, details: str | None = None) -> None:
-        """Record a new journal entry."""
-        entry = JournalEntry(
-            operation,
-            class_=obj.__class__,
-            class_name=obj.__class__.__name__,
-            object=weakref.ref(obj),
-            stack_trace=_get_stack_trace(),
-            details=details,
-        )
-        self._entries.append(entry)
-
-    def get_entries(self) -> Sequence[JournalEntry]:
-        """Get all recorded journal entries."""
-        return self._entries
 
     def __enter__(self) -> Self:
         global _current_journal
@@ -84,3 +85,31 @@ class Journal:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         global _current_journal
         _current_journal = self._previous_journal
+
+    def record(self, obj: Any, operation: str, *, details: str | None = None) -> None:
+        """Record a new journal entry."""
+        entry = _JournalEntry(
+            operation,
+            class_=obj.__class__,
+            class_name=obj.__class__.__name__,
+            ref=weakref.ref(obj),
+            object_id=id(obj),
+            stack_trace=_get_stack_trace(),
+            details=details,
+        )
+        self._entries.append(entry)
+
+    def get_entries(self) -> Sequence[_JournalEntry]:
+        """Get all recorded journal entries."""
+        return self._entries
+
+    def filter(
+        self, *, operation: str | None = None, class_name: str | None = None
+    ) -> Sequence[_JournalEntry]:
+        """Filter journal entries by operation and/or class name."""
+        result = self._entries
+        if operation is not None:
+            result = [entry for entry in result if entry.operation == operation]
+        if class_name is not None:
+            result = [entry for entry in result if entry.class_name == class_name]
+        return result
