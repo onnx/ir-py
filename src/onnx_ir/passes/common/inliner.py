@@ -104,7 +104,7 @@ class InlinePass(ir.passes.InPlacePass):
     """Inline model local functions to the main graph and functions and remove unused functions.
 
     When a node calls a function defined in the model and when ``criteria`` is None or
-    ``criteria(node)`` returns True, the function body is inlined into the graph in place
+    ``criteria(function)`` returns True, the function body is inlined into the graph in place
     of the call node.
 
     .. versionadded:: 0.1.16
@@ -114,11 +114,11 @@ class InlinePass(ir.passes.InPlacePass):
         No cyclic dependencies between functions in the model.
 
     Attributes:
-        criteria: Optional function that takes a node and returns True if the node
-            should be inlined. If None, all function calls are inlined.
+        criteria: Optional function that takes an :class:`onnx_ir.Function` and
+            returns True if the it should be inlined. If None, all function calls are inlined.
     """
 
-    def __init__(self, criteria: Callable[[ir.Node], bool] | None = None) -> None:
+    def __init__(self, criteria: Callable[[ir.Function], bool] | None = None) -> None:
         super().__init__()
         self.criteria = criteria
         self._function_removal_pass = _unused_removal.RemoveUnusedFunctionsPass()
@@ -282,8 +282,7 @@ class InlinePass(ir.passes.InPlacePass):
         for node in graph:
             op_id = node.op_identifier()
             if op_id in self._functions:
-                if self.criteria is not None and not self.criteria(node):
-                    logger.debug("Skipping inlining for node '%r' due to criteria", node)
+                if self.criteria is not None and not self.criteria(self._functions[op_id]):
                     continue
                 # If there are multiple calls to same function, we use a prefix to disambiguate
                 # the different call-sites:

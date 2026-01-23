@@ -224,8 +224,8 @@ class InlinerTest(unittest.TestCase):
         model_ir = ir.from_onnx_text(input_model)
 
         # Only inline calls to "foo", skip "bar"
-        def criteria(node: ir.Node) -> bool:
-            return node.op_type == "foo"
+        def criteria(function: ir.Function) -> bool:
+            return function.name == "foo"
 
         inliner.InlinePass(criteria=criteria)(model_ir)
 
@@ -546,8 +546,8 @@ class InlinerTopologicalSortTest(unittest.TestCase):
         model_ir = ir.from_onnx_text(input_model)
 
         # Only inline foo, not bar
-        def criteria(node: ir.Node) -> bool:
-            return node.op_type == "foo"
+        def criteria(function: ir.Function) -> bool:
+            return function.name == "foo"
 
         inliner.InlinePass(criteria=criteria)(model_ir)
 
@@ -592,8 +592,8 @@ class InlinerTopologicalSortTest(unittest.TestCase):
         model_ir = ir.from_onnx_text(input_model)
 
         # Only inline bar, not foo
-        def criteria(node: ir.Node) -> bool:
-            return node.op_type == "bar"
+        def criteria(function: ir.Function) -> bool:
+            return function.name == "bar"
 
         inliner.InlinePass(criteria=criteria)(model_ir)
 
