@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import dataclasses
+import graphlib
 from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
@@ -100,6 +101,8 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_value_names: set[str] = set()
         self._used_node_names: set[str] = set()
         self._node_context: dict[ir.Node, CallStack] = {}
+        # Sorted functions by dependency order
+        self._sorted_functions: list[ir.Function] = []
 
     def _reset(self, model: ir.Model) -> None:
         self._functions = model.functions
@@ -109,21 +112,57 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_node_names = set()
         self._node_context = {}
 
-    def call(self, model: ir.Model) -> InlinePassResult:
+    def requires(self, model: ir.Model):
         self._reset(model)
-        id_count = self._inline_calls_in(model.graph)
+        # No cyclic dependencies allowed in functions
+        self._sorted_functions = self._topological_sort_functions(model)
 
-        self._function_removal_pass(model)
+    def call(self, model: ir.Model) -> InlinePassResult:
+        id_count: dict[ir.OperatorIdentifier, int] = {}
 
-        # Inline calls in functions as well, in case some functions are not inlined due to criteria
-        for function in model.functions.values():
+        # Inline calls in functions first, in dependency order
+        for function in self._sorted_functions:
             inner_id_count = self._inline_calls_in(function.graph)
             for k, v in inner_id_count.items():
                 id_count[k] = id_count.get(k, 0) + v
 
+        # Then inline calls in the main graph
+        main_id_count = self._inline_calls_in(model.graph)
+        for k, v in main_id_count.items():
+            id_count[k] = id_count.get(k, 0) + v
+
         self._function_removal_pass(model)
 
         return InlinePassResult(model, modified=bool(id_count), id_count=id_count)
+
+    def _get_function_dependencies(self, function: ir.Function) -> set[ir.OperatorIdentifier]:
+        """Get the set of function ids that this graph calls."""
+        dependencies: set[ir.OperatorIdentifier] = set()
+        for node in function.all_nodes():
+            op_id = node.op_identifier()
+            if op_id in self._functions:
+                dependencies.add(op_id)
+        return dependencies
+
+    def _topological_sort_functions(self, model: ir.Model) -> list[ir.Function]:
+        """Sort functions so that callees come before callers.
+
+        This ensures that when we inline function A which calls function B,
+        function B has already been inlined into A's body.
+
+        Raises:
+            graphlib.CycleError: If there is a cyclic dependency between functions.
+        """
+        # Build dependency graph: function_id -> set of function_ids it calls
+        dependencies: dict[ir.OperatorIdentifier, set[ir.OperatorIdentifier]] = {}
+        for func_id, function in model.functions.items():
+            # Only include dependencies that are actually in the model's functions
+            deps = self._get_function_dependencies(function)
+            dependencies[func_id] = deps & model.functions.keys()
+
+        sorter = graphlib.TopologicalSorter(dependencies)
+
+        return [model.functions[func_id] for func_id in sorter.static_order()]
 
     def _instantiate_call(self, node: ir.Node, call_site_id: CallSiteId) -> NodeReplacement:
         id = node.op_identifier()
