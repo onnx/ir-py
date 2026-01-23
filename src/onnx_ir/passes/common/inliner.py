@@ -115,7 +115,12 @@ class InlinePass(ir.passes.InPlacePass):
     def requires(self, model: ir.Model):
         self._reset(model)
         # No cyclic dependencies allowed in functions
-        self._sorted_functions = self._topological_sort_functions(model)
+        try:
+            self._sorted_functions = self._topological_sort_functions(model)
+        except graphlib.CycleError as e:
+            raise ir.passes.PreconditionError(
+                "Cyclic dependency detected between functions in model"
+            ) from e
 
     def call(self, model: ir.Model) -> InlinePassResult:
         id_count: dict[ir.OperatorIdentifier, int] = {}
