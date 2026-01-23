@@ -210,7 +210,7 @@ class Cloner:
         nodes = [self.clone_node(node) for node in graph]
         # Looks up already cloned values. Here we know graph outputs will not be None
         output_values = typing.cast(
-            "list[_core.Value]", [self._get_value(v) for v in graph.outputs]
+            list["_core.Value"], [self._get_value(v) for v in graph.outputs]
         )
 
         new_graph = _core.Graph(

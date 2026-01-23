@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import graphlib
-import typing
 from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
@@ -128,21 +127,24 @@ class InlinePass(ir.passes.InPlacePass):
 
     def call(self, model: ir.Model) -> InlinePassResult:
         id_count: dict[ir.OperatorIdentifier, int] = {}
+        total_inlined = 0
 
         # Inline calls in functions first, in dependency order
         for function in self._sorted_functions:
-            inner_id_count = self._inline_calls_in(function.graph)
+            inner_id_count, inlined = self._inline_calls_in(function.graph)
+            total_inlined += inlined
             for k, v in inner_id_count.items():
                 id_count[k] = id_count.get(k, 0) + v
 
         # Then inline calls in the main graph
-        main_id_count = self._inline_calls_in(model.graph)
+        main_id_count, main_inlined = self._inline_calls_in(model.graph)
+        total_inlined += main_inlined
         for k, v in main_id_count.items():
             id_count[k] = id_count.get(k, 0) + v
 
         self._function_removal_pass(model)
 
-        return InlinePassResult(model, modified=bool(id_count), id_count=id_count)
+        return InlinePassResult(model, modified=total_inlined > 0, id_count=id_count)
 
     def _get_function_dependencies(self, function: ir.Function) -> set[ir.OperatorIdentifier]:
         """Get the set of function ids that this graph calls."""
@@ -242,10 +244,19 @@ class InlinePass(ir.passes.InPlacePass):
 
         nodes = [cloner.clone_node(node) for node in function]
         output_values = [value_map[output] for output in function.outputs]
-        output_values = typing.cast(list[ir.Value], output_values)
-        return nodes, output_values
+        return nodes, output_values  # type: ignore[return-value]
 
-    def _inline_calls_in(self, graph: ir.Graph) -> dict[ir.OperatorIdentifier, int]:
+    def _inline_calls_in(
+        self, graph: ir.Graph
+    ) -> tuple[dict[ir.OperatorIdentifier, int], int]:
+        """Inline function calls in a graph.
+
+        Returns:
+            A tuple of (id_count, inlined_count) where:
+            - id_count: A dict mapping function ids to the number of calls in the graph
+              (used for naming disambiguation).
+            - inlined_count: The number of nodes that were actually inlined.
+        """
         for input in graph.inputs:
             if input.name is not None:
                 self._used_value_names.add(input.name)
@@ -268,6 +279,7 @@ class InlinePass(ir.passes.InPlacePass):
                     self._used_value_names.add(output.name)
 
         next_id: dict[ir.OperatorIdentifier, int] = defaultdict(int)
+        inlined_count = 0
         for node in graph:
             op_id = node.op_identifier()
             if op_id in self._functions:
@@ -293,11 +305,14 @@ class InlinePass(ir.passes.InPlacePass):
                     old_values=node.outputs,
                     new_values=values,
                 )
+                inlined_count += 1
             else:
                 for attr in node.attributes.values():
                     if attr.type == ir.AttributeType.GRAPH:
-                        self._inline_calls_in(attr.as_graph())
+                        _, sub_inlined = self._inline_calls_in(attr.as_graph())
+                        inlined_count += sub_inlined
                     elif attr.type == ir.AttributeType.GRAPHS:
                         for g in attr.as_graphs():
-                            self._inline_calls_in(g)
-        return id_count
+                            _, sub_inlined = self._inline_calls_in(g)
+                            inlined_count += sub_inlined
+        return id_count, inlined_count
