@@ -8,7 +8,6 @@ from typing import Any
 __all__ = ["Journal"]
 
 import dataclasses
-import traceback
 from collections.abc import Sequence
 import time
 
@@ -50,6 +49,8 @@ def get_journal() -> Journal | None:
 
 def _get_stack_trace() -> str:
     """Get a string representation of the current stack trace."""
+    import traceback
+
     stack = traceback.extract_stack()[:-3]
     formatted_stack = traceback.format_list(stack)
     return "".join(formatted_stack)
@@ -120,7 +121,14 @@ class Journal:
 
     def display(self) -> None:
         """Display all journal entries."""
+        import datetime
+
         for entry in self._entries:
             obj = entry.ref() if entry.ref is not None else None
             details = f" [{entry.details}]" if entry.details else ""
-            print(f"{entry.operation} | {entry.class_name}(id={entry.object_id}) | {obj} | {details}")
+            timestamp = datetime.datetime.fromtimestamp(entry.timestamp).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            )
+            print(
+                f"{timestamp} | {entry.operation} | {entry.class_name}(id={entry.object_id}) | {obj}{details}"
+            )
