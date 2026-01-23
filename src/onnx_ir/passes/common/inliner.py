@@ -169,6 +169,9 @@ class InlinePass(ir.passes.InPlacePass):
             for k, v in inner_id_count.items():
                 id_count[k] = id_count.get(k, 0) + v
 
+        # Run function removal pass again to remove any functions that became unused
+        self._function_removal_pass(model)
+
         return InlinePassResult(model, modified=bool(total_inlined), id_count=id_count)
 
     def _instantiate_call(self, node: ir.Node, call_site_id: CallSiteId) -> NodeReplacement:
