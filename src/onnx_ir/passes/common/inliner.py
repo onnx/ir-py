@@ -5,14 +5,16 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 __all__ = ["InlinePass", "InlinePassResult"]
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+import logging
 
 import onnx_ir as ir
-import onnx_ir.convenience as _ir_convenience
+from onnx_ir.passes.common import unused_removal as _unused_removal
 from onnx_ir import _cloner
 
 # A replacement for a node specifies a list of nodes that replaces the original node,
@@ -25,6 +27,9 @@ NodeReplacement = tuple[Sequence[ir.Node], Sequence[ir.Value]]
 # primarily for generating unique names for values in the inlined functions.
 CallSiteId = str
 CallStack = list[CallSiteId]
+
+
+logger = logging.getLogger(__name__)
 
 
 def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> str:  # pylint: disable=unused-argument
@@ -73,29 +78,51 @@ class InlinePassResult(ir.passes.PassResult):
 
 
 class InlinePass(ir.passes.InPlacePass):
-    """Inline model local functions to the main graph and clear function definitions."""
+    """Inline model local functions to the main graph and functions and remove unused functions.
 
-    def __init__(self) -> None:
+    When a node calls a function defined in the model and when ``criteria`` is True or
+    unspecified, the function body is inlined into the graph in place of the call node.
+
+    Args:
+        criteria: Optional function that takes a node and returns True if the node
+            should be inlined. If None, all function calls are inlined.
+    """
+
+    def __init__(self, criteria: Callable[[ir.Node], bool] | None = None) -> None:
         super().__init__()
+        self.criteria = criteria
+        self._function_removal_pass = _unused_removal.RemoveUnusedFunctionsPass()
+
+        # Internal states
         self._functions: dict[ir.OperatorIdentifier, ir.Function] = {}
         self._function_id_abbreviations: dict[ir.OperatorIdentifier, str] = {}
         self._opset_imports: dict[str, int] = {}
-        self.used_value_names: set[str] = set()
-        self.used_node_names: set[str] = set()
-        self.node_context: dict[ir.Node, CallStack] = {}
+        self._used_value_names: set[str] = set()
+        self._used_node_names: set[str] = set()
+        self._node_context: dict[ir.Node, CallStack] = {}
 
     def _reset(self, model: ir.Model) -> None:
         self._functions = model.functions
         self._function_id_abbreviations = _abbreviate(self._functions.keys())
         self._opset_imports = model.opset_imports
-        self.used_value_names = set()
-        self.used_node_names = set()
-        self.node_context = {}
+        self._used_value_names = set()
+        self._used_node_names = set()
+        self._node_context = {}
 
     def call(self, model: ir.Model) -> InlinePassResult:
         self._reset(model)
         id_count = self._inline_calls_in(model.graph)
-        model.functions.clear()
+
+        self._function_removal_pass(model)
+
+        # Inline calls in functions as well, in case some functions are not inlined due to criteria
+        for function in model.functions.values():
+            inner_id_count = self._inline_calls_in(function.graph)
+            for k, v in inner_id_count.items():
+                id_count[k] = id_count.get(k, 0) + v
+
+        self._function_removal_pass(model)
+
         return InlinePassResult(model, modified=bool(id_count), id_count=id_count)
 
     def _instantiate_call(self, node: ir.Node, call_site_id: CallSiteId) -> NodeReplacement:
@@ -137,21 +164,21 @@ class InlinePass(ir.passes.InPlacePass):
             value_map[function.inputs[i]] = None
 
         # Identify call-stack for node, used to generate unique names.
-        call_stack = self.node_context.get(node, [])
+        call_stack = self._node_context.get(node, [])
         new_call_stack = [*call_stack, call_site_id]
 
         def rename(node: ir.Node) -> None:
             """Rename node/values in inlined node to ensure uniqueness in the inlined context."""
             node_name = node.name or "node"
-            node.name = _make_unique_name(node_name, new_call_stack, self.used_node_names)
+            node.name = _make_unique_name(node_name, new_call_stack, self._used_node_names)
             for output in node.outputs:
                 if output is not None:
                     output_name = output.name or "val"
                     output.name = _make_unique_name(
-                        output_name, new_call_stack, self.used_value_names
+                        output_name, new_call_stack, self._used_value_names
                     )
             # Update context in case the new node is itself a call node that will be inlined.
-            self.node_context[node] = new_call_stack
+            self._node_context[node] = new_call_stack
 
         cloner = _cloner.Cloner(
             attr_map=attributes,
@@ -167,14 +194,14 @@ class InlinePass(ir.passes.InPlacePass):
 
         nodes = [cloner.clone_node(node) for node in function]
         output_values = [value_map[output] for output in function.outputs]
-        return nodes, output_values  # type: ignore
+        return nodes, output_values
 
     def _inline_calls_in(self, graph: ir.Graph) -> dict[ir.OperatorIdentifier, int]:
         for input in graph.inputs:
             if input.name is not None:
-                self.used_value_names.add(input.name)
+                self._used_value_names.add(input.name)
         for initializer in graph.initializers:
-            self.used_value_names.add(initializer)
+            self._used_value_names.add(initializer)
 
         # Pre-processing:
         # * Count the number of times each function is called in the graph.
@@ -183,29 +210,34 @@ class InlinePass(ir.passes.InPlacePass):
         id_count: dict[ir.OperatorIdentifier, int] = defaultdict(int)
         for node in graph:
             if node.name:
-                self.used_node_names.add(node.name)
-            id = node.op_identifier()
-            if id in self._functions:
-                id_count[id] += 1
+                self._used_node_names.add(node.name)
+            op_id = node.op_identifier()
+            if op_id in self._functions:
+                id_count[op_id] += 1
             for output in node.outputs:
                 if output.name is not None:
-                    self.used_value_names.add(output.name)
+                    self._used_value_names.add(output.name)
+
         next_id: dict[ir.OperatorIdentifier, int] = defaultdict(int)
         for node in graph:
-            id = node.op_identifier()
-            if id in self._functions:
+            op_id = node.op_identifier()
+            if self.criteria is not None and not self.criteria(node):
+                logger.debug("Skipping inlining for node '%r' due to criteria", node)
+                continue
+
+            if op_id in self._functions:
                 # If there are multiple calls to same function, we use a prefix to disambiguate
                 # the different call-sites:
-                if id_count[id] > 1:
-                    call_site_prefix = f"_{next_id[id]}"
-                    next_id[id] += 1
+                if id_count[op_id] > 1:
+                    call_site_prefix = f"_{next_id[op_id]}"
+                    next_id[op_id] += 1
                 else:
                     call_site_prefix = ""
                 call_site = node.name or (
-                    self._function_id_abbreviations[id] + call_site_prefix
+                    self._function_id_abbreviations[op_id] + call_site_prefix
                 )
                 nodes, values = self._instantiate_call(node, call_site)
-                _ir_convenience.replace_nodes_and_values(
+                ir.convenience.replace_nodes_and_values(
                     graph,
                     insertion_point=node,
                     old_nodes=[node],
