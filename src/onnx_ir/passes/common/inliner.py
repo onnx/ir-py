@@ -106,8 +106,9 @@ class InlinePassResult(ir.passes.PassResult):
 class InlinePass(ir.passes.InPlacePass):
     """Inline model local functions to the main graph and functions and remove unused functions.
 
-    When a node calls a function defined in the model and when ``criteria`` is True or
-    unspecified, the function body is inlined into the graph in place of the call node.
+    When a node calls a function defined in the model and when ``criteria`` is None or
+    ``criteria(node)`` returns True, the function body is inlined into the graph in place
+    of the call node.
 
     .. versionadded:: 0.1.16
         The ``criteria`` parameter.
