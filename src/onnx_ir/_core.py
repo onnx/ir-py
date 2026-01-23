@@ -1738,7 +1738,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         if (journal := _journaling.get_journal()) is not None:
             journal.record(self, "initialize", details=repr(self))
 
-
     def _create_outputs(
         self, num_outputs: int | None, outputs: Sequence[Value] | None
     ) -> tuple[Value, ...]:
@@ -2042,7 +2041,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 the removed outputs have uses.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "resize_outputs", details=f"{len(self._outputs)} -> {new_size}")
+            journal.record(
+                self, "resize_outputs", details=f"{len(self._outputs)} -> {new_size}"
+            )
 
         current_size = len(self._outputs)
         if new_size == current_size:
@@ -2660,7 +2661,9 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         value: _protocols.TensorProtocol | None,
     ) -> None:
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_const_value", details=f"{self._const_value!r} -> {value!r}")
+            journal.record(
+                self, "set_const_value", details=f"{self._const_value!r} -> {value!r}"
+            )
         if onnx_ir.DEBUG:
             if value is not None and not isinstance(value, _protocols.TensorProtocol):
                 raise TypeError(
@@ -2736,7 +2739,11 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                 replace is a graph output.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "replace_all_uses_with", details=f"replacement: {replacement!r}, replace_graph_outputs: {replace_graph_outputs}")
+            journal.record(
+                self,
+                "replace_all_uses_with",
+                details=f"replacement: {replacement!r}, replace_graph_outputs: {replace_graph_outputs}",
+            )
 
         # NOTE: Why we don't replace the value name when the value is an output:
         # When the replacement value is already an output of the graph, renaming it
@@ -2783,7 +2790,9 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             ValueError: If there are conflicting concrete dimensions.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "merge_shapes", details=f"original: {self._shape!r}, other: {other!r}")
+            journal.record(
+                self, "merge_shapes", details=f"original: {self._shape!r}, other: {other!r}"
+            )
 
         if other is None:
             return
@@ -2954,7 +2963,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
         if (journal := _journaling.get_journal()) is not None:
             journal.record(self, "initialize", details=repr(self))
-
 
     @property
     def inputs(self) -> MutableSequence[Value]:
@@ -3271,7 +3279,9 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             ValueError: If any node belongs to another graph.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "insert_after", details=f"node: {node!r}, new_nodes: {new_nodes!r}")
+            journal.record(
+                self, "insert_after", details=f"node: {node!r}, new_nodes: {new_nodes!r}"
+            )
 
         if isinstance(new_nodes, Node):
             new_nodes = (new_nodes,)
@@ -3291,7 +3301,9 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             ValueError: If any node belongs to another graph.
         """
         if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "insert_before", details=f"node: {node!r}, new_nodes: {new_nodes!r}")
+            journal.record(
+                self, "insert_before", details=f"node: {node!r}, new_nodes: {new_nodes!r}"
+            )
 
         if isinstance(new_nodes, Node):
             new_nodes = (new_nodes,)
