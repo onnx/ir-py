@@ -71,8 +71,8 @@ def _abbreviate(
 def _detect_function_cycles(model: ir.Model) -> list[ir.OperatorIdentifier] | None:
     """Detect cyclic dependencies between functions in the model.
 
-    Raises:
-        graphlib.CycleError: If there is a cyclic dependency between functions.
+    Returns:
+        A list of function ids forming a cycle if a cycle is detected, otherwise None.
     """
     # Build dependency graph: function_id -> set of function_ids it calls
     dependencies: dict[ir.OperatorIdentifier, set[ir.OperatorIdentifier]] = {}
