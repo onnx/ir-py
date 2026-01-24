@@ -69,7 +69,7 @@ def _abbreviate(
     return {id: id_abbreviation(id) for id in function_ids}
 
 
-def _detect_function_cycles(model: ir.Model) -> None:
+def _detect_function_cycles(model: ir.Model) -> list[ir.OperatorIdentifier] | None:
     """Detect cyclic dependencies between functions in the model.
 
     Raises:
@@ -86,8 +86,12 @@ def _detect_function_cycles(model: ir.Model) -> None:
 
     sorter = graphlib.TopologicalSorter(dependencies)
     # Call prepare to detect cycles
-    sorter.prepare()
-    return
+    try:
+        sorter.prepare()
+    except graphlib.CycleError as e:
+        cycle = e.args[1]
+        return cycle
+    return None
 
 
 @dataclasses.dataclass
@@ -137,12 +141,15 @@ class InlinePass(ir.passes.InPlacePass):
     def requires(self, model: ir.Model) -> None:
         self._reset(model)
         # No cyclic dependencies allowed in functions
-        try:
-            _detect_function_cycles(model)
-        except graphlib.CycleError as e:
+        cycle = _detect_function_cycles(model)
+        if cycle is not None:
+            cycle_str = " -> ".join(
+                f"{domain}:{name}" + (f":{overload}" if overload else "")
+                for domain, name, overload in cycle
+            )
             raise ir.passes.PreconditionError(
-                "Cyclic dependency detected between functions in model"
-            ) from e
+                f"Cyclic dependency detected between functions: {cycle_str}"
+            )
 
     def call(self, model: ir.Model) -> InlinePassResult:
         self._reset(model)
