@@ -15,7 +15,6 @@ from collections.abc import Iterable, Mapping, Sequence
 
 import onnx_ir as ir
 from onnx_ir import _cloner
-from onnx_ir.passes.common import unused_removal as _unused_removal
 
 # A replacement for a node specifies a list of nodes that replaces the original node,
 # and a list of values that replaces the original node's outputs.
@@ -120,7 +119,6 @@ class InlinePass(ir.passes.InPlacePass):
     def __init__(self, criteria: Callable[[ir.Function], bool] | None = None) -> None:
         super().__init__()
         self.criteria = criteria
-        self._function_removal_pass = _unused_removal.RemoveUnusedFunctionsPass()
 
         # Internal states
         self._functions: dict[ir.OperatorIdentifier, ir.Function] = {}
@@ -129,6 +127,7 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_value_names: set[str] = set()
         self._used_node_names: set[str] = set()
         self._node_context: dict[ir.Node, CallStack] = {}
+        self._inlined_functions: set[ir.OperatorIdentifier] = set()
 
     def _reset(self, model: ir.Model) -> None:
         self._functions = model.functions
@@ -137,6 +136,7 @@ class InlinePass(ir.passes.InPlacePass):
         self._used_value_names = set()
         self._used_node_names = set()
         self._node_context = {}
+        self._inlined_functions = set()
 
     def requires(self, model: ir.Model) -> None:
         self._reset(model)
@@ -160,19 +160,20 @@ class InlinePass(ir.passes.InPlacePass):
         for k, v in main_id_count.items():
             id_count[k] = id_count.get(k, 0) + v
 
-        self._function_removal_pass(model)
-
         # Inline local functions left in the model because some functions may need to be
         # preserved due to the criteria. These functions may themselves contain calls to other
         # functions that can be inlined.
-        for function in model.functions.values():
+        for func_id, function in model.functions.items():
+            if func_id in self._inlined_functions:
+                continue
             inner_id_count, inlined = self._inline_calls_in(function.graph)
             total_inlined += inlined
             for k, v in inner_id_count.items():
                 id_count[k] = id_count.get(k, 0) + v
 
-        # Run function removal pass again to remove any functions that became unused
-        self._function_removal_pass(model)
+        # Remove all of the inlined functions from the model
+        for func_id in self._inlined_functions:
+            del model.functions[func_id]
 
         return InlinePassResult(model, modified=bool(total_inlined), id_count=id_count)
 
@@ -286,6 +287,7 @@ class InlinePass(ir.passes.InPlacePass):
             if op_id in self._functions:
                 if self.criteria is not None and not self.criteria(self._functions[op_id]):
                     continue
+                self._inlined_functions.add(op_id)
                 # If there are multiple calls to same function, we use a prefix to disambiguate
                 # the different call-sites:
                 if id_count[op_id] > 1:
