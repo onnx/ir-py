@@ -22,19 +22,12 @@ if TYPE_CHECKING:
 # Store original methods for restoration
 original_methods: dict[str, Any] = {}
 
-
-def _record_if_journal(obj: Any, operation: str, details: str | None = None) -> None:
-    """Record an operation if a journal is active."""
-    if (journal := _journaling.get_journal()) is not None:
-        journal.record(obj, operation, details)
-
-
 # =============================================================================
 # TensorBase wrappers
 # =============================================================================
 
 
-def _tensorbase_init_wrapper(original_init):
+def _tensorbase_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for TensorBase.__init__."""
 
     def wrapper(
@@ -44,7 +37,7 @@ def _tensorbase_init_wrapper(original_init):
         metadata_props: dict[str, str] | None = None,
     ) -> None:
         original_init(self, name, doc_string, metadata_props)
-        _record_if_journal(self, "initialize")
+        journal.record(self, "initialize")
 
     return wrapper
 
@@ -54,7 +47,7 @@ def _tensorbase_init_wrapper(original_init):
 # =============================================================================
 
 
-def _node_init_wrapper(original_init):
+def _node_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Node.__init__."""
 
     def wrapper(
@@ -88,108 +81,106 @@ def _node_init_wrapper(original_init):
             doc_string=doc_string,
             metadata_props=metadata_props,
         )
-        _record_if_journal(self, "initialize", details=repr(self))
+        journal.record(self, "initialize", details=repr(self))
 
     return wrapper
 
 
-def _node_name_setter_wrapper(original_setter):
+def _node_name_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.name setter."""
 
     def wrapper(self, value: str | None) -> None:
-        _record_if_journal(self, "set_name", details=f"{self._name!r} -> {value!r}")
+        journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _node_domain_setter_wrapper(original_setter):
+def _node_domain_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.domain setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
+        journal.record(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _node_version_setter_wrapper(original_setter):
+def _node_version_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.version setter."""
 
     def wrapper(self, value: int | None) -> None:
-        _record_if_journal(self, "set_version", details=f"{self._version!r} -> {value!r}")
+        journal.record(self, "set_version", details=f"{self._version!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _node_op_type_setter_wrapper(original_setter):
+def _node_op_type_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.op_type setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_op_type", details=f"{self._op_type!r} -> {value!r}")
+        journal.record(self, "set_op_type", details=f"{self._op_type!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _node_overload_setter_wrapper(original_setter):
+def _node_overload_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.overload setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
+        journal.record(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _node_resize_inputs_wrapper(original_method):
+def _node_resize_inputs_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Node.resize_inputs."""
 
     def wrapper(self, new_size: int, /) -> None:
-        _record_if_journal(self, "resize_inputs", details=f"{len(self._inputs)} -> {new_size}")
+        journal.record(self, "resize_inputs", details=f"{len(self._inputs)} -> {new_size}")
         original_method(self, new_size)
 
     return wrapper
 
 
-def _node_prepend_wrapper(original_method):
+def _node_prepend_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Node.prepend."""
 
     def wrapper(self, /, nodes: Node | Iterable[Node]) -> None:
-        _record_if_journal(self, "prepend", details=repr(nodes))
+        journal.record(self, "prepend", details=repr(nodes))
         original_method(self, nodes)
 
     return wrapper
 
 
-def _node_append_wrapper(original_method):
+def _node_append_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Node.append."""
 
     def wrapper(self, /, nodes: Node | Iterable[Node]) -> None:
-        _record_if_journal(self, "append", details=repr(nodes))
+        journal.record(self, "append", details=repr(nodes))
         original_method(self, nodes)
 
     return wrapper
 
 
-def _node_resize_outputs_wrapper(original_method):
+def _node_resize_outputs_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Node.resize_outputs."""
 
     def wrapper(self, new_size: int, /) -> None:
-        _record_if_journal(
-            self, "resize_outputs", details=f"{len(self._outputs)} -> {new_size}"
-        )
+        journal.record(self, "resize_outputs", details=f"{len(self._outputs)} -> {new_size}")
         original_method(self, new_size)
 
     return wrapper
 
 
-def _node_graph_setter_wrapper(original_setter):
+def _node_graph_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Node.graph setter."""
 
     def wrapper(self, value: Graph | None) -> None:
-        _record_if_journal(
+        journal.record(
             self,
             "set_graph",
             details=f"{(value.name if isinstance(value, _core.Graph) else value)!r}",
@@ -204,7 +195,7 @@ def _node_graph_setter_wrapper(original_setter):
 # =============================================================================
 
 
-def _value_init_wrapper(original_init):
+def _value_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Value.__init__."""
 
     def wrapper(
@@ -228,54 +219,52 @@ def _value_init_wrapper(original_init):
             const_value=const_value,
             doc_string=doc_string,
         )
-        _record_if_journal(self, "initialize", repr(self))
+        journal.record(self, "initialize", repr(self))
 
     return wrapper
 
 
-def _value_name_setter_wrapper(original_setter):
+def _value_name_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Value.name setter."""
 
     def wrapper(self, value: str | None) -> None:
-        _record_if_journal(self, "set_name", details=f"{self._name!r} -> {value!r}")
+        journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _value_type_setter_wrapper(original_setter):
+def _value_type_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Value.type setter."""
 
     def wrapper(self, value: TypeProtocol | None) -> None:
-        _record_if_journal(self, "set_type", details=f"{self._type!r} -> {value!r}")
+        journal.record(self, "set_type", details=f"{self._type!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _value_shape_setter_wrapper(original_setter):
+def _value_shape_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Value.shape setter."""
 
     def wrapper(self, value: Shape | None) -> None:
-        _record_if_journal(self, "set_shape", details=f"{self._shape!r} -> {value!r}")
+        journal.record(self, "set_shape", details=f"{self._shape!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _value_const_value_setter_wrapper(original_setter):
+def _value_const_value_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Value.const_value setter."""
 
     def wrapper(self, value: TensorProtocol | None) -> None:
-        _record_if_journal(
-            self, "set_const_value", details=f"{self._const_value!r} -> {value!r}"
-        )
+        journal.record(self, "set_const_value", details=f"{self._const_value!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _value_replace_all_uses_with_wrapper(original_method):
+def _value_replace_all_uses_with_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Value.replace_all_uses_with."""
 
     def wrapper(
@@ -285,7 +274,7 @@ def _value_replace_all_uses_with_wrapper(original_method):
         *,
         replace_graph_outputs: bool = False,
     ) -> None:
-        _record_if_journal(
+        journal.record(
             self,
             "replace_all_uses_with",
             details=f"replacement={replacement!r}, replace_graph_outputs={replace_graph_outputs}",
@@ -295,11 +284,11 @@ def _value_replace_all_uses_with_wrapper(original_method):
     return wrapper
 
 
-def _value_merge_shapes_wrapper(original_method):
+def _value_merge_shapes_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Value.merge_shapes."""
 
     def wrapper(self, other: Shape | None, /) -> None:
-        _record_if_journal(
+        journal.record(
             self, "merge_shapes", details=f"original={self._shape!r}, other={other!r}"
         )
         original_method(self, other)
@@ -312,7 +301,7 @@ def _value_merge_shapes_wrapper(original_method):
 # =============================================================================
 
 
-def _graph_init_wrapper(original_init):
+def _graph_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Graph.__init__."""
 
     def wrapper(
@@ -338,68 +327,66 @@ def _graph_init_wrapper(original_init):
             name=name,
             metadata_props=metadata_props,
         )
-        _record_if_journal(self, "initialize", details=str(name))
+        journal.record(self, "initialize", details=str(name))
 
     return wrapper
 
 
-def _graph_register_initializer_wrapper(original_method):
+def _graph_register_initializer_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.register_initializer."""
 
     def wrapper(self, value: Value) -> None:
-        _record_if_journal(self, "register_initializer", details=repr(value))
+        journal.record(self, "register_initializer", details=repr(value))
         original_method(self, value)
 
     return wrapper
 
 
-def _graph_append_wrapper(original_method):
+def _graph_append_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.append."""
 
     def wrapper(self, node: Node, /) -> None:
-        _record_if_journal(self, "append", details=repr(node))
+        journal.record(self, "append", details=repr(node))
         original_method(self, node)
 
     return wrapper
 
 
-def _graph_extend_wrapper(original_method):
+def _graph_extend_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.extend."""
 
     def wrapper(self, nodes: Iterable[Node], /) -> None:
-        _record_if_journal(self, "extend", details=repr(nodes))
+        journal.record(self, "extend", details=repr(nodes))
         original_method(self, nodes)
 
     return wrapper
 
 
-def _graph_remove_wrapper(original_method):
+def _graph_remove_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.remove."""
 
     def wrapper(self, nodes: Node | Iterable[Node], /, safe: bool = False) -> None:
-        _record_if_journal(self, "remove", details=f"nodes={nodes!r}, safe={safe}")
+        journal.record(self, "remove", details=f"nodes={nodes!r}, safe={safe}")
         original_method(self, nodes, safe)
 
     return wrapper
 
 
-def _graph_insert_after_wrapper(original_method):
+def _graph_insert_after_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.insert_after."""
 
     def wrapper(self, node: Node, new_nodes: Iterable[Node] | Node, /) -> None:
-        _record_if_journal(
-            self, "insert_after", details=f"node={node!r}, new_nodes={new_nodes!r}"
-        )
+        journal.record(self, "insert_after", details=f"node={node!r}, new_nodes={new_nodes!r}")
         original_method(self, node, new_nodes)
 
     return wrapper
 
 
-def _graph_insert_before_wrapper(original_method):
+def _graph_insert_before_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.insert_before."""
 
     def wrapper(self, node: Node, new_nodes: Iterable[Node] | Node, /) -> None:
-        _record_if_journal(
+        journal.record(
             self, "insert_before", details=f"node={node!r}, new_nodes={new_nodes!r}"
         )
         original_method(self, node, new_nodes)
@@ -407,11 +394,11 @@ def _graph_insert_before_wrapper(original_method):
     return wrapper
 
 
-def _graph_sort_wrapper(original_method):
+def _graph_sort_wrapper(journal: _journaling.Journal, original_method):
     """Wrapper for Graph.sort."""
 
     def wrapper(self) -> None:
-        _record_if_journal(self, "sort")
+        journal.record(self, "sort")
         original_method(self)
 
     return wrapper
@@ -422,7 +409,7 @@ def _graph_sort_wrapper(original_method):
 # =============================================================================
 
 
-def _model_init_wrapper(original_init):
+def _model_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Model.__init__."""
 
     def wrapper(
@@ -450,7 +437,7 @@ def _model_init_wrapper(original_init):
             functions=functions,
             metadata_props=metadata_props,
         )
-        _record_if_journal(self, "initialize", details=repr(self))
+        journal.record(self, "initialize", details=repr(self))
 
     return wrapper
 
@@ -460,7 +447,7 @@ def _model_init_wrapper(original_init):
 # =============================================================================
 
 
-def _function_init_wrapper(original_init):
+def _function_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Function.__init__."""
 
     def wrapper(
@@ -480,36 +467,36 @@ def _function_init_wrapper(original_init):
             graph=graph,
             attributes=attributes,
         )
-        _record_if_journal(self, "initialize", details=repr(self))
+        journal.record(self, "initialize", details=repr(self))
 
     return wrapper
 
 
-def _function_name_setter_wrapper(original_setter):
+def _function_name_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Function.name setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_name", details=f"{self._name!r} -> {value!r}")
+        journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _function_domain_setter_wrapper(original_setter):
+def _function_domain_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Function.domain setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
+        journal.record(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
 
 
-def _function_overload_setter_wrapper(original_setter):
+def _function_overload_setter_wrapper(journal: _journaling.Journal, original_setter):
     """Wrapper for Function.overload setter."""
 
     def wrapper(self, value: str) -> None:
-        _record_if_journal(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
+        journal.record(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
         original_setter(self, value)
 
     return wrapper
@@ -520,7 +507,7 @@ def _function_overload_setter_wrapper(original_setter):
 # =============================================================================
 
 
-def _attr_init_wrapper(original_init):
+def _attr_init_wrapper(journal: _journaling.Journal, original_init):
     """Wrapper for Attr.__init__."""
 
     def wrapper(
@@ -540,7 +527,7 @@ def _attr_init_wrapper(original_init):
             ref_attr_name=ref_attr_name,
             doc_string=doc_string,
         )
-        _record_if_journal(self, "initialize", details=repr(self))
+        journal.record(self, "initialize", details=repr(self))
 
     return wrapper
 
@@ -602,7 +589,7 @@ def get_original_methods() -> dict[str, Any]:
     return original_methods
 
 
-def wrap_ir_classes() -> dict[str, Any]:
+def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
     """Wrap IR classes with journaling-enabled versions.
 
     This function replaces methods on IR classes with wrapped versions that
@@ -613,105 +600,107 @@ def wrap_ir_classes() -> dict[str, Any]:
 
     # TensorBase
     _core.TensorBase.__init__ = _tensorbase_init_wrapper(
-        original_methods["TensorBase.__init__"]
+        journal, original_methods["TensorBase.__init__"]
     )
 
     # Node
-    _core.Node.__init__ = _node_init_wrapper(original_methods["Node.__init__"])
+    _core.Node.__init__ = _node_init_wrapper(journal, original_methods["Node.__init__"])
     _core.Node.name = property(
         _core.Node.name.fget,
-        _node_name_setter_wrapper(original_methods["Node.name.fset"]),
+        _node_name_setter_wrapper(journal, original_methods["Node.name.fset"]),
     )
     _core.Node.domain = property(
         _core.Node.domain.fget,
-        _node_domain_setter_wrapper(original_methods["Node.domain.fset"]),
+        _node_domain_setter_wrapper(journal, original_methods["Node.domain.fset"]),
     )
     _core.Node.version = property(
         _core.Node.version.fget,
-        _node_version_setter_wrapper(original_methods["Node.version.fset"]),
+        _node_version_setter_wrapper(journal, original_methods["Node.version.fset"]),
     )
     _core.Node.op_type = property(
         _core.Node.op_type.fget,
-        _node_op_type_setter_wrapper(original_methods["Node.op_type.fset"]),
+        _node_op_type_setter_wrapper(journal, original_methods["Node.op_type.fset"]),
     )
     _core.Node.overload = property(
         _core.Node.overload.fget,
-        _node_overload_setter_wrapper(original_methods["Node.overload.fset"]),
+        _node_overload_setter_wrapper(journal, original_methods["Node.overload.fset"]),
     )
     _core.Node.resize_inputs = _node_resize_inputs_wrapper(
-        original_methods["Node.resize_inputs"]
+        journal, original_methods["Node.resize_inputs"]
     )
-    _core.Node.prepend = _node_prepend_wrapper(original_methods["Node.prepend"])
-    _core.Node.append = _node_append_wrapper(original_methods["Node.append"])
+    _core.Node.prepend = _node_prepend_wrapper(journal, original_methods["Node.prepend"])
+    _core.Node.append = _node_append_wrapper(journal, original_methods["Node.append"])
     _core.Node.resize_outputs = _node_resize_outputs_wrapper(
-        original_methods["Node.resize_outputs"]
+        journal, original_methods["Node.resize_outputs"]
     )
     _core.Node.graph = property(
         _core.Node.graph.fget,
-        _node_graph_setter_wrapper(original_methods["Node.graph.fset"]),
+        _node_graph_setter_wrapper(journal, original_methods["Node.graph.fset"]),
     )
 
     # Value
-    _core.Value.__init__ = _value_init_wrapper(original_methods["Value.__init__"])
+    _core.Value.__init__ = _value_init_wrapper(journal, original_methods["Value.__init__"])
     _core.Value.name = property(
         _core.Value.name.fget,
-        _value_name_setter_wrapper(original_methods["Value.name.fset"]),
+        _value_name_setter_wrapper(journal, original_methods["Value.name.fset"]),
     )
     _core.Value.type = property(
         _core.Value.type.fget,
-        _value_type_setter_wrapper(original_methods["Value.type.fset"]),
+        _value_type_setter_wrapper(journal, original_methods["Value.type.fset"]),
     )
     _core.Value.shape = property(
         _core.Value.shape.fget,
-        _value_shape_setter_wrapper(original_methods["Value.shape.fset"]),
+        _value_shape_setter_wrapper(journal, original_methods["Value.shape.fset"]),
     )
     _core.Value.const_value = property(
         _core.Value.const_value.fget,
-        _value_const_value_setter_wrapper(original_methods["Value.const_value.fset"]),
+        _value_const_value_setter_wrapper(journal, original_methods["Value.const_value.fset"]),
     )
     _core.Value.replace_all_uses_with = _value_replace_all_uses_with_wrapper(
-        original_methods["Value.replace_all_uses_with"]
+        journal, original_methods["Value.replace_all_uses_with"]
     )
     _core.Value.merge_shapes = _value_merge_shapes_wrapper(
-        original_methods["Value.merge_shapes"]
+        journal, original_methods["Value.merge_shapes"]
     )
 
     # Graph
-    _core.Graph.__init__ = _graph_init_wrapper(original_methods["Graph.__init__"])
+    _core.Graph.__init__ = _graph_init_wrapper(journal, original_methods["Graph.__init__"])
     _core.Graph.register_initializer = _graph_register_initializer_wrapper(
-        original_methods["Graph.register_initializer"]
+        journal, original_methods["Graph.register_initializer"]
     )
-    _core.Graph.append = _graph_append_wrapper(original_methods["Graph.append"])
-    _core.Graph.extend = _graph_extend_wrapper(original_methods["Graph.extend"])
-    _core.Graph.remove = _graph_remove_wrapper(original_methods["Graph.remove"])
+    _core.Graph.append = _graph_append_wrapper(journal, original_methods["Graph.append"])
+    _core.Graph.extend = _graph_extend_wrapper(journal, original_methods["Graph.extend"])
+    _core.Graph.remove = _graph_remove_wrapper(journal, original_methods["Graph.remove"])
     _core.Graph.insert_after = _graph_insert_after_wrapper(
-        original_methods["Graph.insert_after"]
+        journal, original_methods["Graph.insert_after"]
     )
     _core.Graph.insert_before = _graph_insert_before_wrapper(
-        original_methods["Graph.insert_before"]
+        journal, original_methods["Graph.insert_before"]
     )
-    _core.Graph.sort = _graph_sort_wrapper(original_methods["Graph.sort"])
+    _core.Graph.sort = _graph_sort_wrapper(journal, original_methods["Graph.sort"])
 
     # Model
-    _core.Model.__init__ = _model_init_wrapper(original_methods["Model.__init__"])
+    _core.Model.__init__ = _model_init_wrapper(journal, original_methods["Model.__init__"])
 
     # Function
-    _core.Function.__init__ = _function_init_wrapper(original_methods["Function.__init__"])
+    _core.Function.__init__ = _function_init_wrapper(
+        journal, original_methods["Function.__init__"]
+    )
     _core.Function.name = property(
         _core.Function.name.fget,
-        _function_name_setter_wrapper(original_methods["Function.name.fset"]),
+        _function_name_setter_wrapper(journal, original_methods["Function.name.fset"]),
     )
     _core.Function.domain = property(
         _core.Function.domain.fget,
-        _function_domain_setter_wrapper(original_methods["Function.domain.fset"]),
+        _function_domain_setter_wrapper(journal, original_methods["Function.domain.fset"]),
     )
     _core.Function.overload = property(
         _core.Function.overload.fget,
-        _function_overload_setter_wrapper(original_methods["Function.overload.fset"]),
+        _function_overload_setter_wrapper(journal, original_methods["Function.overload.fset"]),
     )
 
     # Attr
-    _core.Attr.__init__ = _attr_init_wrapper(original_methods["Attr.__init__"])
+    _core.Attr.__init__ = _attr_init_wrapper(journal, original_methods["Attr.__init__"])
 
     return original_methods
 
