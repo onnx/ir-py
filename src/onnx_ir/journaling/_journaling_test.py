@@ -27,7 +27,7 @@ class JournalTest(unittest.TestCase):
         with journal:
             journal.record(obj, "test_operation", details="test details")
 
-        entries = journal.get_entries()
+        entries = journal.entries
         self.assertEqual(len(entries), 1)
         entry = entries[0]
         self.assertEqual(entry.operation, "test_operation")
@@ -57,44 +57,6 @@ class JournalTest(unittest.TestCase):
             self.assertIs(journaling.get_journal(), outer_journal)
 
         self.assertIsNone(journaling.get_journal())
-
-    def test_journal_filter_by_operation(self):
-        journal = journaling.Journal()
-        obj = _DummyObject()
-
-        with journal:
-            journal.record(obj, "op1")
-            journal.record(obj, "op2")
-            journal.record(obj, "op1")
-
-        filtered = journal.filter(operation="op1")
-        self.assertEqual(len(filtered), 2)
-        for entry in filtered:
-            self.assertEqual(entry.operation, "op1")
-
-    def test_journal_filter_by_class_name(self):
-        journal = journaling.Journal()
-
-        with journal:
-            journal.record(_DummyObject("str1"), "op1")
-            journal.record(_DummyObject("str2"), "op3")
-
-        filtered = journal.filter(class_name="_DummyObject")
-        self.assertEqual(len(filtered), 2)
-        for entry in filtered:
-            self.assertEqual(entry.class_name, "_DummyObject")
-
-    def test_journal_filter_by_operation_and_class_name(self):
-        journal = journaling.Journal()
-
-        with journal:
-            journal.record(_DummyObject("obj1"), "op1")
-            journal.record(_DummyObject("obj2"), "op2")
-
-        filtered = journal.filter(operation="op1", class_name="_DummyObject")
-        self.assertEqual(len(filtered), 1)
-        self.assertEqual(filtered[0].operation, "op1")
-        self.assertEqual(filtered[0].class_name, "_DummyObject")
 
     def test_journal_hook_is_called_on_record(self):
         journal = journaling.Journal()
@@ -139,7 +101,7 @@ class JournalTest(unittest.TestCase):
         with journal:
             journal.record(obj, "test_operation")
 
-        entry = journal.get_entries()[0]
+        entry = journal.entries[0]
         self.assertIsInstance(entry.timestamp, float)
         self.assertGreater(entry.timestamp, 0)
 
@@ -150,7 +112,7 @@ class JournalTest(unittest.TestCase):
         with journal:
             journal.record(obj, "test_operation")
 
-        entry = journal.get_entries()[0]
+        entry = journal.entries[0]
         self.assertIsInstance(entry.stack_trace, list)
         self.assertGreater(len(entry.stack_trace), 0)
 
@@ -160,7 +122,7 @@ class JournalTest(unittest.TestCase):
         with journal:
             obj = _DummyObject()
             journal.record(obj, "test_operation")
-            entry = journal.get_entries()[0]
+            entry = journal.entries[0]
             self.assertIs(entry.ref(), obj)
 
         # Delete the object
@@ -179,7 +141,7 @@ class JournalEntryTest(unittest.TestCase):
         with journal:
             journal.record(obj, "test_operation", details="some details")
 
-        entry = journal.get_entries()[0]
+        entry = journal.entries[0]
         # Should not raise
         entry.display()
 
@@ -191,7 +153,7 @@ class JournalEntryTest(unittest.TestCase):
             obj = _DummyObject()
             journal.record(obj, "test_operation")
 
-        entry = journal.get_entries()[0]
+        entry = journal.entries[0]
         del obj
 
         # Should not raise even though object is deleted

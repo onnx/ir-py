@@ -14,7 +14,7 @@ from typing import Any, Callable, TypeVar
 
 from typing_extensions import Concatenate, ParamSpec
 
-from onnx_ir import _core
+from onnx_ir import _core, _graph_containers
 from onnx_ir.journaling import _journaling
 
 _P = ParamSpec("_P")
@@ -97,6 +97,32 @@ def _method_wrapper(
     return wrapper
 
 
+def _container_method_wrapper(
+    journal: _journaling.Journal,
+    original_method: Callable[Concatenate[_SelfT, _P], _T],
+    operation: str,
+    target_attr: str,
+    details_func: Callable[Concatenate[_SelfT, _P], str | None],
+) -> Callable[Concatenate[_SelfT, _P], _T]:
+    """Generic wrapper factory for container methods that record on a parent object.
+
+    Args:
+        journal: The journal to record to.
+        original_method: The original method.
+        operation: The operation name for the journal.
+        target_attr: The attribute name to get the target object from self (e.g., "_graph").
+        details_func: A function that takes (self, *args, **kwargs) and returns details.
+    """
+
+    @functools.wraps(original_method)
+    def wrapper(self: _SelfT, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        target = getattr(self, target_attr)
+        journal.record(target, operation, details=details_func(self, *args, **kwargs))
+        return original_method(self, *args, **kwargs)
+
+    return wrapper
+
+
 # =============================================================================
 # Store and restore original methods
 # =============================================================================
@@ -149,6 +175,19 @@ def get_original_methods() -> dict[str, Any]:
         "Function.overload.fset": _core.Function.overload.fset,
         # Attr
         "Attr.__init__": _core.Attr.__init__,
+        # _GraphIO (GraphInputs/GraphOutputs)
+        "_GraphIO.append": _graph_containers._GraphIO.append,
+        "_GraphIO.extend": _graph_containers._GraphIO.extend,
+        "_GraphIO.insert": _graph_containers._GraphIO.insert,
+        "_GraphIO.pop": _graph_containers._GraphIO.pop,
+        "_GraphIO.remove": _graph_containers._GraphIO.remove,
+        "_GraphIO.clear": _graph_containers._GraphIO.clear,
+        "_GraphIO.__setitem__": _graph_containers._GraphIO.__setitem__,
+        # GraphInitializers
+        "GraphInitializers.__setitem__": _graph_containers.GraphInitializers.__setitem__,
+        "GraphInitializers.__delitem__": _graph_containers.GraphInitializers.__delitem__,
+        # Attributes
+        "Attributes.__setitem__": _graph_containers.Attributes.__setitem__,
     }
 
     return original_methods
@@ -342,6 +381,82 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
     # Attr
     _core.Attr.__init__ = _init_wrapper(journal, original_methods["Attr.__init__"])
 
+    # _GraphIO (GraphInputs/GraphOutputs)
+    _graph_containers._GraphIO.append = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.append"],
+        "append_io",
+        "_graph",
+        lambda self, item: f"[{self.__class__.__name__}] {item!r}",
+    )
+    _graph_containers._GraphIO.extend = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.extend"],
+        "extend_io",
+        "_graph",
+        lambda self, other: f"[{self.__class__.__name__}] {other!r}",
+    )
+    _graph_containers._GraphIO.insert = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.insert"],
+        "insert_io",
+        "_graph",
+        lambda self, i, item: f"[{self.__class__.__name__}] {item!r}",
+    )
+    _graph_containers._GraphIO.pop = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.pop"],
+        "pop_io",
+        "_graph",
+        lambda self, i=-1: f"[{self.__class__.__name__}] index={i}",
+    )
+    _graph_containers._GraphIO.remove = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.remove"],
+        "remove_io",
+        "_graph",
+        lambda self, item: f"[{self.__class__.__name__}] {item!r}",
+    )
+    _graph_containers._GraphIO.clear = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.clear"],
+        "clear_io",
+        "_graph",
+        lambda self: f"[{self.__class__.__name__}]",
+    )
+    _graph_containers._GraphIO.__setitem__ = _container_method_wrapper(
+        journal,
+        original_methods["_GraphIO.__setitem__"],
+        "set_io",
+        "_graph",
+        lambda self, i, item: f"[{self.__class__.__name__}] index={i}, item={item!r}",
+    )
+
+    # GraphInitializers
+    _graph_containers.GraphInitializers.__setitem__ = _container_method_wrapper(
+        journal,
+        original_methods["GraphInitializers.__setitem__"],
+        "set_initializer",
+        "_graph",
+        lambda self, key, value: f"key={key!r}, value={value!r}",
+    )
+    _graph_containers.GraphInitializers.__delitem__ = _container_method_wrapper(
+        journal,
+        original_methods["GraphInitializers.__delitem__"],
+        "delete_initializer",
+        "_graph",
+        lambda self, key: f"key={key!r}",
+    )
+
+    # Attributes
+    _graph_containers.Attributes.__setitem__ = _container_method_wrapper(
+        journal,
+        original_methods["Attributes.__setitem__"],
+        "set_attribute",
+        "_owner",
+        lambda self, key, value: f"key={key!r}, value={value!r}",
+    )
+
     return original_methods
 
 
@@ -435,3 +550,23 @@ def restore_ir_classes(original_methods: dict[str, Any]) -> None:
 
     # Attr
     _core.Attr.__init__ = original_methods["Attr.__init__"]
+
+    # _GraphIO (GraphInputs/GraphOutputs)
+    _graph_containers._GraphIO.append = original_methods["_GraphIO.append"]
+    _graph_containers._GraphIO.extend = original_methods["_GraphIO.extend"]
+    _graph_containers._GraphIO.insert = original_methods["_GraphIO.insert"]
+    _graph_containers._GraphIO.pop = original_methods["_GraphIO.pop"]
+    _graph_containers._GraphIO.remove = original_methods["_GraphIO.remove"]
+    _graph_containers._GraphIO.clear = original_methods["_GraphIO.clear"]
+    _graph_containers._GraphIO.__setitem__ = original_methods["_GraphIO.__setitem__"]
+
+    # GraphInitializers
+    _graph_containers.GraphInitializers.__setitem__ = original_methods[
+        "GraphInitializers.__setitem__"
+    ]
+    _graph_containers.GraphInitializers.__delitem__ = original_methods[
+        "GraphInitializers.__delitem__"
+    ]
+
+    # Attributes
+    _graph_containers.Attributes.__setitem__ = original_methods["Attributes.__setitem__"]

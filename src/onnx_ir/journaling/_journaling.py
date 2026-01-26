@@ -17,6 +17,8 @@ from collections.abc import Callable, Sequence
 
 from typing_extensions import Self
 
+from onnx_ir.journaling import _wrappers
+
 _current_journal: Journal | None = None
 
 
@@ -32,6 +34,8 @@ class JournalEntry:
         ref: A weak reference to the object on which the operation was performed.
             To access the object, call ``ref()``. Note that ``ref`` may be ``None``,
             and ``ref()`` may return ``None`` if the object has been garbage-collected.
+        obj: The referenced object, or None if it has been garbage-collected or not recorded.
+            This is the same as calling ``entry.ref() if entry.ref is not None else None``.
         object_id: The unique identifier of the object (id()).
         stack_trace: The stack trace at the time of the operation.
         details: Additional details about the operation.
@@ -45,6 +49,13 @@ class JournalEntry:
     object_id: int
     stack_trace: list[traceback.FrameSummary]
     details: str | None
+
+    @property
+    def obj(self) -> Any | None:
+        """Get the referenced object, or None if it has been garbage-collected or not recorded."""
+        if self.ref is None:
+            return None
+        return self.ref()
 
     def display(self) -> None:
         """Display the journal entry in a detailed multi-line format."""
@@ -116,6 +127,7 @@ class Journal:
     It can be used as a context manager to automatically record operations within a block.
 
     Example::
+
         from onnx_ir.journaling import Journal
 
         journal = Journal()
@@ -128,24 +140,37 @@ class Journal:
         for entry in entries:
             print(f"Operation: {entry.operation} on {entry.class_name}")
 
+
     You can also filter the entries by operation or class name using the `filter` method::
-        filtered_entries = journal.filter(operation="set_name", class_name="Node")
+
+        filtered_entries = [
+            entry for entry in journal.entries
+            if entry.operation=="set_name" and entry.class_name=="Node"
+        ]
     """
 
     def __init__(self) -> None:
         self._entries: list[JournalEntry] = []
         self._previous_journal: Journal | None = None
         self._hooks: list[Callable[[JournalEntry], None]] = []
+        self._original_methods: dict[str, Callable] = {}
 
     def __enter__(self) -> Self:
         global _current_journal
         self._previous_journal = _current_journal
         _current_journal = self
+        self._original_methods = _wrappers.wrap_ir_classes(self)
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb) -> None:
+        _wrappers.restore_ir_classes(self._original_methods)
         global _current_journal
         _current_journal = self._previous_journal
+
+    @property
+    def entries(self) -> Sequence[JournalEntry]:
+        """Get all recorded journal entries."""
+        return self._entries
 
     def record(self, obj: Any, operation: str, details: str | None = None) -> None:
         """Record a new journal entry."""
@@ -170,21 +195,6 @@ class Journal:
     def clear_hooks(self) -> None:
         """Clear all hooks."""
         self._hooks.clear()
-
-    def get_entries(self) -> Sequence[JournalEntry]:
-        """Get all recorded journal entries."""
-        return self._entries
-
-    def filter(
-        self, *, operation: str | None = None, class_name: str | None = None
-    ) -> Sequence[JournalEntry]:
-        """Filter journal entries by operation and/or class name."""
-        result = self._entries
-        if operation is not None:
-            result = [entry for entry in result if entry.operation == operation]
-        if class_name is not None:
-            result = [entry for entry in result if entry.class_name == class_name]
-        return result
 
     def display(self) -> None:
         """Display all journal entries."""
@@ -214,6 +224,8 @@ class Journal:
                 object_repr = "<no ref>"
             elif (obj := entry.ref()) is not None:
                 object_repr = repr(obj).replace("\n", "\\n")
+                if len(object_repr) > 100:
+                    object_repr = object_repr[:95] + "[...]"
             else:
                 object_repr = "<deleted>"
             details_text = details.replace("\n", "\\n")
