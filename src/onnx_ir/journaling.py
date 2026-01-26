@@ -1,3 +1,5 @@
+# Copyright (c) ONNX Project Contributors
+# SPDX-License-Identifier: Apache-2.0
 """Journaling system for ONNX IR operations."""
 
 from __future__ import annotations
