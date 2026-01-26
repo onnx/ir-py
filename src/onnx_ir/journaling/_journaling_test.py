@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unittest
 
+import onnx_ir as ir
 from onnx_ir import journaling
 
 
@@ -188,8 +189,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_records_node_creation(self):
         """Test that creating a Node inside a Journal context records entries."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         with journal:
@@ -214,8 +213,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_records_node_property_modifications(self):
         """Test that modifying Node properties records entries."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         # Create node outside journal first
@@ -243,8 +240,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_records_value_creation(self):
         """Test that creating Value objects records entries."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         with journal:
@@ -268,8 +263,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_records_graph_creation(self):
         """Test that creating a Graph records entries."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         with journal:
@@ -304,8 +297,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_with_multiple_operations(self):
         """Test journal with multiple operations on different IR objects."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         with journal:
@@ -336,8 +327,6 @@ class JournalIntegrationTest(unittest.TestCase):
 
     def test_journal_context_manager_wraps_and_restores_classes(self):
         """Test that Journal context manager properly wraps and restores IR classes."""
-        import onnx_ir as ir
-
         journal = journaling.Journal()
 
         # Create a node outside the journal - should not be recorded
