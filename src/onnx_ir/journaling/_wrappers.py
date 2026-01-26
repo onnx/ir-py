@@ -6,6 +6,7 @@ This module provides wrapper functions that enable journaling for ONNX IR classe
 The wrappers are applied when a Journal context is active, and they record operations
 to the journal for debugging and analysis purposes.
 """
+# mypy: disable-error-code=attr-defined,method-assign,assignment
 
 from __future__ import annotations
 
