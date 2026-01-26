@@ -79,6 +79,7 @@ def _method_wrapper(
     journal: _journaling.Journal,
     original_method: Callable[Concatenate[_SelfT, _P], _T],
     operation: str,
+    *,
     details_func: Callable[Concatenate[_SelfT, _P], str | None],
 ) -> Callable[Concatenate[_SelfT, _P], _T]:
     """Generic wrapper factory for methods.
@@ -102,6 +103,7 @@ def _container_method_wrapper(
     journal: _journaling.Journal,
     original_method: Callable[Concatenate[_SelfT, _P], _T],
     operation: str,
+    *,
     target_attr: str,
     details_func: Callable[Concatenate[_SelfT, _P], str | None],
 ) -> Callable[Concatenate[_SelfT, _P], _T]:
@@ -241,25 +243,25 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Node.resize_inputs"],
         "resize_inputs",
-        lambda self, new_size: f"{len(self._inputs)} -> {new_size}",
+        details_func=lambda self, new_size: f"{len(self._inputs)} -> {new_size}",
     )
     _core.Node.prepend = _method_wrapper(
         journal,
         original_methods["Node.prepend"],
         "prepend",
-        lambda self, nodes: repr(nodes),
+        details_func=lambda self, nodes: repr(nodes),
     )
     _core.Node.append = _method_wrapper(
         journal,
         original_methods["Node.append"],
         "append",
-        lambda self, nodes: repr(nodes),
+        details_func=lambda self, nodes: repr(nodes),
     )
     _core.Node.resize_outputs = _method_wrapper(
         journal,
         original_methods["Node.resize_outputs"],
         "resize_outputs",
-        lambda self, new_size: f"{len(self._outputs)} -> {new_size}",
+        details_func=lambda self, new_size: f"{len(self._outputs)} -> {new_size}",
     )
     _core.Node.graph = property(
         _core.Node.graph.fget,
@@ -267,7 +269,7 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
             journal,
             original_methods["Node.graph.fset"],
             "set_graph",
-            lambda self,
+            details_func=lambda self,
             value: f"{(value.name if isinstance(value, _core.Graph) else value)!r}",
         ),
     )
@@ -299,7 +301,7 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Value.replace_all_uses_with"],
         "replace_all_uses_with",
-        lambda self, replacement, replace_graph_outputs=False: (
+        details_func=lambda self, replacement, replace_graph_outputs=False: (
             f"replacement={replacement!r}, replace_graph_outputs={replace_graph_outputs}"
         ),
     )
@@ -307,7 +309,7 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Value.merge_shapes"],
         "merge_shapes",
-        lambda self, other: f"original={self._shape!r}, other={other!r}",
+        details_func=lambda self, other: f"original={self._shape!r}, other={other!r}",
     )
 
     # Graph
@@ -318,43 +320,43 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Graph.register_initializer"],
         "register_initializer",
-        lambda self, value: repr(value),
+        details_func=lambda self, value: repr(value),
     )
     _core.Graph.append = _method_wrapper(
         journal,
         original_methods["Graph.append"],
         "append",
-        lambda self, node: repr(node),
+        details_func=lambda self, node: repr(node),
     )
     _core.Graph.extend = _method_wrapper(
         journal,
         original_methods["Graph.extend"],
         "extend",
-        lambda self, nodes: repr(nodes),
+        details_func=lambda self, nodes: repr(nodes),
     )
     _core.Graph.remove = _method_wrapper(
         journal,
         original_methods["Graph.remove"],
         "remove",
-        lambda self, nodes, safe=False: f"nodes={nodes!r}, safe={safe}",
+        details_func=lambda self, nodes, safe=False: f"nodes={nodes!r}, safe={safe}",
     )
     _core.Graph.insert_after = _method_wrapper(
         journal,
         original_methods["Graph.insert_after"],
         "insert_after",
-        lambda self, node, new_nodes: f"node={node!r}, new_nodes={new_nodes!r}",
+        details_func=lambda self, node, new_nodes: f"node={node!r}, new_nodes={new_nodes!r}",
     )
     _core.Graph.insert_before = _method_wrapper(
         journal,
         original_methods["Graph.insert_before"],
         "insert_before",
-        lambda self, node, new_nodes: f"node={node!r}, new_nodes={new_nodes!r}",
+        details_func=lambda self, node, new_nodes: f"node={node!r}, new_nodes={new_nodes!r}",
     )
     _core.Graph.sort = _method_wrapper(
         journal,
         original_methods["Graph.sort"],
         "sort",
-        lambda self: None,
+        details_func=lambda self: None,
     )
 
     # Model
@@ -387,50 +389,52 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["_GraphIO.append"],
         "append_io",
-        "_graph",
-        lambda self, item: f"[{self.__class__.__name__}] {item!r}",
+        target_attr="_graph",
+        details_func=lambda self, item: f"[{self.__class__.__name__}] {item!r}",
     )
     _graph_containers._GraphIO.extend = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.extend"],
         "extend_io",
-        "_graph",
-        lambda self, other: f"[{self.__class__.__name__}] {other!r}",
+        target_attr="_graph",
+        details_func=lambda self, other: f"[{self.__class__.__name__}] {other!r}",
     )
     _graph_containers._GraphIO.insert = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.insert"],
         "insert_io",
-        "_graph",
-        lambda self, i, item: f"[{self.__class__.__name__}] {item!r}",
+        target_attr="_graph",
+        details_func=lambda self, i, item: f"[{self.__class__.__name__}] {item!r}",
     )
     _graph_containers._GraphIO.pop = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.pop"],
         "pop_io",
-        "_graph",
-        lambda self, i=-1: f"[{self.__class__.__name__}] index={i}",
+        target_attr="_graph",
+        details_func=lambda self, i=-1: f"[{self.__class__.__name__}] index={i}",
     )
     _graph_containers._GraphIO.remove = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.remove"],
         "remove_io",
-        "_graph",
-        lambda self, item: f"[{self.__class__.__name__}] {item!r}",
+        target_attr="_graph",
+        details_func=lambda self, item: f"[{self.__class__.__name__}] {item!r}",
     )
     _graph_containers._GraphIO.clear = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.clear"],
         "clear_io",
-        "_graph",
-        lambda self: f"[{self.__class__.__name__}]",
+        target_attr="_graph",
+        details_func=lambda self: f"[{self.__class__.__name__}]",
     )
     _graph_containers._GraphIO.__setitem__ = _container_method_wrapper(
         journal,
         original_methods["_GraphIO.__setitem__"],
         "set_io",
-        "_graph",
-        lambda self, i, item: f"[{self.__class__.__name__}] index={i}, item={item!r}",
+        target_attr="_graph",
+        details_func=lambda self,
+        i,
+        item: f"[{self.__class__.__name__}] index={i}, item={item!r}",
     )
 
     # GraphInitializers
@@ -438,15 +442,15 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["GraphInitializers.__setitem__"],
         "set_initializer",
-        "_graph",
-        lambda self, key, value: f"key={key!r}, value={value!r}",
+        target_attr="_graph",
+        details_func=lambda self, key, value: f"key={key!r}, value={value!r}",
     )
     _graph_containers.GraphInitializers.__delitem__ = _container_method_wrapper(
         journal,
         original_methods["GraphInitializers.__delitem__"],
         "delete_initializer",
-        "_graph",
-        lambda self, key: f"key={key!r}",
+        target_attr="_graph",
+        details_func=lambda self, key: f"key={key!r}",
     )
 
     # Attributes
@@ -454,8 +458,8 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Attributes.__setitem__"],
         "set_attribute",
-        "_owner",
-        lambda self, key, value: f"key={key!r}, value={value!r}",
+        target_attr="_owner",
+        details_func=lambda self, key, value: f"key={key!r}, value={value!r}",
     )
 
     return original_methods
