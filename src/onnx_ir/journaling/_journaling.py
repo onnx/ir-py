@@ -7,7 +7,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-__all__ = ["Journal", "JournalEntry", "get_journal"]
+__all__ = ["Journal", "JournalEntry", "get_current_journal"]
 
 import dataclasses
 import datetime
@@ -112,7 +112,7 @@ class JournalEntry:
         print(f"\033[1m{'=' * 80}\033[0m")
 
 
-def get_journal() -> Journal | None:
+def get_current_journal() -> Journal | None:
     """Get the current journal, if any."""
     return _current_journal
 
@@ -136,8 +136,7 @@ class Journal:
             # Perform operations on the ONNX IR
             pass
 
-        entries = journal.get_entries()
-        for entry in entries:
+        for entry in journal.entries:
             print(f"Operation: {entry.operation} on {entry.class_name}")
 
 

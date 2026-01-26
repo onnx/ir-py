@@ -38,25 +38,25 @@ class JournalTest(unittest.TestCase):
         self.assertIs(entry.ref(), obj)
 
     def test_journal_context_manager_sets_current_journal(self):
-        self.assertIsNone(journaling.get_journal())
+        self.assertIsNone(journaling.get_current_journal())
 
         journal = journaling.Journal()
         with journal:
-            self.assertIs(journaling.get_journal(), journal)
+            self.assertIs(journaling.get_current_journal(), journal)
 
-        self.assertIsNone(journaling.get_journal())
+        self.assertIsNone(journaling.get_current_journal())
 
     def test_journal_context_manager_restores_previous_journal(self):
         outer_journal = journaling.Journal()
         inner_journal = journaling.Journal()
 
         with outer_journal:
-            self.assertIs(journaling.get_journal(), outer_journal)
+            self.assertIs(journaling.get_current_journal(), outer_journal)
             with inner_journal:
-                self.assertIs(journaling.get_journal(), inner_journal)
-            self.assertIs(journaling.get_journal(), outer_journal)
+                self.assertIs(journaling.get_current_journal(), inner_journal)
+            self.assertIs(journaling.get_current_journal(), outer_journal)
 
-        self.assertIsNone(journaling.get_journal())
+        self.assertIsNone(journaling.get_current_journal())
 
     def test_journal_hook_is_called_on_record(self):
         journal = journaling.Journal()

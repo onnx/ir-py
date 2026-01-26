@@ -4,9 +4,9 @@
 
 from __future__ import annotations
 
-__all__ = ["Journal", "JournalEntry", "get_journal"]
+__all__ = ["Journal", "JournalEntry", "get_current_journal"]
 
-from onnx_ir.journaling._journaling import Journal, JournalEntry, get_journal
+from onnx_ir.journaling._journaling import Journal, JournalEntry, get_current_journal
 
 
 def __set_module() -> None:
