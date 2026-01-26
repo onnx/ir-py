@@ -15,8 +15,9 @@ Use the `Journal` class as a context manager to record operations:
 import onnx_ir as ir
 from onnx_ir.journaling import Journal
 
+model = ir.load("model.onnx")
+
 with Journal() as journal:
-    model = ir.load("model.onnx")
     # Perform operations on the model
     for node in model.graph:
         node.name = f"renamed_{node.name}"
@@ -25,8 +26,11 @@ with Journal() as journal:
 journal.display()
 
 # Or filter by specific criteria
-entries = journal.filter(operation="set_name", class_name="Node")
-for entry in entries:
+filtered_entries = [
+    entry for entry in journal.entries
+    if entry.operation == "set_name" and entry.class_name == "Node"
+]
+for entry in filtered_entries:
     print(f"{entry.operation} on {entry.class_name}")
 ```
 
@@ -81,8 +85,7 @@ The `JournalEntry.display()` method provides a detailed, multi-line view of an e
 - Full stack trace
 
 ```python
-entries = journal.get_entries()
-for entry in entries:
+for entry in journal.entries:
     entry.display()  # Detailed multi-line output
 ```
 

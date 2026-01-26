@@ -145,7 +145,7 @@ class Journal:
 
         filtered_entries = [
             entry for entry in journal.entries
-            if entry.operation=="set_name" and entry.class_name=="Node"
+            if entry.operation == "set_name" and entry.class_name == "Node"
         ]
     """
 
