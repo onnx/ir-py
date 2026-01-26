@@ -61,7 +61,6 @@ from onnx_ir import (
     _protocols,
     _type_casting,
 )
-from onnx_ir.journaling import _journaling
 
 if typing.TYPE_CHECKING:
     import numpy.typing as npt
@@ -130,9 +129,6 @@ class TensorBase(abc.ABC, _protocols.TensorProtocol, _display.PrettyPrintable):
         self._metadata_props: dict[str, str] | None = metadata_props
         self._name: str | None = name
         self._doc_string: str | None = doc_string
-
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize")
 
     def _printable_type_shape(self) -> str:
         """Return a string representation of the shape and data type."""
@@ -1733,9 +1729,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             if input_value is not None:
                 input_value._add_usage(self, i)  # pylint: disable=protected-access
 
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
-
     def _create_outputs(
         self, num_outputs: int | None, outputs: Sequence[Value] | None
     ) -> tuple[Value, ...]:
@@ -1826,8 +1819,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @name.setter
     def name(self, value: str | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
         self._name = value
 
     @property
@@ -1841,8 +1832,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @domain.setter
     def domain(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
         self._domain = _normalize_domain(value)
 
     @property
@@ -1858,8 +1847,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @version.setter
     def version(self, value: int | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_version", details=f"{self._version!r} -> {value!r}")
         self._version = value
 
     @property
@@ -1869,8 +1856,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @op_type.setter
     def op_type(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_op_type", details=f"{self._op_type!r} -> {value!r}")
         self._op_type = value
 
     @property
@@ -1880,8 +1865,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @overload.setter
     def overload(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
         self._overload = value
 
     @property
@@ -1914,9 +1897,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         Args:
             new_size: The new number of inputs.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "resize_inputs", details=f"{len(self._inputs)} -> {new_size}")
-
         current_size = len(self._inputs)
         if new_size == current_size:
             return
@@ -1976,9 +1956,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         Args:
             nodes: A node or a sequence of nodes to put before this node.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "prepend", details=repr(nodes))
-
         if self._graph is None:
             raise ValueError("The node to prepend to does not belong to any graph.")
         self._graph.insert_before(self, nodes)
@@ -1998,9 +1975,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         Args:
             nodes:  A node or a sequence of nodes to put after this node.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "append", details=repr(nodes))
-
         if self._graph is None:
             raise ValueError("The node to append to does not belong to any graph.")
         self._graph.insert_after(self, nodes)
@@ -2038,11 +2012,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             ValueError: If the new size is less than the current size and
                 the removed outputs have uses.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self, "resize_outputs", details=f"{len(self._outputs)} -> {new_size}"
-            )
-
         current_size = len(self._outputs)
         if new_size == current_size:
             return
@@ -2108,13 +2077,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
     @graph.setter
     def graph(self, value: Graph | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self,
-                "set_graph",
-                details=f"{(value.name if isinstance(value, Graph) else value)!r}",
-            )
-
         self._graph = value
 
     def op_identifier(self) -> _protocols.OperatorIdentifier:
@@ -2434,9 +2396,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         self._is_graph_output: bool = False
         self._is_initializer: bool = False
 
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", repr(self))
-
     def __repr__(self) -> str:
         value_name = self.name if self.name else "anonymous:" + str(id(self))
         type_text = f", type={self.type!r}" if self.type is not None else ""
@@ -2547,9 +2506,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @name.setter
     def name(self, value: str | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
-
         if self._name == value:
             return
 
@@ -2597,9 +2553,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @type.setter
     def type(self, value: _protocols.TypeProtocol | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_type", details=f"{self._type!r} -> {value!r}")
-
         self._type = value
 
     @property
@@ -2628,9 +2581,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @shape.setter
     def shape(self, value: Shape | None) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_shape", details=f"{self._shape!r} -> {value!r}")
-
         if value is None:
             self._shape = None
             return
@@ -2662,10 +2612,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         self,
         value: _protocols.TensorProtocol | None,
     ) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self, "set_const_value", details=f"{self._const_value!r} -> {value!r}"
-            )
         if onnx_ir.DEBUG:
             if value is not None and not isinstance(value, _protocols.TensorProtocol):
                 raise TypeError(
@@ -2740,13 +2686,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             ValueError: When ``replace_graph_outputs`` is False && when the value to
                 replace is a graph output.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self,
-                "replace_all_uses_with",
-                details=f"replacement={replacement!r}, replace_graph_outputs={replace_graph_outputs}",
-            )
-
         # NOTE: Why we don't replace the value name when the value is an output:
         # When the replacement value is already an output of the graph, renaming it
         # to the name of this value will cause name conflicts. It is better to let
@@ -2791,11 +2730,6 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             ValueError: If the shapes have different ranks.
             ValueError: If there are conflicting concrete dimensions.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self, "merge_shapes", details=f"original={self._shape!r}, other={other!r}"
-            )
-
         if other is None:
             return
 
@@ -2963,9 +2897,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         # Call self.extend not self._nodes.extend so the graph reference is added to the nodes
         self.extend(nodes)
 
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=str(name))
-
     @property
     def inputs(self) -> MutableSequence[Value]:
         return self._inputs
@@ -3007,9 +2938,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             ValueError: If the initializer is produced by a node.
             ValueError: If the value does not have its ``.const_value`` set.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "register_initializer", details=repr(value))
-
         if not value.name:
             raise ValueError(f"Initializer must have a name: {value!r}")
         if value.name in self._initializers:
@@ -3202,9 +3130,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Raises:
             ValueError: If the node belongs to another graph.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "append", details=repr(node))
-
         self._set_node_graph_to_self_and_assign_names(node)
         self._nodes.append(node)
 
@@ -3219,9 +3144,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Raises:
             ValueError: If any node belongs to another graph.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "extend", details=repr(nodes))
-
         nodes = [self._set_node_graph_to_self_and_assign_names(node) for node in nodes]
         self._nodes.extend(nodes)
 
@@ -3245,9 +3167,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             ValueError: (When ``safe=True``) If the node does not belong to this graph or if there are users of the node.
             ValueError: (When ``safe=True``) If the node is still being used by other nodes not to be removed.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "remove", details=f"nodes={nodes!r}, safe={safe}")
-
         if not isinstance(nodes, Iterable):
             nodes_set: AbstractSet[Node] = {nodes}
         else:
@@ -3280,11 +3199,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Raises:
             ValueError: If any node belongs to another graph.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self, "insert_after", details=f"node={node!r}, new_nodes={new_nodes!r}"
-            )
-
         if isinstance(new_nodes, Node):
             new_nodes = (new_nodes,)
         new_nodes = [self._set_node_graph_to_self_and_assign_names(node) for node in new_nodes]
@@ -3302,11 +3216,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Raises:
             ValueError: If any node belongs to another graph.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(
-                self, "insert_before", details=f"node={node!r}, new_nodes={new_nodes!r}"
-            )
-
         if isinstance(new_nodes, Node):
             new_nodes = (new_nodes,)
         new_nodes = [self._set_node_graph_to_self_and_assign_names(node) for node in new_nodes]
@@ -3322,9 +3231,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         Raises:
             ValueError: If the graph contains a cycle, making topological sorting impossible.
         """
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "sort")
-
         # Obtain all nodes from the graph and its subgraphs for sorting
         nodes = list(onnx_ir.traversal.RecursiveGraphIterator(self))
         # Store the sorted nodes of each subgraph
@@ -3693,9 +3599,6 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
 
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
-
     @property
     def functions(self) -> dict[_protocols.OperatorIdentifier, Function]:
         return self._functions
@@ -3851,9 +3754,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
             attributes = tuple(attributes.values())
         self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
-
     def identifier(self) -> _protocols.OperatorIdentifier:
         return self.domain, self.name, self.overload
 
@@ -3863,8 +3763,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @name.setter
     def name(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_name", details=f"{self._name!r} -> {value!r}")
         self._name = value
 
     @property
@@ -3873,8 +3771,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @domain.setter
     def domain(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_domain", details=f"{self._domain!r} -> {value!r}")
         self._domain = _normalize_domain(value)
 
     @property
@@ -3883,8 +3779,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @overload.setter
     def overload(self, value: str) -> None:
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "set_overload", details=f"{self._overload!r} -> {value!r}")
         self._overload = value
 
     @property
@@ -4179,9 +4073,6 @@ class Attr(
         self._ref_attr_name = ref_attr_name
         self.doc_string = doc_string
         self._metadata: _metadata.MetadataStore | None = None
-
-        if (journal := _journaling.get_journal()) is not None:
-            journal.record(self, "initialize", details=repr(self))
 
     @property
     def name(self) -> str:
