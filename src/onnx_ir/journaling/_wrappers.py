@@ -32,7 +32,7 @@ def _init_wrapper(
     journal: _journaling.Journal,
     original_init: Callable[Concatenate[_SelfT, _P], None],
     *,
-    details_func: Callable[[_SelfT], str | None] = lambda self: repr(self),
+    details_func: Callable[[_SelfT], str | None] = repr,
 ) -> Callable[Concatenate[_SelfT, _P], None]:
     """Generic wrapper factory for __init__ methods.
 
