@@ -299,7 +299,7 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         journal,
         original_methods["Value.replace_all_uses_with"],
         "replace_all_uses_with",
-        lambda self, replacement, *, replace_graph_outputs=False: (
+        lambda self, replacement, replace_graph_outputs=False: (
             f"replacement={replacement!r}, replace_graph_outputs={replace_graph_outputs}"
         ),
     )
