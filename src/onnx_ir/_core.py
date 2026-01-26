@@ -61,9 +61,7 @@ from onnx_ir import (
     _protocols,
     _type_casting,
 )
-from onnx_ir import (
-    journaling as _journaling,
-)
+from onnx_ir.journaling import _journaling
 
 if typing.TYPE_CHECKING:
     import numpy.typing as npt
