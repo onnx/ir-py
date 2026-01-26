@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unittest
 
+import onnx_ir as ir
 from onnx_ir import journaling
 
 
@@ -177,6 +178,179 @@ class JournalDisplayTest(unittest.TestCase):
         journal = journaling.Journal()
         # Should not raise
         journal.display()
+
+
+class JournalIntegrationTest(unittest.TestCase):
+    """Integration tests for journaling with real IR objects.
+
+    These tests verify that wrap_ir_classes() and restore_ir_classes() work
+    correctly with Node, Value, and Graph objects.
+    """
+
+    def test_journal_records_node_creation(self):
+        """Test that creating a Node inside a Journal context records entries."""
+        journal = journaling.Journal()
+
+        with journal:
+            node = ir.node("Add", inputs=[ir.val("x"), ir.val("y")], outputs=[ir.val("sum")])
+
+        # Should have recorded entries for Value inits and Node init
+        entries = journal.entries
+        self.assertGreater(len(entries), 0, "Journal should have recorded entries")
+
+        # Check that we recorded Value and Node init operations
+        class_names = {entry.class_name for entry in entries}
+        self.assertIn("Value", class_names, "Should record Value creation")
+        self.assertIn("Node", class_names, "Should record Node creation")
+
+        # Check that operations are "init"
+        operations = {entry.operation for entry in entries}
+        self.assertIn("init", operations, "Should record init operations")
+
+        # Verify no exceptions were raised and node was created successfully
+        self.assertIsNotNone(node)
+        self.assertEqual(node.op_type, "Add")
+
+    def test_journal_records_node_property_modifications(self):
+        """Test that modifying Node properties records entries."""
+        journal = journaling.Journal()
+
+        # Create node outside journal first
+        node = ir.node("Add", inputs=[ir.val("x"), ir.val("y")], outputs=[ir.val("sum")])
+
+        initial_entry_count = len(journal.entries)
+
+        with journal:
+            # Modify node properties
+            node.name = "my_add_node"
+            node.domain = "custom.domain"
+
+        # Should have recorded the property changes
+        new_entries = journal.entries[initial_entry_count:]
+        self.assertGreater(len(new_entries), 0, "Should record property modifications")
+
+        # Check operations include set_name and set_domain
+        operations = [entry.operation for entry in new_entries]
+        self.assertIn("set_name", operations, "Should record name change")
+        self.assertIn("set_domain", operations, "Should record domain change")
+
+        # Verify the properties were actually set
+        self.assertEqual(node.name, "my_add_node")
+        self.assertEqual(node.domain, "custom.domain")
+
+    def test_journal_records_value_creation(self):
+        """Test that creating Value objects records entries."""
+        journal = journaling.Journal()
+
+        with journal:
+            value1 = ir.val("input1")
+            value2 = ir.val("input2")
+
+        # Should have recorded Value creation
+        entries = journal.entries
+        self.assertGreaterEqual(len(entries), 2, "Should record at least 2 Value creations")
+
+        # All entries should be for Value init
+        for entry in entries:
+            self.assertEqual(entry.class_name, "Value")
+            self.assertEqual(entry.operation, "init")
+
+        # Verify values were created successfully
+        self.assertIsNotNone(value1)
+        self.assertIsNotNone(value2)
+        self.assertEqual(value1.name, "input1")
+        self.assertEqual(value2.name, "input2")
+
+    def test_journal_records_graph_creation(self):
+        """Test that creating a Graph records entries."""
+        journal = journaling.Journal()
+
+        with journal:
+            # Create inputs and outputs
+            x = ir.val("x")
+            y = ir.val("y")
+            z = ir.val("z")
+
+            # Create a simple node
+            add_node = ir.node("Add", inputs=[x, y], outputs=[z])
+
+            # Create a graph
+            graph = ir.Graph(
+                inputs=[x, y],
+                outputs=[z],
+                nodes=[add_node],
+            )
+
+        # Should have recorded multiple entries including Graph init
+        entries = journal.entries
+        self.assertGreater(len(entries), 0, "Should record entries")
+
+        # Check that Graph was recorded
+        class_names = [entry.class_name for entry in entries]
+        self.assertIn("Graph", class_names, "Should record Graph creation")
+
+        # Verify graph was created successfully
+        self.assertIsNotNone(graph)
+        self.assertEqual(len(graph.inputs), 2)
+        self.assertEqual(len(graph.outputs), 1)
+        self.assertEqual(len(list(graph)), 1)
+
+    def test_journal_with_multiple_operations(self):
+        """Test journal with multiple operations on different IR objects."""
+        journal = journaling.Journal()
+
+        with journal:
+            # Create values
+            a = ir.val("a")
+            b = ir.val("b")
+            c = ir.val("c")
+
+            # Create node
+            mul_node = ir.node("Mul", inputs=[a, b], outputs=[c])
+
+            # Modify node
+            mul_node.name = "multiply"
+
+        # Should have recorded all operations
+        entries = journal.entries
+        self.assertGreater(len(entries), 3, "Should record multiple operations")
+
+        # Verify operations are tracked correctly
+        operations = [entry.operation for entry in entries]
+        self.assertIn("init", operations)
+        self.assertIn("set_name", operations)
+
+        # Verify no exceptions and all objects exist
+        self.assertEqual(a.name, "a")
+        self.assertEqual(mul_node.op_type, "Mul")
+        self.assertEqual(mul_node.name, "multiply")
+
+    def test_journal_context_manager_wraps_and_restores_classes(self):
+        """Test that Journal context manager properly wraps and restores IR classes."""
+        journal = journaling.Journal()
+
+        # Create a node outside the journal - should not be recorded
+        node_before = ir.node("Add", inputs=[ir.val("x")], outputs=[ir.val("y")])
+        entries_before = len(journal.entries)
+
+        with journal:
+            # Create a node inside journal - should be recorded
+            node_inside = ir.node("Sub", inputs=[ir.val("a")], outputs=[ir.val("b")])
+
+        entries_during = len(journal.entries) - entries_before
+        self.assertGreater(entries_during, 0, "Operations inside journal should be recorded")
+
+        # Create a node after journal - should not be recorded to this journal
+        node_after = ir.node("Mul", inputs=[ir.val("p")], outputs=[ir.val("q")])
+        entries_after = len(journal.entries) - entries_before - entries_during
+
+        # No new entries should be added after exiting journal context
+        self.assertEqual(entries_after, 0, "Operations after journal should not be recorded")
+
+        # Verify all nodes were created successfully
+        self.assertIsNotNone(node_before)
+        self.assertIsNotNone(node_inside)
+        self.assertIsNotNone(node_after)
 
 
 if __name__ == "__main__":
