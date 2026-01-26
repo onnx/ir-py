@@ -43,6 +43,8 @@ class OutputFixPass(ir.passes.InPlacePass):
         Duplicate outputs:
             Before: value -> [output1, output2]
             After:  value -> output1, value -> Identity -> output2
+
+    .. versionadded:: 0.1.13
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
