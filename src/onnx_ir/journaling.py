@@ -154,7 +154,7 @@ class Journal:
             operation=operation,
             class_=obj.__class__,
             class_name=obj.__class__.__name__,
-            ref=weakref.ref(obj),
+            ref=weakref.ref(obj) if obj is not None else None,
             object_id=id(obj),
             stack_trace=_get_stack_trace(),
             details=details,
