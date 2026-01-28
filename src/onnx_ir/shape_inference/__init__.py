@@ -44,7 +44,7 @@ Registering custom shape inference::
 
 # Import ops to ensure they are registered (but don't expose publicly)
 import onnx_ir
-from onnx_ir.shape_inference import ops as _ops  # noqa: F401
+from onnx_ir.shape_inference import _ops  # noqa: F401
 from onnx_ir.shape_inference._broadcast import broadcast_shapes
 from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
 from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
@@ -96,3 +96,13 @@ def infer_symbolic_shapes(
         policy=policy,
         warn_on_missing=warn_on_missing,
     )(model).model
+
+
+def __set_module() -> None:
+    """Set the module of all functions in this module to this public module."""
+    global_dict = globals()
+    for name in __all__:
+        global_dict[name].__module__ = __name__
+
+
+__set_module()

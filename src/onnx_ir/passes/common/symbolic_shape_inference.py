@@ -11,9 +11,6 @@ __all__ = [
 import logging
 
 import onnx_ir as ir
-
-# Import ops to trigger registration
-from onnx_ir.shape_inference import ops as _ops  # noqa: F401
 from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
 from onnx_ir.shape_inference._registry import registry
 
@@ -58,6 +55,9 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
             warn_on_missing: If True, log warnings for ops without registered
                 shape inference.
         """
+        # Import ops to trigger registration
+        from onnx_ir.shape_inference import _ops  # noqa: F401
+
         super().__init__()
         self.policy = policy
         self.warn_on_missing = warn_on_missing
