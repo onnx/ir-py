@@ -30,7 +30,7 @@ Registering custom shape inference::
 
     from onnx_ir.shape_inference import registry
 
-    @registry.register("com.custom", "MyOp", opsets=range(1, 10))
+    @registry.register("com.custom", "MyOp", versions=1)
     def infer_my_op(ctx, node):
         # Access inputs
         input_shape = node.inputs[0].shape
@@ -43,16 +43,15 @@ Registering custom shape inference::
 """
 
 # Import ops to ensure they are registered (but don't expose publicly)
+import onnx_ir
 from onnx_ir.shape_inference import ops as _ops  # noqa: F401
 from onnx_ir.shape_inference._broadcast import broadcast_shapes
 from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
-from onnx_ir.shape_inference._pass import SymbolicShapeInferencePass, infer_symbolic_shapes
 from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
 
 __all__ = [
     # Main API
     "infer_symbolic_shapes",
-    "SymbolicShapeInferencePass",
     # Context and policy
     "ShapeInferenceContext",
     "ShapeMergePolicy",
@@ -62,3 +61,38 @@ __all__ = [
     # Utilities
     "broadcast_shapes",
 ]
+
+
+def infer_symbolic_shapes(
+    model: onnx_ir.Model,
+    *,
+    policy: ShapeMergePolicy = ShapeMergePolicy.REFINE,
+    warn_on_missing: bool = True,
+) -> onnx_ir.Model:
+    """Perform symbolic shape inference on the model.
+
+    Convenience function that creates and runs a SymbolicShapeInferencePass.
+
+    Args:
+        model: The model to perform shape inference on.
+        policy: How to merge inferred shapes with existing shapes.
+        warn_on_missing: If True, log warnings for ops without registered
+            shape inference.
+
+    Returns:
+        The model with shape inference applied (modified in place).
+
+    Example::
+
+        import onnx_ir as ir
+        from onnx_ir.passes.common import infer_symbolic_shapes
+
+        model = ir.load("model.onnx")
+        model = infer_symbolic_shapes(model)
+    """
+    from onnx_ir.passes.common.symbolic_shape_inference import SymbolicShapeInferencePass
+
+    return SymbolicShapeInferencePass(
+        policy=policy,
+        warn_on_missing=warn_on_missing,
+    )(model).model

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 __all__ = [
     "SymbolicShapeInferencePass",
-    "infer_symbolic_shapes",
 ]
 
 import logging
@@ -14,7 +13,7 @@ import logging
 import onnx_ir as ir
 
 # Import ops to trigger registration
-import onnx_ir.shape_inference.ops
+from onnx_ir.shape_inference import ops as _ops  # noqa: F401
 from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
 from onnx_ir.shape_inference._registry import registry
 
@@ -36,14 +35,14 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
     Example::
 
         import onnx_ir as ir
-        from onnx_ir.shape_inference import SymbolicShapeInferencePass
+        from onnx_ir.passes.common import SymbolicShapeInferencePass
 
         model = ir.load("model.onnx")
         pass_ = SymbolicShapeInferencePass()
         result = pass_(model)
 
         # Or use the convenience function
-        from onnx_ir.shape_inference import infer_symbolic_shapes
+        from onnx_ir.passes.common import infer_symbolic_shapes
         model = infer_symbolic_shapes(model)
     """
 
@@ -144,36 +143,3 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
                     warned_ops.add(key)
 
         return modified
-
-
-def infer_symbolic_shapes(
-    model: ir.Model,
-    *,
-    policy: ShapeMergePolicy = ShapeMergePolicy.REFINE,
-    warn_on_missing: bool = True,
-) -> ir.Model:
-    """Perform symbolic shape inference on the model.
-
-    Convenience function that creates and runs a SymbolicShapeInferencePass.
-
-    Args:
-        model: The model to perform shape inference on.
-        policy: How to merge inferred shapes with existing shapes.
-        warn_on_missing: If True, log warnings for ops without registered
-            shape inference.
-
-    Returns:
-        The model with shape inference applied (modified in place).
-
-    Example::
-
-        import onnx_ir as ir
-        from onnx_ir.shape_inference import infer_symbolic_shapes
-
-        model = ir.load("model.onnx")
-        model = infer_symbolic_shapes(model)
-    """
-    return SymbolicShapeInferencePass(
-        policy=policy,
-        warn_on_missing=warn_on_missing,
-    )(model).model
