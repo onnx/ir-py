@@ -231,21 +231,21 @@ class OpShapeInferenceRegistryTest(unittest.TestCase):
             pass
 
         # Should work for version 7 and above
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=7))
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=10))
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=20))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=7))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=10))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=20))
         # Should not work below version 7
-        self.assertIsNone(self.registry.get("", "TestOp", opset_version=6))
+        self.assertIsNone(self.registry.get("", "TestOp", version=6))
 
     def test_register_with_range(self):
         @self.registry.register("", "TestOp", versions=range(7, 14))
         def infer_test(ctx, node):
             pass
 
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=7))
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=13))
-        self.assertIsNone(self.registry.get("", "TestOp", opset_version=6))
-        self.assertIsNone(self.registry.get("", "TestOp", opset_version=14))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=7))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=13))
+        self.assertIsNone(self.registry.get("", "TestOp", version=6))
+        self.assertIsNone(self.registry.get("", "TestOp", version=14))
 
     def test_register_with_none_versions(self):
         @self.registry.register("", "TestOp", versions=None)
@@ -253,8 +253,8 @@ class OpShapeInferenceRegistryTest(unittest.TestCase):
             pass
 
         # Should work for any version
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=1))
-        self.assertIsNotNone(self.registry.get("", "TestOp", opset_version=100))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=1))
+        self.assertIsNotNone(self.registry.get("", "TestOp", version=100))
 
     def test_has(self):
         @self.registry.register("", "TestOp", versions=1)
@@ -274,14 +274,14 @@ class OpShapeInferenceRegistryTest(unittest.TestCase):
             return "v14"
 
         # Version 10 should get v7 handler
-        func10 = self.registry.get("", "TestOp", opset_version=10)
+        func10 = self.registry.get("", "TestOp", version=10)
         self.assertEqual(func10(None, None), "v7")
 
         # Version 14 and above should get v14 handler
-        func14 = self.registry.get("", "TestOp", opset_version=14)
+        func14 = self.registry.get("", "TestOp", version=14)
         self.assertEqual(func14(None, None), "v14")
 
-        func20 = self.registry.get("", "TestOp", opset_version=20)
+        func20 = self.registry.get("", "TestOp", version=20)
         self.assertEqual(func20(None, None), "v14")
 
 

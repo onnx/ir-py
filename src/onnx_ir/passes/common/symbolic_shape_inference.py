@@ -101,7 +101,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
             opset_version = ctx.get_opset_version(domain)
 
             # Look up shape inference function
-            infer_func = registry.get(domain, op_type, opset_version)
+            infer_func = registry.get(domain, op_type, version=opset_version)
 
             if infer_func is not None:
                 try:

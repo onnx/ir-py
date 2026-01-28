@@ -44,7 +44,7 @@ class OpShapeInferenceRegistry:
             ...
 
         # Lookup
-        func = registry.get("", "Add", opset_version=13)
+        func = registry.get("", "Add", version=13)
     """
 
     def __init__(self) -> None:
@@ -123,22 +123,21 @@ class OpShapeInferenceRegistry:
         self,
         domain: str,
         op_type: str,
-        opset_version: int,
+        version: int,
     ) -> ShapeInferenceFunc | None:
         """Get the shape inference function for an operator.
 
         Args:
             domain: ONNX domain.
             op_type: Operator type.
-            opset_version: Opset version to look up.
+            version: Opset version to look up.
 
         Returns:
             The shape inference function, or None if not found.
-            Falls back to the closest lower opset version if exact match not found.
         """
         key = (domain, op_type)
 
-        # Check exact version registrations first
+        # Check exact version registrations first (from range or wildcard)
         if key in self._versioned:
             versions = self._versioned[key]
 
@@ -146,20 +145,15 @@ class OpShapeInferenceRegistry:
             if 0 in versions:
                 return versions[0]
 
-            # Exact match
-            if opset_version in versions:
-                return versions[opset_version]
+            # Exact match only for range registrations (no fallback)
+            if version in versions:
+                return versions[version]
 
-            # Fallback to closest lower version
-            available = sorted(v for v in versions if v > 0 and v <= opset_version)
-            if available:
-                return versions[available[-1]]
-
-        # Check minimum version registrations
+        # Check minimum version registrations (int registration means "this version and above")
         if key in self._min_versioned:
             # List is sorted by min_version descending, so first match is most specific
             for min_ver, func in self._min_versioned[key]:
-                if min_ver <= opset_version:
+                if min_ver <= version:
                     return func
 
         return None
