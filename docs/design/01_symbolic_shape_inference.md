@@ -1,8 +1,11 @@
+---
+authors:
+  - '@justinchuby'
+  - '@copilot'
+created: 2026-01-27
+---
+
 # Symbolic Shape Inference for ONNX IR
-
-Authors: @justinchuby, @copilot
-
-Created: 1/2026
 
 > [!NOTE]
 > This design doc mainly created by Copilot and reviewed by @justinchuby
