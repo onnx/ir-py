@@ -44,7 +44,7 @@ def broadcast_shapes(
         >>> s1 = ir.Shape(["batch", 1, 256])
         >>> s2 = ir.Shape([1, "seq_len", 256])
         >>> broadcast_shapes(s1, s2)
-        Shape([batch, seq_len, 256])
+        Shape([SymbolicDim('batch'), SymbolicDim('seq_len'), 256])
     """
     if shape1 is None or shape2 is None:
         return None
