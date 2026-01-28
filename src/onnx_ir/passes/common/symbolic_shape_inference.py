@@ -38,7 +38,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
         result = pass_(model)
 
         # Or use the convenience function
-        from onnx_ir.passes.common import infer_symbolic_shapes
+        from onnx_ir.shape_inference import infer_symbolic_shapes
         model = infer_symbolic_shapes(model)
     """
 
