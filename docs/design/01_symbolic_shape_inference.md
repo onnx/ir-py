@@ -105,11 +105,11 @@ An opset-aware registry maps `(domain, op_type, version)` to inference functions
 registry = OpShapeInferenceRegistry()
 
 @registry.register("", "Add", versions=1)  # Version 1 and above
-def infer_add(node, ctx):
+def infer_add(ctx, node):
     ...
 
 @registry.register("", "Reshape", versions=range(5, 14))  # Versions 5-13 only
-def infer_reshape_v5(node, ctx):
+def infer_reshape_v5(ctx, node):
     ...
 ```
 
@@ -191,7 +191,7 @@ shape_inference/
 
 ```python
 @registry.register("", "Add", versions=1)
-def infer_add(node: ir.Node, ctx: ShapeInferenceContext) -> None:
+def infer_add(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     a, b = node.inputs[0], node.inputs[1]
     output = node.outputs[0]
 
@@ -287,7 +287,7 @@ for node in model.graph:
 from onnx_ir.shape_inference import registry, ShapeInferenceContext
 
 @registry.register("com.custom", "MyOp", versions=1)
-def infer_my_op(node: ir.Node, ctx: ShapeInferenceContext) -> None:
+def infer_my_op(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     # Custom inference logic
     input_shape = node.inputs[0].shape
     if input_shape is not None:
@@ -315,9 +315,7 @@ symbols = shape.free_symbols()  # {"batch", "seq"}
 
 1. **Constraint System**: Track dimension equality constraints and propagate bindings
 2. **Bidirectional Inference**: Infer input shapes from output constraints
-3. **ONNX Fallback**: Use ONNX's native shape inference for unregistered ops
-4. **More Operators**: Expand coverage beyond Add and Transpose
-5. **Serialization**: Serialize complex SymPy expressions to ONNX `dim_param` strings
+3. **More Operators**: Expand coverage beyond Add and Transpose
 
 ## Dependencies
 
