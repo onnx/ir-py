@@ -35,6 +35,7 @@ def broadcast_shapes(
 
     Example::
 
+        >>> import onnx_ir as ir
         >>> s1 = ir.Shape([3, 1, 5])
         >>> s2 = ir.Shape([1, 4, 5])
         >>> broadcast_shapes(s1, s2)
