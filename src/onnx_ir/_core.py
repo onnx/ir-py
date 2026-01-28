@@ -1342,17 +1342,13 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if other._value is None:
                 return SymbolicDim(None)
             return SymbolicDim(self.expr + other.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for +: 'SymbolicDim' and {type(other).__name__!r}"
-        )
+        return NotImplemented
 
     def __radd__(self, other: int) -> SymbolicDim:
         """Support int + SymbolicDim."""
         if isinstance(other, int):
             return self.__add__(other)
-        raise TypeError(
-            f"unsupported operand type(s) for +: {type(other).__name__!r} and 'SymbolicDim'"
-        )
+        return NotImplemented
 
     def __sub__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Subtract an integer or another SymbolicDim from this dimension."""
@@ -1364,9 +1360,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if other._value is None:
                 return SymbolicDim(None)
             return SymbolicDim(self.expr - other.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for -: 'SymbolicDim' and {type(other).__name__!r}"
-        )
+        return NotImplemented
 
     def __rsub__(self, other: int) -> SymbolicDim:
         """Support int - SymbolicDim."""
@@ -1374,9 +1368,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             return SymbolicDim(None)
         if isinstance(other, int):
             return SymbolicDim(other - self.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for -: {type(other).__name__!r} and 'SymbolicDim'"
-        )
+        return NotImplemented
 
     def __mul__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Multiply this dimension by an integer or another SymbolicDim."""
@@ -1388,17 +1380,13 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if other._value is None:
                 return SymbolicDim(None)
             return SymbolicDim(self.expr * other.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for *: 'SymbolicDim' and {type(other).__name__!r}"
-        )
+        return NotImplemented
 
     def __rmul__(self, other: int) -> SymbolicDim:
         """Support int * SymbolicDim."""
         if isinstance(other, int):
             return self.__mul__(other)
-        raise TypeError(
-            f"unsupported operand type(s) for *: {type(other).__name__!r} and 'SymbolicDim'"
-        )
+        return NotImplemented
 
     def __floordiv__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Floor divide this dimension by an integer or another SymbolicDim."""
@@ -1410,9 +1398,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if other._value is None:
                 return SymbolicDim(None)
             return SymbolicDim(self.expr // other.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for //: 'SymbolicDim' and {type(other).__name__!r}"
-        )
+        return NotImplemented
 
     def __mod__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Compute modulo of this dimension by an integer or another SymbolicDim."""
@@ -1424,9 +1410,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if other._value is None:
                 return SymbolicDim(None)
             return SymbolicDim(self.expr % other.expr)
-        raise TypeError(
-            f"unsupported operand type(s) for %: 'SymbolicDim' and {type(other).__name__!r}"
-        )
+        return NotImplemented
 
     def simplify(self) -> SymbolicDim:
         """Return a new SymbolicDim with the expression simplified.
