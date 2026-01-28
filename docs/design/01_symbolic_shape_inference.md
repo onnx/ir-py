@@ -5,7 +5,7 @@ Authors: @justinchuby, @copilot
 Created: 1/2026
 
 > [!NOTE]
-> This design doc was iterated with Copilot
+> This design doc mainly created by Copilot and reviewed by @justinchuby
 
 ## Overview
 
