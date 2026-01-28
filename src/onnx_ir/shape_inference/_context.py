@@ -9,9 +9,9 @@ __all__ = [
     "ShapeMergePolicy",
 ]
 
-import enum
 import logging
 from collections.abc import Mapping
+from typing import Literal
 
 import sympy
 
@@ -19,22 +19,15 @@ import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
 
+ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]
+"""Policy for merging inferred shapes/dtypes with existing values.
 
-class ShapeMergePolicy(enum.Enum):
-    """Policy for merging inferred shapes/dtypes with existing values.
-
-    Attributes:
-        SKIP: Don't update if shape/dtype already exists.
-        OVERRIDE: Always replace with inferred shape/dtype.
-        REFINE: Only update if inferred is more specific
-            (concrete beats symbolic, named symbolic beats None).
-        STRICT: Fail if inferred shape/dtype conflicts with existing.
-    """
-
-    SKIP = "skip"
-    OVERRIDE = "override"
-    REFINE = "refine"
-    STRICT = "strict"
+* ``"skip"``: Don't update if shape/dtype already exists.
+* ``"override"``: Always replace with inferred shape/dtype.
+* ``"refine"``: Only update if inferred is more specific
+    (concrete beats symbolic, named symbolic beats None).
+* ``"strict"``: Fail if inferred shape/dtype conflicts with existing.
+"""
 
 
 def _is_more_specific(
@@ -83,7 +76,7 @@ class ShapeInferenceContext:
         self,
         model: ir.Model,
         opset: int | None = None,
-        policy: ShapeMergePolicy = ShapeMergePolicy.REFINE,
+        policy: ShapeMergePolicy = "refine",
     ) -> None:
         """Initialize the shape inference context.
 
@@ -164,14 +157,14 @@ class ShapeInferenceContext:
             value.shape = shape
             return True
 
-        if self.policy == ShapeMergePolicy.SKIP:
+        if self.policy == "skip":
             return False
 
-        if self.policy == ShapeMergePolicy.OVERRIDE:
+        if self.policy == "override":
             value.shape = shape
             return True
 
-        if self.policy == ShapeMergePolicy.STRICT:
+        if self.policy == "strict":
             # Check for conflicts
             if existing.rank() != shape.rank():
                 raise ValueError(
@@ -187,7 +180,7 @@ class ShapeInferenceContext:
             # No conflicts, merge by taking more specific
             return self._refine_shape(value, existing, shape)
 
-        # REFINE policy
+        # "refine" policy
         return self._refine_shape(value, existing, shape)
 
     def _refine_shape(self, value: ir.Value, existing: ir.Shape, inferred: ir.Shape) -> bool:
@@ -230,21 +223,21 @@ class ShapeInferenceContext:
             value.dtype = dtype
             return True
 
-        if self.policy == ShapeMergePolicy.SKIP:
+        if self.policy == "skip":
             return False
 
-        if self.policy == ShapeMergePolicy.OVERRIDE:
+        if self.policy == "override":
             value.dtype = dtype
             return True
 
-        if self.policy == ShapeMergePolicy.STRICT:
+        if self.policy == "strict":
             if existing != dtype:
                 raise ValueError(
                     f"Dtype conflict for {value.name}: existing {existing} vs inferred {dtype}"
                 )
             return False
 
-        # REFINE policy - only set if not already set (existing is not None here)
+        # "refine" policy - only set if not already set (existing is not None here)
         return False
 
     def set_shape_and_dtype(

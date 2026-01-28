@@ -8,7 +8,7 @@ import unittest
 
 import onnx_ir as ir
 from onnx_ir.passes.common.symbolic_shape_inference import SymbolicShapeInferencePass
-from onnx_ir.shape_inference import ShapeMergePolicy, broadcast_shapes
+from onnx_ir.shape_inference import broadcast_shapes
 
 
 class SymbolicDimTest(unittest.TestCase):
@@ -300,7 +300,7 @@ class ShapeMergePolicyTest(unittest.TestCase):
         from onnx_ir.shape_inference._context import ShapeInferenceContext
 
         model, value = self._create_model_with_value(ir.Shape([1, 2, 3]))
-        ctx = ShapeInferenceContext(model, policy=ShapeMergePolicy.SKIP)
+        ctx = ShapeInferenceContext(model, policy="skip")
 
         modified = ctx.set_shape(value, ir.Shape([4, 5, 6]))
         self.assertFalse(modified)
@@ -310,7 +310,7 @@ class ShapeMergePolicyTest(unittest.TestCase):
         from onnx_ir.shape_inference._context import ShapeInferenceContext
 
         model, value = self._create_model_with_value(ir.Shape([1, 2, 3]))
-        ctx = ShapeInferenceContext(model, policy=ShapeMergePolicy.OVERRIDE)
+        ctx = ShapeInferenceContext(model, policy="override")
 
         modified = ctx.set_shape(value, ir.Shape([4, 5, 6]))
         self.assertTrue(modified)
@@ -320,7 +320,7 @@ class ShapeMergePolicyTest(unittest.TestCase):
         from onnx_ir.shape_inference._context import ShapeInferenceContext
 
         model, value = self._create_model_with_value(ir.Shape([None, 2, 3]))
-        ctx = ShapeInferenceContext(model, policy=ShapeMergePolicy.REFINE)
+        ctx = ShapeInferenceContext(model, policy="refine")
 
         modified = ctx.set_shape(value, ir.Shape([1, 2, 3]))
         self.assertTrue(modified)
@@ -330,7 +330,7 @@ class ShapeMergePolicyTest(unittest.TestCase):
         from onnx_ir.shape_inference._context import ShapeInferenceContext
 
         model, value = self._create_model_with_value(ir.Shape([1, 2, 3]))
-        ctx = ShapeInferenceContext(model, policy=ShapeMergePolicy.REFINE)
+        ctx = ShapeInferenceContext(model, policy="refine")
 
         # Try to refine with symbolic - should keep concrete
         modified = ctx.set_shape(value, ir.Shape(["batch", 2, 3]))
@@ -341,7 +341,7 @@ class ShapeMergePolicyTest(unittest.TestCase):
         from onnx_ir.shape_inference._context import ShapeInferenceContext
 
         model, value = self._create_model_with_value(ir.Shape([1, 2, 3]))
-        ctx = ShapeInferenceContext(model, policy=ShapeMergePolicy.STRICT)
+        ctx = ShapeInferenceContext(model, policy="strict")
 
         with self.assertRaises(ValueError) as cm:
             ctx.set_shape(value, ir.Shape([4, 2, 3]))

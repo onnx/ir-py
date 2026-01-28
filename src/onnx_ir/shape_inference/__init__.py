@@ -66,7 +66,7 @@ __all__ = [
 def infer_symbolic_shapes(
     model: onnx_ir.Model,
     *,
-    policy: ShapeMergePolicy = ShapeMergePolicy.REFINE,
+    policy: ShapeMergePolicy = "refine",
     warn_on_missing: bool = True,
 ) -> onnx_ir.Model:
     """Perform symbolic shape inference on the model.

@@ -11,8 +11,7 @@ __all__ = [
 import logging
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
-from onnx_ir.shape_inference._registry import registry
+from onnx_ir.shape_inference import _context, _registry
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
 
     def __init__(
         self,
-        policy: ShapeMergePolicy = ShapeMergePolicy.REFINE,
+        policy: _context.ShapeMergePolicy = "refine",
         warn_on_missing: bool = True,
     ) -> None:
         """Initialize the symbolic shape inference pass.
@@ -71,7 +70,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
         Returns:
             PassResult with the model and whether it was modified.
         """
-        ctx = ShapeInferenceContext(model, policy=self.policy)
+        ctx = _context.ShapeInferenceContext(model, policy=self.policy)
         modified = False
 
         # Process all graphs (main graph + subgraphs)
@@ -81,7 +80,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
 
         return ir.passes.PassResult(model, modified)
 
-    def _process_graph(self, ctx: ShapeInferenceContext, graph: ir.Graph) -> bool:
+    def _process_graph(self, ctx: _context.ShapeInferenceContext, graph: ir.Graph) -> bool:
         """Process a single graph.
 
         Args:
@@ -101,7 +100,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
             opset_version = ctx.get_opset_version(domain)
 
             # Look up shape inference function
-            infer_func = registry.get(domain, op_type, version=opset_version)
+            infer_func = _registry.registry.get(domain, op_type, version=opset_version)
 
             if infer_func is not None:
                 try:
