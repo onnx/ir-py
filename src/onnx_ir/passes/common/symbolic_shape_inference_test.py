@@ -113,7 +113,7 @@ class SymbolicDimTest(unittest.TestCase):
     def test_unsupported_operand_raises_type_error(self):
         dim = ir.SymbolicDim("N")
         with self.assertRaises(TypeError) as ctx:
-            dim + "string"
+            _ = dim + "string"
         self.assertIn("unsupported operand type", str(ctx.exception))
 
     def test_simplify(self):
