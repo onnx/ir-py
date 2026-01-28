@@ -85,7 +85,7 @@ def infer_symbolic_shapes(
     Example::
 
         import onnx_ir as ir
-        from onnx_ir.passes.common import infer_symbolic_shapes
+        from onnx_ir.shape_inference import infer_symbolic_shapes
 
         model = ir.load("model.onnx")
         model = infer_symbolic_shapes(model)
