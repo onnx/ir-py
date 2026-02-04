@@ -17,7 +17,7 @@ class SymbolicDimTest(unittest.TestCase):
     def test_string_value(self):
         dim = ir.SymbolicDim("batch")
         self.assertEqual(dim.value, "batch")
-        self.assertIsNone(dim._expr)  # Lazy - not created yet
+        self.assertIsNone(dim._expr_cache)  # Lazy - not created yet
 
     def test_none_value(self):
         dim = ir.SymbolicDim(None)
