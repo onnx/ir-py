@@ -47,7 +47,7 @@ def infer_transpose(ctx: ShapeInferenceContext, node: ir.Node) -> None:
             perm = perm_attr.as_ints()
         else:
             # Default: reverse dimensions
-            perm = list(range(rank - 1, -1, -1))
+            perm = tuple(range(rank - 1, -1, -1))
 
         # Validate perm
         if len(perm) == rank:
