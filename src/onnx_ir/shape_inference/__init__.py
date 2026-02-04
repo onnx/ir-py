@@ -20,12 +20,6 @@ Example::
     # Or with custom policy
     model = infer_symbolic_shapes(model, policy="strict")
 
-    # Using the pass directly
-    from onnx_ir.shape_inference import SymbolicShapeInferencePass
-
-    pass_ = SymbolicShapeInferencePass()
-    result = pass_(model)
-
 Registering custom shape inference::
 
     from onnx_ir.shape_inference import registry
