@@ -107,8 +107,8 @@ def _broadcast_dim(
     # Both symbolic
     if isinstance(dim1, ir.SymbolicDim) and isinstance(dim2, ir.SymbolicDim):
         # Check if they're equal (same expression)
-        if dim1.expr is not None and dim2.expr is not None:
-            if dim1.expr == dim2.expr:
+        if dim1._expr is not None and dim2._expr is not None:
+            if dim1._expr == dim2._expr:
                 return dim1
         # If one is unknown (None), use the other
         if dim1.value is None:

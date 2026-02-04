@@ -22,7 +22,7 @@ class SymbolicDimTest(unittest.TestCase):
     def test_none_value(self):
         dim = ir.SymbolicDim(None)
         self.assertIsNone(dim.value)
-        self.assertIsNone(dim.expr)
+        self.assertIsNone(dim._expr)
 
     def test_sympy_expr_value(self):
         import sympy
@@ -30,7 +30,7 @@ class SymbolicDimTest(unittest.TestCase):
         expr = sympy.Symbol("N") + 1
         dim = ir.SymbolicDim(expr)
         self.assertEqual(dim.value, "N + 1")
-        self.assertEqual(dim.expr, expr)
+        self.assertEqual(dim._expr, expr)
 
     def test_int_raises_type_error(self):
         with self.assertRaises(TypeError):

@@ -1257,14 +1257,12 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         >>> seq_plus_one = ir.SymbolicDim("seq_len") + 1
         >>> seq_plus_one.value
         'seq_len + 1'
-        >>> seq_plus_one.expr
-        seq_len + 1
         >>> # Evaluate with concrete values
         >>> seq_plus_one.evaluate({"seq_len": 128})
         129
     """
 
-    __slots__ = ("_expr", "_hash", "_value")
+    __slots__ = ("_expr_cache", "_hash", "_value")
 
     def __init__(self, value: str | sympy.Expr | None) -> None:
         """Initialize a symbolic dimension.
@@ -1285,7 +1283,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             )
 
         # Lazy initialization - don't create sympy expression unless needed
-        self._expr: sympy.Expr | None = None
+        self._expr_cache: sympy.Expr | None = None
 
         if value is None:
             self._value: str | None = None
@@ -1294,7 +1292,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         elif isinstance(value, sympy.Expr):
             # For sympy expressions, store both value string and expression
             self._value = str(value)
-            self._expr = value
+            self._expr_cache = value
         else:
             raise TypeError(f"Expected str, None, or sympy.Expr, got {type(value).__name__}")
 
@@ -1321,27 +1319,27 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         return self._value
 
     @property
-    def expr(self) -> sympy.Expr | None:
+    def _expr(self) -> sympy.Expr | None:
         """The underlying SymPy expression (lazily created).
 
         Returns the SymPy expression for this dimension, or None for unknown dimensions.
         """
         if self._value is None:
             return None
-        if self._expr is None:
-            self._expr = sympy.Symbol(self._value, integer=True, positive=True)
-        return self._expr
+        if self._expr_cache is None:
+            self._expr_cache = sympy.Symbol(self._value, integer=True, positive=True)
+        return self._expr_cache
 
     def __add__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Add an integer or another SymbolicDim to this dimension."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self.expr + other)
+            return SymbolicDim(self._expr + other)
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self.expr + other.expr)
+            return SymbolicDim(self._expr + other._expr)
         return NotImplemented
 
     def __radd__(self, other: int) -> SymbolicDim:
@@ -1352,34 +1350,34 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
 
     def __sub__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Subtract an integer or another SymbolicDim from this dimension."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self.expr - other)
+            return SymbolicDim(self._expr - other)
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self.expr - other.expr)
+            return SymbolicDim(self._expr - other._expr)
         return NotImplemented
 
     def __rsub__(self, other: int) -> SymbolicDim:
         """Support int - SymbolicDim."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(other - self.expr)
+            return SymbolicDim(other - self._expr)
         return NotImplemented
 
     def __mul__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Multiply this dimension by an integer or another SymbolicDim."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self.expr * other)
+            return SymbolicDim(self._expr * other)
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self.expr * other.expr)
+            return SymbolicDim(self._expr * other._expr)
         return NotImplemented
 
     def __rmul__(self, other: int) -> SymbolicDim:
@@ -1390,26 +1388,26 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
 
     def __floordiv__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Floor divide this dimension by an integer or another SymbolicDim."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self.expr // other)
+            return SymbolicDim(self._expr // other)
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self.expr // other.expr)
+            return SymbolicDim(self._expr // other._expr)
         return NotImplemented
 
     def __mod__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Compute modulo of this dimension by an integer or another SymbolicDim."""
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self.expr % other)
+            return SymbolicDim(self._expr % other)
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self.expr % other.expr)
+            return SymbolicDim(self._expr % other._expr)
         return NotImplemented
 
     def simplify(self) -> SymbolicDim:
@@ -1420,9 +1418,9 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         Returns:
             A new SymbolicDim with simplified expression.
         """
-        if self.expr is None:
+        if self._expr is None:
             return SymbolicDim(None)
-        return SymbolicDim(sympy.simplify(self.expr))
+        return SymbolicDim(sympy.simplify(self._expr))
 
     def evaluate(self, bindings: Mapping[str, int]) -> int | None:
         """Evaluate the symbolic dimension with concrete values.
@@ -1440,11 +1438,15 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             >>> dim.evaluate({"N": 10})
             11
         """
-        if self.expr is None:
+        if self._expr is None:
             return None
         # Build substitution map using the actual symbols present in the expression
-        subs = {symbol: bindings[str(symbol)] for symbol in self.expr.free_symbols if str(symbol) in bindings}
-        result = self.expr.subs(subs)
+        subs = {
+            symbol: bindings[str(symbol)]
+            for symbol in self._expr.free_symbols
+            if str(symbol) in bindings
+        }
+        result = self._expr.subs(subs)
         if result.is_number:
             return int(result)
         return None
@@ -1455,15 +1457,15 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         Returns:
             A frozenset of symbol names that appear in the expression.
         """
-        if self.expr is None:
+        if self._expr is None:
             return frozenset()
-        return frozenset(str(s) for s in self.expr.free_symbols)
+        return frozenset(str(s) for s in self._expr.free_symbols)
 
     def __str__(self) -> str:
         return str(self._value) if self._value is not None else "None"
 
     def __repr__(self) -> str:
-        if self.expr is None:
+        if self._expr is None:
             return f"{self.__class__.__name__}(None)"
         return f"{self.__class__.__name__}({self._value!r})"
 
