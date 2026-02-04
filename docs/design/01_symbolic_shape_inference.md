@@ -102,31 +102,30 @@ shape.free_symbols()  # {"batch", "seq"}
 
 ### 3. Shape Inference Registry
 
-An opset-aware registry maps `(domain, op_type, version)` to inference functions:
+An opset-aware registry maps `(domain, op_type, version)` to inference functions with O(1) lookup:
 
 ```python
 registry = OpShapeInferenceRegistry()
 
-@registry.register("", "Add", versions=1)  # Version 1 and above
-def infer_add(ctx, node):
+@registry.register("", "Add", since_version=7)  # Version 7 and above
+def infer_add_v7(ctx, node):
     ...
 
-@registry.register("", "Reshape", versions=range(5, 14))  # Versions 5-13 only
-def infer_reshape_v5(ctx, node):
+@registry.register("", "Reshape", since_version=14)  # Version 14 and above
+def infer_reshape_v14(ctx, node):
     ...
 ```
 
 **Version specification:**
 
-- `versions=None`: All versions (wildcard)
-- `versions=int`: This version and all above (minimum version)
-- `versions=range(a, b)`: Exact versions a to b-1 only
+- `since_version=int`: This version and all above until the next registration
 
 **Lookup behavior:**
 
-1. Check exact version match (for range registrations)
-2. Fall back to highest minimum-version registration that applies
-3. Fall back to wildcard registration
+1. Dispatch to the registered function where `version >= since_version`
+   and `version < next_since_version`
+2. Uses a cached dict for O(1) lookup after first access
+3. Tracks the largest `since_version` for efficient lookup of versions beyond cache
 
 ### 4. Shape Inference Context
 
@@ -193,7 +192,7 @@ shape_inference/
 **Example: Add operator**
 
 ```python
-@registry.register("", "Add", versions=1)
+@registry.register("", "Add", since_version=1)
 def infer_add(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     a, b = node.inputs[0], node.inputs[1]
     output = node.outputs[0]

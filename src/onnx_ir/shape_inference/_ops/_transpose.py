@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from onnx_ir.shape_inference._context import ShapeInferenceContext
 
 
-@registry.register("", "Transpose", versions=1)
+@registry.register("", "Transpose", since_version=1)
 def infer_transpose(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Transpose operator.
 

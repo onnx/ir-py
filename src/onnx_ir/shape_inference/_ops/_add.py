@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from onnx_ir.shape_inference._context import ShapeInferenceContext
 
 
-@registry.register("", "Add", versions=7)
+@registry.register("", "Add", since_version=7)
 def infer_add(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Add operator.
 
