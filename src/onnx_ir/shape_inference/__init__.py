@@ -18,7 +18,7 @@ Example::
     model = infer_symbolic_shapes(model)
 
     # Or with custom policy
-    model = infer_symbolic_shapes(model, policy=ShapeMergePolicy.STRICT)
+    model = infer_symbolic_shapes(model, policy="strict")
 
     # Using the pass directly
     from onnx_ir.shape_inference import SymbolicShapeInferencePass
