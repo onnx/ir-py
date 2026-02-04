@@ -1263,7 +1263,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         129
     """
 
-    __slots__ = ("_expr_cache", "_hash", "_value")
+    __slots__ = ("_expr_cache", "_value")
 
     def __init__(self, value: str | sympy.Expr | None) -> None:
         """Initialize a symbolic dimension.
