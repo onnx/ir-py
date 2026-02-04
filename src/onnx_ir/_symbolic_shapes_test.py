@@ -36,39 +36,39 @@ class ParseSymbolicExpressionTest(unittest.TestCase):
 
     def test_addition(self):
         """Test parsing addition."""
-        result = parse_symbolic_expression("N + 1")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, N + 1)
+        result = parse_symbolic_expression("n + 1")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, n + 1)
 
     def test_subtraction(self):
         """Test parsing subtraction."""
-        result = parse_symbolic_expression("N - 1")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, N - 1)
+        result = parse_symbolic_expression("n - 1")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, n - 1)
 
     def test_multiplication(self):
         """Test parsing multiplication."""
-        result = parse_symbolic_expression("2 * N")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, 2 * N)
+        result = parse_symbolic_expression("2 * n")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, 2 * n)
 
     def test_division(self):
         """Test parsing division."""
-        result = parse_symbolic_expression("N / 2")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, N / 2)
+        result = parse_symbolic_expression("n / 2")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, n / 2)
 
     def test_floor_division(self):
         """Test parsing floor division."""
-        result = parse_symbolic_expression("N // 2")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, sympy.floor(N / 2))
+        result = parse_symbolic_expression("n // 2")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.floor(n / 2))
 
     def test_power(self):
         """Test parsing exponentiation."""
-        result = parse_symbolic_expression("N ** 2")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, N**2)
+        result = parse_symbolic_expression("n ** 2")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, n**2)
 
     def test_power_right_associative(self):
         """Test that power is right-associative (2**3**2 = 2^(3^2) = 512)."""
@@ -77,9 +77,9 @@ class ParseSymbolicExpressionTest(unittest.TestCase):
 
     def test_unary_minus(self):
         """Test parsing unary minus."""
-        result = parse_symbolic_expression("-N")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, -N)
+        result = parse_symbolic_expression("-n")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, -n)
 
     def test_unary_minus_in_expression(self):
         """Test parsing unary minus in an expression."""
@@ -158,15 +158,15 @@ class ParseSymbolicExpressionTest(unittest.TestCase):
 
     def test_function_floor(self):
         """Test parsing floor function."""
-        result = parse_symbolic_expression("floor(N / 2)")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, sympy.floor(N / 2))
+        result = parse_symbolic_expression("floor(n / 2)")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.floor(n / 2))
 
     def test_function_sqrt(self):
         """Test parsing sqrt function."""
-        result = parse_symbolic_expression("sqrt(N)")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, sympy.sqrt(N))
+        result = parse_symbolic_expression("sqrt(n)")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.sqrt(n))
 
     def test_nested_function_calls(self):
         """Test parsing nested function calls."""
@@ -192,9 +192,9 @@ class ParseSymbolicExpressionTest(unittest.TestCase):
 
     def test_multiple_same_variables(self):
         """Test expression with same variable multiple times."""
-        result = parse_symbolic_expression("N + N")
-        N = sympy.Symbol("N", integer=True, positive=True)
-        self.assertEqual(result, 2 * N)
+        result = parse_symbolic_expression("n + n")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, 2 * n)
 
 
 class ParseSymbolicExpressionErrorTest(unittest.TestCase):
