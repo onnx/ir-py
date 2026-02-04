@@ -24,7 +24,7 @@ Registering custom shape inference::
 
     from onnx_ir.shape_inference import registry
 
-    @registry.register("com.custom", "MyOp", versions=1)
+    @registry.register("com.custom", "MyOp", since_version=1)
     def infer_my_op(ctx, node):
         # Access inputs
         input_shape = node.inputs[0].shape

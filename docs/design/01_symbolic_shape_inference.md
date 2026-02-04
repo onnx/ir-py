@@ -288,7 +288,7 @@ for node in model.graph:
 ```python
 from onnx_ir.shape_inference import registry, ShapeInferenceContext
 
-@registry.register("com.custom", "MyOp", versions=1)
+@registry.register("com.custom", "MyOp", since_version=1)
 def infer_my_op(ctx: ShapeInferenceContext, node: ir.Node) -> None:
     # Custom inference logic
     input_shape = node.inputs[0].shape
