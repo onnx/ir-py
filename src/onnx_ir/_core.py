@@ -60,6 +60,7 @@ from onnx_ir import (
     _metadata,
     _name_authority,
     _protocols,
+    _symbolic_shapes,
     _type_casting,
 )
 
@@ -1323,11 +1324,17 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         """The underlying SymPy expression (lazily created).
 
         Returns the SymPy expression for this dimension, or None for unknown dimensions.
+
+        The expression is parsed from the string representation and supports:
+            - Basic arithmetic: +, -, *, /, //, **
+            - Functions: max(), min(), floor(), sqrt()
+            - Symbolic variables (identifiers)
+            - Integer literals
         """
         if self._value is None:
             return None
         if self._expr_cache is None:
-            self._expr_cache = sympy.Symbol(self._value, integer=True, positive=True)
+            self._expr_cache = _symbolic_shapes.parse_symbolic_expression(self._value)
         return self._expr_cache
 
     def __add__(self, other: int | SymbolicDim) -> SymbolicDim:
