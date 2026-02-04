@@ -134,7 +134,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
             elif self.warn_on_missing:
                 key = (domain, op_type)
                 if key not in warned_ops:
-                    logger.debug(
+                    logger.warning(
                         "No shape inference registered for %s::%s",
                         domain or "ai.onnx",
                         op_type,
