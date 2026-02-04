@@ -1442,8 +1442,8 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         """
         if self.expr is None:
             return None
-        # Convert string keys to SymPy symbols
-        subs = {sympy.Symbol(k, integer=True, positive=True): v for k, v in bindings.items()}
+        # Build substitution map using the actual symbols present in the expression
+        subs = {symbol: bindings[str(symbol)] for symbol in self.expr.free_symbols if str(symbol) in bindings}
         result = self.expr.subs(subs)
         if result.is_number:
             return int(result)
