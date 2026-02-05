@@ -225,9 +225,7 @@ class GetTypeFromStrTest(unittest.TestCase):
 
     def test_nested_sequence_optional(self):
         result = schemas._get_type_from_str("seq(optional(tensor(float)))")
-        expected = ir.SequenceType(
-            ir.OptionalType(ir.TensorType(ir.DataType.FLOAT))
-        )
+        expected = ir.SequenceType(ir.OptionalType(ir.TensorType(ir.DataType.FLOAT)))
         self.assertEqual(result, expected)
 
     def test_unknown_type_part_raises(self):
