@@ -2,6 +2,13 @@
 # Licensed under the MIT License.
 from __future__ import annotations
 
+__all__ = [
+    "OpSignature",
+    "Parameter",
+    "AttributeParameter",
+    "TypeConstraintParam",
+]
+
 import dataclasses
 import functools
 from collections.abc import Iterator, Mapping, Sequence
@@ -23,7 +30,7 @@ _EMPTY_DEFAULT = _Empty()
 
 @functools.cache
 def _all_value_types():
-    return (
+    return frozenset(
         {_core.TensorType(dtype) for dtype in _enums.DataType}
         | {_core.SequenceType(_core.TensorType(dtype)) for dtype in _enums.DataType}
         | {_core.OptionalType(_core.TensorType(dtype)) for dtype in _enums.DataType}
