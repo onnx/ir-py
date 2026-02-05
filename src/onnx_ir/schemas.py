@@ -2,20 +2,14 @@
 # Licensed under the MIT License.
 from __future__ import annotations
 
-import collections.abc
 import dataclasses
-import inspect
-import logging
-import types
-import typing
-from typing import Any, Iterator, Mapping, Optional, Sequence, TypeVar, Union
+import functools
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
 
-import onnx
+import onnx  # noqa: TID251
 
-import onnxscript
-from onnxscript import ir
-
-logger = logging.getLogger(__name__)
+from onnx_ir import _core, _enums, _protocols, serde
 
 
 # A special value to indicate that the default value is not specified
@@ -27,11 +21,13 @@ class _Empty:
 _EMPTY_DEFAULT = _Empty()
 
 
-_ALL_VALUE_TYPES = (
-    {ir.TensorType(dtype) for dtype in ir.DataType}
-    | {ir.SequenceType(ir.TensorType(dtype)) for dtype in ir.DataType}
-    | {ir.OptionalType(ir.TensorType(dtype)) for dtype in ir.DataType}
-)
+@functools.cache
+def _all_value_types():
+    return (
+        {_core.TensorType(dtype) for dtype in _enums.DataType}
+        | {_core.SequenceType(_core.TensorType(dtype)) for dtype in _enums.DataType}
+        | {_core.OptionalType(_core.TensorType(dtype)) for dtype in _enums.DataType}
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,7 +40,7 @@ class TypeConstraintParam:
     """
 
     name: str
-    allowed_types: set[ir.TypeProtocol]
+    allowed_types: set[_protocols.TypeProtocol]
     description: str = ""
 
     def __hash__(self) -> int:
@@ -56,11 +52,11 @@ class TypeConstraintParam:
 
     @classmethod
     def any_tensor(cls, name: str, description: str = "") -> TypeConstraintParam:
-        return cls(name, {ir.TensorType(dtype) for dtype in ir.DataType}, description)
+        return cls(name, {_core.TensorType(dtype) for dtype in _enums.DataType}, description)
 
     @classmethod
     def any_value(cls, name: str, description: str = "") -> TypeConstraintParam:
-        return cls(name, _ALL_VALUE_TYPES, description)  # type: ignore[arg-type]
+        return cls(name, _all_value_types(), description)  # type: ignore[arg-type]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,9 +93,9 @@ class AttributeParameter:
     """A parameter in the function signature that represents an ONNX attribute."""
 
     name: str
-    type: ir.AttributeType
+    type: _enums.AttributeType
     required: bool
-    default: ir.Attr | None = None
+    default: _core.Attr | None = None
 
     def __str__(self) -> str:
         type_str = self.type.name
@@ -119,8 +115,8 @@ class AttributeParameter:
 
 def _get_type_from_str(
     type_str: str,
-) -> ir.TensorType | ir.SequenceType | ir.OptionalType:
-    """Converter a type_str from ONNX OpSchema to ir.TypeProtocol.
+) -> _core.TensorType | _core.SequenceType | _core.OptionalType:
+    """Converter a type_str from ONNX OpSchema to _protocols.TypeProtocol.
 
     A type str has the form of "tensor(float)" or composite type like "seq(tensor(float))".
     """
@@ -130,20 +126,20 @@ def _get_type_from_str(
     # 2. Split the type_str by "("
     type_parts = striped.split("(")
 
-    # Convert the dtype to ir.DataType
-    dtype = ir.DataType[type_parts[-1].upper()]
+    # Convert the dtype to _enums.DataType
+    dtype = _enums.DataType[type_parts[-1].upper()]
 
     # Create a place holder type first
-    type_: ir.TypeProtocol = ir.TensorType(ir.DataType.UNDEFINED)
+    type_: _protocols.TypeProtocol = _core.TensorType(_enums.DataType.UNDEFINED)
 
     # Construct the type
     for type_part in reversed(type_parts[:-1]):
         if type_part == "tensor":
-            type_ = ir.TensorType(dtype)
+            type_ = _core.TensorType(dtype)
         elif type_part == "seq":
-            type_ = ir.SequenceType(type_)
+            type_ = _core.SequenceType(type_)
         elif type_part == "optional":
-            type_ = ir.OptionalType(type_)
+            type_ = _core.OptionalType(type_)
         else:
             raise ValueError(f"Unknown type part: '{type_part}' in type '{type_str}'")
     return type_  # type: ignore[return-value]
@@ -184,6 +180,7 @@ class OpSignature:
           the order is according to the function signature. This mean we can
           interleave ONNX inputs and ONNX attributes in the list.
         outputs: Output parameters.
+        since_version: The version of the operator set. E.g. 1.
     """
 
     domain: str
@@ -210,7 +207,6 @@ class OpSignature:
 
     def __str__(self) -> str:
         domain = self.domain or "''"
-        # TODO: Double check the separator for overload
         overload = f"::{self.overload}" if self.overload else ""
         params = ", ".join(str(param) for param in self.params)
         outputs = ", ".join(str(param.type_constraint.name) for param in self.outputs)
@@ -255,7 +251,7 @@ class OpSignature:
 
         for param in op_schema.attributes.values():
             default_attr = (
-                ir.serde.deserialize_attribute(param.default_value)
+                serde.deserialize_attribute(param.default_value)
                 if param.default_value is not None
                 else None
             )
@@ -265,7 +261,7 @@ class OpSignature:
             params.append(
                 AttributeParameter(
                     name=param.name,
-                    type=ir.AttributeType(param.type),  # type: ignore[arg-type]
+                    type=_enums.AttributeType(param.type),  # type: ignore[arg-type]
                     required=param.required,
                     default=default_attr,  # type: ignore[arg-type]
                 )
