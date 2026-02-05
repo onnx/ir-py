@@ -47,11 +47,8 @@ class TypeConstraintParam:
     """
 
     name: str
-    allowed_types: set[_protocols.TypeProtocol]
+    allowed_types: frozenset[_protocols.TypeProtocol]
     description: str = ""
-
-    def __hash__(self) -> int:
-        return hash((self.name, tuple(self.allowed_types)))
 
     def __str__(self) -> str:
         allowed_types_str = " | ".join(str(t) for t in self.allowed_types)
@@ -59,7 +56,9 @@ class TypeConstraintParam:
 
     @classmethod
     def any_tensor(cls, name: str, description: str = "") -> TypeConstraintParam:
-        return cls(name, {_core.TensorType(dtype) for dtype in _enums.DataType}, description)
+        return cls(
+            name, frozenset(_core.TensorType(dtype) for dtype in _enums.DataType), description
+        )
 
     @classmethod
     def any_value(cls, name: str, description: str = "") -> TypeConstraintParam:
@@ -163,7 +162,7 @@ def _convert_formal_parameter(
         # param.type_str can be a plain type like 'int64'.
         type_constraint = TypeConstraintParam(
             name=param.name,
-            allowed_types={_get_type_from_str(param.type_str)},
+            allowed_types=frozenset((_get_type_from_str(param.type_str),)),
         )
     return Parameter(
         name=param.name,
@@ -244,9 +243,9 @@ class OpSignature:
         type_constraints = {
             constraint.type_param_str: TypeConstraintParam(
                 name=constraint.type_param_str,
-                allowed_types={
+                allowed_types=frozenset(
                     _get_type_from_str(type_str) for type_str in constraint.allowed_type_strs
-                },
+                ),
                 description=constraint.description,
             )
             for constraint in op_schema.type_constraints
