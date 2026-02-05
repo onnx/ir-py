@@ -13,20 +13,25 @@ from onnx_ir import schemas
 
 class TypeConstraintParamTest(unittest.TestCase):
     def test_init(self):
-        allowed = {ir.TensorType(ir.DataType.FLOAT)}
+        allowed = frozenset({ir.TensorType(ir.DataType.FLOAT)})
         param = schemas.TypeConstraintParam("T", allowed, "A description")
         self.assertEqual(param.name, "T")
         self.assertEqual(param.allowed_types, allowed)
         self.assertEqual(param.description, "A description")
 
-    def test_hash(self):
+    def test_init_raises_type_error_when_allowed_types_not_frozenset(self):
         allowed = {ir.TensorType(ir.DataType.FLOAT)}
+        with self.assertRaises(TypeError):
+            schemas.TypeConstraintParam("T", allowed)
+
+    def test_hash(self):
+        allowed = frozenset({ir.TensorType(ir.DataType.FLOAT)})
         param1 = schemas.TypeConstraintParam("T", allowed)
         param2 = schemas.TypeConstraintParam("T", allowed)
         self.assertEqual(hash(param1), hash(param2))
 
     def test_str(self):
-        allowed = {ir.TensorType(ir.DataType.FLOAT)}
+        allowed = frozenset({ir.TensorType(ir.DataType.FLOAT)})
         param = schemas.TypeConstraintParam("T", allowed)
         result = str(param)
         self.assertIn("T=", result)
@@ -59,7 +64,7 @@ class TypeConstraintParamTest(unittest.TestCase):
 class ParameterTest(unittest.TestCase):
     def setUp(self):
         self.type_constraint = schemas.TypeConstraintParam(
-            "T", {ir.TensorType(ir.DataType.FLOAT)}
+            "T", frozenset({ir.TensorType(ir.DataType.FLOAT)})
         )
 
     def test_init(self):

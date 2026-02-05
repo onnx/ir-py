@@ -50,6 +50,17 @@ class TypeConstraintParam:
     allowed_types: frozenset[_protocols.TypeProtocol]
     description: str = ""
 
+    def __post_init__(self):
+        if not self.allowed_types:
+            raise ValueError(
+                f"Type constraint '{self.name}' must have at least one allowed type."
+            )
+
+        if not isinstance(self.allowed_types, frozenset):
+            raise TypeError(
+                f"allowed_types must be a frozenset, got {type(self.allowed_types)}"
+            )
+
     def __str__(self) -> str:
         allowed_types_str = " | ".join(str(t) for t in self.allowed_types)
         return f"{self.name}={allowed_types_str}"
