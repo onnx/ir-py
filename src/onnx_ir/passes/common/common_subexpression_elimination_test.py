@@ -257,7 +257,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
 
     def test_graph_output_value_replacement_preserves_name(self):
         @script()
-        def test_model(x: FLOAT[2, 2]) -> (FLOAT[2, 2], FLOAT[2, 2]):
+        def test_model(x: FLOAT[2, 2]) -> tuple[FLOAT[2, 2], FLOAT[2, 2]]:
             a = op.Cos(x)
             b = op.Cos(x)
             return a + b, b
@@ -286,7 +286,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
 
     def test_identity_inserted_when_both_outputs_are_graph_outputs(self):
         @script()
-        def test_model(x: FLOAT[2, 2]) -> (FLOAT[2, 2], FLOAT[2, 2]):
+        def test_model(x: FLOAT[2, 2]) -> tuple[FLOAT[2, 2], FLOAT[2, 2]]:
             a = op.Cos(x)
             b = op.Cos(x)
             return a, b
