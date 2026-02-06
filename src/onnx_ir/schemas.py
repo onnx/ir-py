@@ -134,15 +134,15 @@ class AttributeParameter:
 def _get_type_from_str(
     type_str: str,
 ) -> _core.TensorType | _core.SequenceType | _core.OptionalType:
-    """Converter a type_str from ONNX OpSchema to _protocols.TypeProtocol.
+    """Convert a type_str from ONNX OpSchema to _protocols.TypeProtocol.
 
     A type str has the form of "tensor(float)" or composite type like "seq(tensor(float))".
     """
-    # Split the type_str a sequence types and dtypes
+    # Split the type_str into sequence types and dtypes
     # 1. Remove the ending ")"
-    striped = type_str.rstrip(")")
+    stripped = type_str.rstrip(")")
     # 2. Split the type_str by "("
-    type_parts = striped.split("(")
+    type_parts = stripped.split("(")
 
     # Convert the dtype to _enums.DataType
     dtype = _enums.DataType[type_parts[-1].upper()]
