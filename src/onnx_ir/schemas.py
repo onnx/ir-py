@@ -211,7 +211,15 @@ class OpSignature:
     since_version: int = 1
 
     def __post_init__(self):
-        self.params_map = {param.name: param for param in self.params}
+        params_map: dict[str, Parameter | AttributeParameter] = {}
+        for param in self.params:
+            if param.name in params_map:
+                raise ValueError(
+                    f"Duplicate parameter name {param.name!r} in OpSignature "
+                    f"{self.domain!r}::{self.name!r}"
+                )
+            params_map[param.name] = param
+        self.params_map = params_map
 
     def get(self, name: str) -> Parameter | AttributeParameter:
         return self.params_map[name]
