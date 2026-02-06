@@ -221,8 +221,12 @@ class OpSignature:
             params_map[param.name] = param
         self.params_map = params_map
 
-    def get(self, name: str) -> Parameter | AttributeParameter:
-        return self.params_map[name]
+    def get(
+        self,
+        name: str,
+        default: Parameter | AttributeParameter | None = None,
+    ) -> Parameter | AttributeParameter | None:
+        return self.params_map.get(name, default)
 
     def __contains__(self, name: str) -> bool:
         return name in self.params_map
