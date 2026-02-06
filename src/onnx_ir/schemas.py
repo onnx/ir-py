@@ -44,6 +44,7 @@ class TypeConstraintParam:
     Attributes:
         name: Name of the parameter. E.g. "TFloat"
         allowed_types: Allowed types for the parameter.
+        description: Human-readable description of the type constraint.
     """
 
     name: str
