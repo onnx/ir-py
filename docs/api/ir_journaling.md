@@ -7,6 +7,10 @@
 
 The `onnx_ir.journaling` module provides a journaling system for tracking and debugging operations performed on ONNX IR objects. This is useful for understanding how a model is transformed, debugging unexpected behavior, or auditing changes made to a model.
 
+:::{warning}
+This module is in alpha. The APIs can change.
+:::
+
 ## Quick Start
 
 Use the `Journal` class as a context manager to record operations:
