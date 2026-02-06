@@ -293,7 +293,10 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 class Attributes(collections.UserDict[str, "_core.Attr"]):
     """The attributes of a Node as ``dict[str, Attr]`` with additional access methods."""
 
-    def __init__(self, attrs: Iterable[_core.Attr]):
+    def __init__(
+        self, attrs: Iterable[_core.Attr], owner: _core.Node | _core.Function
+    ) -> None:
+        self._owner = owner
         super().__init__({attr.name: attr for attr in attrs})
 
     def __setitem__(self, key: str, value: _core.Attr) -> None:
