@@ -1,5 +1,9 @@
 # onnx_ir.journaling
 
+:::{warning}
+This module is in alpha. The APIs can change.
+:::
+
 ```{eval-rst}
 .. automodule:: onnx_ir.journaling
 .. currentmodule:: onnx_ir.journaling
