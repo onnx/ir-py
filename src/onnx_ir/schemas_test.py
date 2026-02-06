@@ -19,10 +19,10 @@ class TypeConstraintParamTest(unittest.TestCase):
         self.assertEqual(param.allowed_types, allowed)
         self.assertEqual(param.description, "A description")
 
-    def test_init_raises_type_error_when_allowed_types_not_frozenset(self):
-        allowed = {ir.TensorType(ir.DataType.FLOAT)}
-        with self.assertRaises(TypeError):
-            schemas.TypeConstraintParam("T", allowed)
+    def test_init_works_when_allowed_types_not_frozenset(self):
+        allowed = [ir.TensorType(ir.DataType.FLOAT)]
+        param = schemas.TypeConstraintParam("T", allowed)
+        self.assertEqual(param.allowed_types, frozenset(allowed))
 
     def test_hash(self):
         allowed = frozenset({ir.TensorType(ir.DataType.FLOAT)})
@@ -119,14 +119,14 @@ class ParameterTest(unittest.TestCase):
         )
         self.assertTrue(param.has_default())
 
-    def test_is_input(self):
+    def test_is_param(self):
         param = schemas.Parameter(
             name="X",
             type_constraint=self.type_constraint,
             required=True,
             variadic=False,
         )
-        self.assertTrue(param.is_input())
+        self.assertTrue(param.is_param())
 
     def test_is_attribute(self):
         param = schemas.Parameter(
@@ -187,13 +187,13 @@ class AttributeParameterTest(unittest.TestCase):
         )
         self.assertTrue(param.has_default())
 
-    def test_is_input(self):
+    def test_is_param(self):
         param = schemas.AttributeParameter(
             name="axis",
             type=ir.AttributeType.INT,
             required=True,
         )
-        self.assertFalse(param.is_input())
+        self.assertFalse(param.is_param())
 
     def test_is_attribute(self):
         param = schemas.AttributeParameter(
@@ -450,10 +450,10 @@ class ConvertFormalParameterTest(unittest.TestCase):
         type_constraints = {
             constraint.type_param_str: schemas.TypeConstraintParam(
                 name=constraint.type_param_str,
-                allowed_types={
+                allowed_types=frozenset(
                     schemas._get_type_from_str(type_str)
                     for type_str in constraint.allowed_type_strs
-                },
+                ),
             )
             for constraint in op_schema.type_constraints
         }
@@ -470,10 +470,10 @@ class ConvertFormalParameterTest(unittest.TestCase):
         type_constraints = {
             constraint.type_param_str: schemas.TypeConstraintParam(
                 name=constraint.type_param_str,
-                allowed_types={
+                allowed_types=frozenset(
                     schemas._get_type_from_str(type_str)
                     for type_str in constraint.allowed_type_strs
-                },
+                ),
             )
             for constraint in op_schema.type_constraints
         }

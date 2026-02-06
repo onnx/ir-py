@@ -58,9 +58,7 @@ class TypeConstraintParam:
             )
 
         if not isinstance(self.allowed_types, frozenset):
-            raise TypeError(
-                f"allowed_types must be a frozenset, got {type(self.allowed_types)}"
-            )
+            object.__setattr__(self, "allowed_types", frozenset(self.allowed_types))
 
     def __str__(self) -> str:
         allowed_types_str = " | ".join(str(t) for t in self.allowed_types)
@@ -99,7 +97,8 @@ class Parameter:
     def has_default(self) -> bool:
         return self.default is not _EMPTY_DEFAULT
 
-    def is_input(self) -> bool:
+    def is_param(self) -> bool:
+        """This parameter is an ONNX input or output parameter, as opposed to an ONNX attribute parameter."""
         return True
 
     def is_attribute(self) -> bool:
@@ -124,10 +123,11 @@ class AttributeParameter:
     def has_default(self) -> bool:
         return self.default is not None
 
-    def is_input(self) -> bool:
+    def is_param(self) -> bool:
         return False
 
     def is_attribute(self) -> bool:
+        """This parameter is an ONNX attribute parameter, as opposed to an ONNX input or output parameter."""
         return True
 
 
