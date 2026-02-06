@@ -11,5 +11,6 @@ ir_passes_common
 ir_traversal
 ir_tape
 ir_tensor_adapters
+ir_schemas
 ir_journaling
 ```
