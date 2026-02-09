@@ -7,6 +7,7 @@ __all__ = [
     "Parameter",
     "AttributeParameter",
     "TypeConstraintParam",
+    "EMPTY_DEFAULT",
 ]
 
 import dataclasses
@@ -22,10 +23,11 @@ from onnx_ir import _core, _enums, _protocols, serde
 # A special value to indicate that the default value is not specified
 class _Empty:
     def __repr__(self) -> str:
-        return "_EMPTY_DEFAULT"
+        return "EMPTY_DEFAULT"
 
 
-_EMPTY_DEFAULT = _Empty()
+EMPTY_DEFAULT = _Empty()
+"""A special singleton value to indicate that the default value of a parameter is not specified"""
 
 
 @functools.cache
@@ -86,7 +88,7 @@ class Parameter:
     homogeneous: bool = True
     min_arity: int = 1
     # TODO: Add differentiation_category
-    default: Any = _EMPTY_DEFAULT
+    default: Any = EMPTY_DEFAULT
 
     def __str__(self) -> str:
         type_str = self.type_constraint.name
@@ -95,7 +97,7 @@ class Parameter:
         return f"{self.name}: {type_str}"
 
     def has_default(self) -> bool:
-        return self.default is not _EMPTY_DEFAULT
+        return self.default is not EMPTY_DEFAULT
 
     def is_param(self) -> bool:
         """This parameter is an ONNX input or output parameter, as opposed to an ONNX attribute parameter."""
