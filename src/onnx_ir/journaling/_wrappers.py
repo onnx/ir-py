@@ -269,8 +269,9 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
             journal,
             original_methods["Node.graph.fset"],
             "set_graph",
-            details_func=lambda self,
-            value: f"{(value.name if isinstance(value, _core.Graph) else value)!r}",
+            details_func=lambda self, value: (
+                f"{(value.name if isinstance(value, _core.Graph) else value)!r}"
+            ),
         ),
     )
 
@@ -432,9 +433,9 @@ def wrap_ir_classes(journal: _journaling.Journal) -> dict[str, Any]:
         original_methods["_GraphIO.__setitem__"],
         "set_io",
         target_attr="_graph",
-        details_func=lambda self,
-        i,
-        item: f"[{self.__class__.__name__}] index={i}, item={item!r}",
+        details_func=lambda self, i, item: (
+            f"[{self.__class__.__name__}] index={i}, item={item!r}"
+        ),
     )
 
     # GraphInitializers
