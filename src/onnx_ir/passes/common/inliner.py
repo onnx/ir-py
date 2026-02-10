@@ -178,16 +178,20 @@ class InlinePass(ir.passes.InPlacePass):
         return InlinePassResult(model, modified=bool(total_inlined), id_count=id_count)
 
     def _instantiate_call(self, node: ir.Node, call_site_id: CallSiteId) -> NodeReplacement:
-        id = node.op_identifier()
-        function = self._functions[id]
+        op_id = node.op_identifier()
+        function = self._functions[op_id]
 
         # check opset compatibility and update the opset imports
         for key, value in function.opset_imports.items():
             if key not in self._opset_imports:
                 self._opset_imports[key] = value
             elif self._opset_imports[key] != value:
+                domain, name, overload = op_id
+                func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
                 raise ValueError(
-                    f"Opset mismatch: {key} {self._opset_imports[key]} != {value}"
+                    f"Opset mismatch when inlining function '{func_name}': "
+                    f"domain '{key}' has version {self._opset_imports[key]} in the model "
+                    f"but version {value} in the function"
                 )
 
         # Identify substitutions for both inputs and attributes of the function:
@@ -203,12 +207,20 @@ class InlinePass(ir.passes.InPlacePass):
             attr.type in {ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS}
             for attr in attributes.values()
         ):
+            domain, name, overload = op_id
+            func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
             raise ValueError(
-                "Inliner does not support graph attribute parameters to functions"
+                f"Inliner does not support graph attribute parameters to functions. "
+                f"Function '{func_name}' has graph attributes"
             )
 
         if len(node.inputs) > len(function.inputs):
-            raise ValueError(f"Input mismatch: {len(node.inputs)} > {len(function.inputs)}")
+            domain, name, overload = op_id
+            func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
+            raise ValueError(
+                f"Input mismatch when inlining function '{func_name}': "
+                f"call site has {len(node.inputs)} inputs but function expects {len(function.inputs)} or less"
+            )
         value_map = {}
         for i, input in enumerate(node.inputs):
             value_map[function.inputs[i]] = input
