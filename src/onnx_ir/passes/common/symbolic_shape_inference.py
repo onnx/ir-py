@@ -70,7 +70,7 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
         Returns:
             PassResult with the model and whether it was modified.
         """
-        ctx = _context.ShapeInferenceContext(model, policy=self.policy)
+        ctx = _context.ShapeInferenceContext(model.opset_imports, policy=self.policy)
         modified = False
 
         # Process all graphs (main graph + subgraphs)

@@ -67,26 +67,23 @@ class ShapeInferenceContext:
     shape inference functions.
 
     Attributes:
-        model: The IR model being processed.
-        opset: The opset version to use for inference.
+        opset_imports: Mapping from domain to opset version.
         policy: The shape merge policy.
     """
 
     def __init__(
         self,
-        model: ir.Model,
-        opset: int | None = None,
+        opset_imports: Mapping[str, int] | None = None,
         policy: ShapeMergePolicy = "refine",
     ) -> None:
         """Initialize the shape inference context.
 
         Args:
-            model: The IR model to perform inference on.
-            opset: The opset version. If None, uses the model's default opset.
+            opset_imports: Mapping from ONNX domain to opset version
+                (e.g. ``{"": 17}``).  When ``None``, defaults to ``{"": 1}``.
             policy: The shape merge policy to use.
         """
-        self.model = model
-        self._opset = opset
+        self.opset_imports: Mapping[str, int] = opset_imports or {"": 1}
         self.policy = policy
 
         # Dimension variable bindings (symbol name -> concrete value or expression)
@@ -97,16 +94,13 @@ class ShapeInferenceContext:
 
     @property
     def opset(self) -> int:
-        """Get the opset version for inference."""
-        if self._opset is not None:
-            return self._opset
-        # Get from model's opset imports (dict: domain -> version)
-        return self.model.opset_imports.get("", 1)
+        """Get the default opset version for inference."""
+        return self.opset_imports.get("", 1)
 
     def get_opset_version(self, domain: str) -> int:
         """Get the opset version for a specific domain."""
-        if domain in self.model.opset_imports:
-            return self.model.opset_imports[domain]
+        if domain in self.opset_imports:
+            return self.opset_imports[domain]
         if domain in ("", "ai.onnx"):
             return self.opset
         return 1

@@ -47,16 +47,8 @@ def run_shape_inference(
         attributes=attributes or {},
     )
 
-    # Build a minimal graph/model so ShapeInferenceContext can resolve the opset
-    non_none_inputs = [v for v in inputs if v is not None]
-    graph = ir.Graph(
-        inputs=list(non_none_inputs),
-        outputs=list(outputs),
-        nodes=[node],
-        opset_imports={domain: opset_version} if domain else {"": opset_version},
-    )
-    model = ir.Model(graph, ir_version=8)
-    ctx = ShapeInferenceContext(model, policy="override")
+    opset_imports = {domain: opset_version} if domain else {"": opset_version}
+    ctx = ShapeInferenceContext(opset_imports, policy="override")
 
     # Look up and call the registered inference function
     func = registry.get(domain, op_type, version=opset_version)
