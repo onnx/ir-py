@@ -1343,11 +1343,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self._expr + other)
+            return SymbolicDim(sympy.sympify(self._expr + other))
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self._expr + other._expr)
+            return SymbolicDim(sympy.sympify(self._expr + other._expr))
         return NotImplemented
 
     def __radd__(self, other: int) -> SymbolicDim:
@@ -1361,11 +1361,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self._expr - other)
+            return SymbolicDim(sympy.sympify(self._expr - other))
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self._expr - other._expr)
+            return SymbolicDim(sympy.sympify(self._expr - other._expr))
         return NotImplemented
 
     def __rsub__(self, other: int) -> SymbolicDim:
@@ -1373,7 +1373,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(other - self._expr)
+            return SymbolicDim(sympy.sympify(other - self._expr))
         return NotImplemented
 
     def __mul__(self, other: int | SymbolicDim) -> SymbolicDim:
@@ -1381,11 +1381,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self._expr * other)
+            return SymbolicDim(sympy.sympify(self._expr * other))
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self._expr * other._expr)
+            return SymbolicDim(sympy.sympify(self._expr * other._expr))
         return NotImplemented
 
     def __rmul__(self, other: int) -> SymbolicDim:
@@ -1399,11 +1399,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self._expr // other)
+            return SymbolicDim(sympy.sympify(self._expr // other))
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self._expr // other._expr)
+            return SymbolicDim(sympy.sympify(self._expr // other._expr))
         return NotImplemented
 
     def __mod__(self, other: int | SymbolicDim) -> SymbolicDim:
@@ -1411,11 +1411,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         if self._expr is None:
             return SymbolicDim(None)
         if isinstance(other, int):
-            return SymbolicDim(self._expr % other)
+            return SymbolicDim(sympy.sympify(self._expr % other))
         if isinstance(other, SymbolicDim):
             if other._value is None:
                 return SymbolicDim(None)
-            return SymbolicDim(self._expr % other._expr)
+            return SymbolicDim(sympy.sympify(self._expr % other._expr))
         return NotImplemented
 
     def simplify(self) -> SymbolicDim:
