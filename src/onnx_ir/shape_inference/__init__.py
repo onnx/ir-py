@@ -103,7 +103,7 @@ def __set_module() -> None:
     global_dict = globals()
     for name in __all__:
         obj = global_dict[name]
-        if hasattr(obj, "__module__") and not isinstance(obj, types.GenericAlias):
+        if hasattr(obj, "__module__"):
             obj.__module__ = __name__
 
 
