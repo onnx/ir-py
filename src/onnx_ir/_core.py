@@ -1455,7 +1455,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             if str(symbol) in bindings
         }
         result = self._expr.subs(subs)
-        if result.is_number:
+        if result.is_number and result.is_integer:
             return int(result)
         return SymbolicDim(result)
 
