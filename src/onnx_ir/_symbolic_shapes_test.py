@@ -448,9 +448,6 @@ class ParseSymbolicExpressionSecurityTest(unittest.TestCase):
 
         # Try various ways to inject code - none should execute
         malicious_expressions = [
-        # Ensure the helper is correctly defined (and mark it as used)
-        self.assertTrue(callable(malicious_function))
-
             "malicious_function()",
             "__import__('os').system('echo pwned')",
             "exec('execution_tracker[\"executed\"] = True')",
