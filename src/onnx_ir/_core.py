@@ -1305,6 +1305,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             return self._value == other
         if other is None:
             return self._value is None
+        # TODO(justinchuby): Consider supporting equality with sympy.Expr directly
         return False
 
     def __hash__(self) -> int:
