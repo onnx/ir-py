@@ -26,8 +26,6 @@ class SymbolicDimTest(unittest.TestCase):
         self.assertIsNone(dim._expr)
 
     def test_sympy_expr_value(self):
-        import sympy
-
         expr = sympy.Symbol("N") + 1
         dim = ir.SymbolicDim(expr)
         self.assertEqual(dim.value, "N + 1")
