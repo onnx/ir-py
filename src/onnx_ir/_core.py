@@ -1473,8 +1473,6 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         return str(self._value) if self._value is not None else "None"
 
     def __repr__(self) -> str:
-        if self._expr is None:
-            return f"{self.__class__.__name__}(None)"
         return f"{self.__class__.__name__}({self._value!r})"
 
 
