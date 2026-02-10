@@ -216,7 +216,7 @@ class InlinePass(ir.passes.InPlacePass):
         if len(node.inputs) > len(function.inputs):
             raise ValueError(
                 f"Input mismatch when inlining function '{_format_function_id(op_id)}': "
-                f"call site has {len(node.inputs)} inputs but function expects {len(function.inputs)} or less"
+                f"call site has {len(node.inputs)} inputs but function defines at most {len(function.inputs)} inputs"
             )
         value_map = {}
         for i, input in enumerate(node.inputs):
