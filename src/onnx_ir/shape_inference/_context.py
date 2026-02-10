@@ -89,9 +89,6 @@ class ShapeInferenceContext:
         # Dimension variable bindings (symbol name -> concrete value or expression)
         self._bindings: dict[str, int | sympy.Expr] = {}
 
-        # Track constraint violations for STRICT mode
-        self._violations: list[str] = []
-
     @property
     def opset(self) -> int:
         """Get the default opset version for inference."""
@@ -258,8 +255,3 @@ class ShapeInferenceContext:
         if dtype is not None:
             modified = self.set_dtype(value, dtype) or modified
         return modified
-
-    @property
-    def violations(self) -> list[str]:
-        """Get any constraint violations encountered."""
-        return self._violations.copy()
