@@ -48,6 +48,12 @@ def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> 
     return candidate
 
 
+def _format_function_id(op_id: ir.OperatorIdentifier) -> str:
+    """Format an operator identifier as a human-readable string."""
+    domain, name, overload = op_id
+    return f"{domain}::{name}" + (f":{overload}" if overload else "")
+
+
 def _abbreviate(
     function_ids: Iterable[ir.OperatorIdentifier],
 ) -> dict[ir.OperatorIdentifier, str]:
@@ -143,10 +149,7 @@ class InlinePass(ir.passes.InPlacePass):
         # No cyclic dependencies allowed in functions
         cycle = _detect_function_cycles(model)
         if cycle is not None:
-            cycle_str = " -> ".join(
-                f"{domain}:{name}" + (f":{overload}" if overload else "")
-                for domain, name, overload in cycle
-            )
+            cycle_str = " -> ".join(_format_function_id(func_id) for func_id in cycle)
             raise ir.passes.PreconditionError(
                 f"Cyclic dependency detected between functions: {cycle_str}"
             )
@@ -178,8 +181,8 @@ class InlinePass(ir.passes.InPlacePass):
         return InlinePassResult(model, modified=bool(total_inlined), id_count=id_count)
 
     def _instantiate_call(self, node: ir.Node, call_site_id: CallSiteId) -> NodeReplacement:
-        id = node.op_identifier()
-        function = self._functions[id]
+        op_id = node.op_identifier()
+        function = self._functions[op_id]
 
         # check opset compatibility and update the opset imports
         for key, value in function.opset_imports.items():
@@ -187,7 +190,9 @@ class InlinePass(ir.passes.InPlacePass):
                 self._opset_imports[key] = value
             elif self._opset_imports[key] != value:
                 raise ValueError(
-                    f"Opset mismatch: {key} {self._opset_imports[key]} != {value}"
+                    f"Opset mismatch when inlining function '{_format_function_id(op_id)}': "
+                    f"domain '{key}' has version {self._opset_imports[key]} in the model "
+                    f"but version {value} in the function"
                 )
 
         # Identify substitutions for both inputs and attributes of the function:
@@ -204,11 +209,15 @@ class InlinePass(ir.passes.InPlacePass):
             for attr in attributes.values()
         ):
             raise ValueError(
-                "Inliner does not support graph attribute parameters to functions"
+                f"Inliner does not support graph attribute parameters to functions. "
+                f"Function '{_format_function_id(op_id)}' has graph attributes"
             )
 
         if len(node.inputs) > len(function.inputs):
-            raise ValueError(f"Input mismatch: {len(node.inputs)} > {len(function.inputs)}")
+            raise ValueError(
+                f"Input mismatch when inlining function '{_format_function_id(op_id)}': "
+                f"call site has {len(node.inputs)} inputs but function defines at most {len(function.inputs)} inputs"
+            )
         value_map = {}
         for i, input in enumerate(node.inputs):
             value_map[function.inputs[i]] = input
