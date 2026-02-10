@@ -1773,7 +1773,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         # We can use "in" directly because SymbolicDim implements __eq__ with None
         return None in self._dims
 
-    def evaluate(self, bindings: Mapping[str, int]) -> tuple[int, ...] | Shape:
+    def evaluate(self, bindings: Mapping[str, int]) -> Shape:
         """Evaluate the shape with concrete values for symbolic dimensions.
 
         Args:
