@@ -126,15 +126,18 @@ class SymbolicDimTest(unittest.TestCase):
         result = dim.evaluate({"N": 5})
         self.assertEqual(result, 11)
 
-    def test_evaluate_none_returns_none(self):
+    def test_evaluate_none_returns_symbolic_dim_none(self):
         dim = ir.SymbolicDim(None)
         result = dim.evaluate({"N": 5})
-        self.assertIsNone(result)
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
-    def test_evaluate_incomplete_bindings_returns_none(self):
+    def test_evaluate_incomplete_bindings_returns_symbolic_dim(self):
         dim = ir.SymbolicDim("N") + ir.SymbolicDim("M")
         result = dim.evaluate({"N": 5})  # M not provided
-        self.assertIsNone(result)
+        self.assertIsInstance(result, ir.SymbolicDim)
+        # The partially evaluated expression can be further evaluated
+        self.assertEqual(result.evaluate({"M": 3}), 8)
 
     def test_free_symbols(self):
         dim = ir.SymbolicDim("N") + ir.SymbolicDim("M")
@@ -153,17 +156,21 @@ class ShapeEvaluateTest(unittest.TestCase):
     def test_evaluate_static_shape(self):
         shape = ir.Shape([1, 2, 3])
         result = shape.evaluate({})
+        self.assertIsInstance(result, ir.Shape)
         self.assertEqual(result, (1, 2, 3))
 
     def test_evaluate_symbolic_shape(self):
         shape = ir.Shape(["batch", 256, ir.SymbolicDim("seq") + 1])
         result = shape.evaluate({"batch": 32, "seq": 128})
+        self.assertIsInstance(result, ir.Shape)
         self.assertEqual(result, (32, 256, 129))
 
-    def test_evaluate_incomplete_returns_none(self):
+    def test_evaluate_incomplete_returns_shape_with_symbolic_dims(self):
         shape = ir.Shape(["batch", "seq"])
         result = shape.evaluate({"batch": 32})  # seq not provided
-        self.assertIsNone(result)
+        self.assertIsInstance(result, ir.Shape)
+        self.assertEqual(result[0], 32)
+        self.assertIsInstance(result[1], ir.SymbolicDim)
 
     def test_simplify(self):
         shape = ir.Shape([ir.SymbolicDim("N") + 0, ir.SymbolicDim("M") * 1])
