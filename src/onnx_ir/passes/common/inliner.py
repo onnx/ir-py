@@ -51,7 +51,7 @@ def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> 
 def _format_function_id(op_id: ir.OperatorIdentifier) -> str:
     """Format an operator identifier as a human-readable string."""
     domain, name, overload = op_id
-    return f"{domain}:{name}" + (f":{overload}" if overload else "")
+    return f"{domain}::{name}" + (f":{overload}" if overload else "")
 
 
 def _abbreviate(
