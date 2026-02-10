@@ -368,6 +368,57 @@ class ParseSymbolicExpressionTest(unittest.TestCase):
         n = sympy.Symbol("n", integer=True, positive=True)
         self.assertEqual(result, 2 * n)
 
+    def test_modulo_with_integer(self):
+        """Test parsing modulo operator with integer."""
+        result = parse_symbolic_expression("n % 2")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.Mod(n, 2))
+
+    def test_modulo_with_symbols(self):
+        """Test parsing modulo operator with two symbols."""
+        result = parse_symbolic_expression("a % b")
+        a = sympy.Symbol("a", integer=True, positive=True)
+        b = sympy.Symbol("b", integer=True, positive=True)
+        self.assertEqual(result, sympy.Mod(a, b))
+
+    def test_modulo_integer_values(self):
+        """Test that modulo evaluates correctly for integer values."""
+        result = parse_symbolic_expression("10 % 3")
+        self.assertEqual(result, sympy.Integer(1))
+
+    def test_modulo_precedence_same_as_mul_div(self):
+        """Test that % has the same precedence as * and /."""
+        # a + b % c should be parsed as a + (b % c)
+        result = parse_symbolic_expression("a + b % c")
+        a = sympy.Symbol("a", integer=True, positive=True)
+        b = sympy.Symbol("b", integer=True, positive=True)
+        c = sympy.Symbol("c", integer=True, positive=True)
+        self.assertEqual(result, a + sympy.Mod(b, c))
+
+    def test_modulo_with_floor_division(self):
+        """Test parsing expression combining modulo and floor division."""
+        result = parse_symbolic_expression("n // 4 + n % 4")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.floor(n / 4) + sympy.Mod(n, 4))
+
+    def test_modulo_in_function_arg(self):
+        """Test parsing modulo inside a function argument."""
+        result = parse_symbolic_expression("max(n % 2, 1)")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.Max(sympy.Mod(n, 2), 1))
+
+    def test_mod_function_call(self):
+        """Test parsing mod() as a function call (already supported)."""
+        result = parse_symbolic_expression("mod(n, 2)")
+        n = sympy.Symbol("n", integer=True, positive=True)
+        self.assertEqual(result, sympy.Mod(n, 2))
+
+    def test_modulo_operator_and_mod_function_equivalent(self):
+        """Test that % operator and mod() function produce the same result."""
+        result_op = parse_symbolic_expression("n % 3")
+        result_fn = parse_symbolic_expression("mod(n, 3)")
+        self.assertEqual(result_op, result_fn)
+
 
 class ParseSymbolicExpressionErrorTest(unittest.TestCase):
     """Tests for error handling in parse_symbolic_expression."""

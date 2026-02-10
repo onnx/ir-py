@@ -90,7 +90,7 @@ class _ExpressionTokenizer:
                 return ("OP", two_char)
 
         # Single-character tokens
-        if char in "+-*/":
+        if char in "+-*/%":
             self.pos += 1
             return ("OP", char)
         if char == "(":
@@ -112,7 +112,7 @@ class _ExpressionParser:
     """Safe recursive descent parser for symbolic dimension expressions.
 
     Supports:
-        - Basic arithmetic: +, -, *, /, //, **
+        - Basic arithmetic: +, -, *, /, //, %, **
         - Functions: max(), min(), floor(), sqrt()
         - Symbolic variables (identifiers)
         - Integer literals
@@ -120,7 +120,7 @@ class _ExpressionParser:
 
     Grammar:
         expr       -> term (('+' | '-') term)*
-        term       -> power (('*' | '/' | '//') power)*
+        term       -> power (('*' | '/' | '//' | '%') power)*
         power      -> unary ('**' power)?
         unary      -> '-' unary | primary
         primary    -> NUMBER | IDENT | IDENT '(' args ')' | '(' expr ')'
@@ -176,13 +176,13 @@ class _ExpressionParser:
         return left
 
     def _parse_term(self) -> sympy.Expr:
-        """Parse a term (handles *, /, //)."""
+        """Parse a term (handles *, /, //, %)."""
         left = self._parse_power()
 
         while (
             self.current_token is not None
             and self.current_token[0] == "OP"
-            and self.current_token[1] in {"*", "/", "//"}
+            and self.current_token[1] in {"*", "/", "//", "%"}
         ):
             op = self.current_token[1]
             self._advance()
@@ -191,8 +191,10 @@ class _ExpressionParser:
                 left = left * right
             elif op == "/":
                 left = left / right
-            else:  # //
+            elif op == "//":
                 left = sympy.floor(left / right)
+            else:  # %
+                left = sympy.Mod(left, right)
 
         return left
 
@@ -288,7 +290,7 @@ def parse_symbolic_expression(value: str) -> sympy.Expr:
     This parser is safe and does not use eval().
 
     Supports:
-        - Basic arithmetic: +, -, *, /, //, **
+        - Basic arithmetic: +, -, *, /, //, %, **
         - Functions: max(), min(), floor(), sqrt()
         - Symbolic variables (identifiers)
         - Integer literals
