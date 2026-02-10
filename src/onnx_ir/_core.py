@@ -1793,7 +1793,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
             >>> shape.evaluate({"batch": 32, "seq": 128})
             Shape([32, 256, 129])
         """
-        result = []
+        result: list[int | SymbolicDim] = []
         for dim in self._dims:
             if isinstance(dim, int):
                 result.append(dim)
