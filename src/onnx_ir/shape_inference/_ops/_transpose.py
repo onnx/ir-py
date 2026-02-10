@@ -50,7 +50,7 @@ def infer_transpose(ctx: ShapeInferenceContext, node: ir.Node) -> None:
             perm = tuple(range(rank - 1, -1, -1))
 
         # Validate perm
-        if len(perm) == rank:
+        if len(perm) == rank and sorted(perm) == list(range(rank)):
             # Permute dimensions
             output_dims: list[int | ir.SymbolicDim] = []
             valid = True
