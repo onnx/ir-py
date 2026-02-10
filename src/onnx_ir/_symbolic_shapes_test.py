@@ -443,6 +443,9 @@ class ParseSymbolicExpressionSecurityTest(unittest.TestCase):
             execution_tracker["executed"] = True
             return 1
 
+        # Just mark the function as used so linters do not complain
+        self.assertTrue(callable(malicious_function))
+
         # Try various ways to inject code - none should execute
         malicious_expressions = [
         # Ensure the helper is correctly defined (and mark it as used)
