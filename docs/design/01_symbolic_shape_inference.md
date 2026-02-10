@@ -82,7 +82,7 @@ The `Shape` class gains methods for working with symbolic dimensions:
 
 ```python
 class Shape:
-    def evaluate(self, bindings: Mapping[str, int]) -> list[int] | None:
+    def evaluate(self, bindings: Mapping[str, int]) -> Shape:
         """Substitute symbolic dims with concrete values."""
 
     def simplify(self) -> Shape:
@@ -96,7 +96,7 @@ class Shape:
 
 ```python
 shape = ir.Shape(["batch", 128, "seq"])
-shape.evaluate({"batch": 4, "seq": 512})  # [4, 128, 512]
+shape.evaluate({"batch": 4, "seq": 512})  # Shape([4, 128, 512])
 shape.free_symbols()  # {"batch", "seq"}
 ```
 
@@ -258,7 +258,7 @@ registry: OpShapeInferenceRegistry
 # Supports: +, -, *, //, % with int or SymbolicDim
 
 # Shape
-Shape.evaluate(bindings) -> list[int] | None
+Shape.evaluate(bindings) -> tuple[int, ...] | Shape
 Shape.simplify() -> Shape
 Shape.free_symbols() -> set[str]
 ```
@@ -307,7 +307,7 @@ seq = ir.SymbolicDim("seq")
 shape = ir.Shape([batch, seq // 2, 256])
 
 # Evaluate with concrete values
-concrete = shape.evaluate({"batch": 4, "seq": 128})  # [4, 64, 256]
+concrete = shape.evaluate({"batch": 4, "seq": 128})  # Shape([4, 64, 256])
 
 # Get free symbols
 symbols = shape.free_symbols()  # {"batch", "seq"}

@@ -1017,15 +1017,20 @@ class SymbolicDimTest(unittest.TestCase):
         self.assertEqual(dim.evaluate({"s0": 600}), 256)  # 600 // 2 = 300, clamped to 256
         self.assertEqual(dim.evaluate({"s0": 1}), 1)  # 1 // 2 = 0, clamped to 1
 
-    def test_expression_evaluate_returns_none_for_unknown_dim(self):
-        """Test that evaluate returns None for unknown dimensions."""
+    def test_expression_evaluate_returns_symbolic_dim_for_unknown_dim(self):
+        """Test that evaluate returns SymbolicDim(None) for unknown dimensions."""
         dim = _core.SymbolicDim(None)
-        self.assertIsNone(dim.evaluate({"s0": 10}))
+        result = dim.evaluate({"s0": 10})
+        self.assertIsInstance(result, _core.SymbolicDim)
+        self.assertIsNone(result.value)
 
-    def test_expression_evaluate_returns_none_for_missing_binding(self):
-        """Test that evaluate returns None when binding is missing."""
+    def test_expression_evaluate_returns_symbolic_dim_for_missing_binding(self):
+        """Test that evaluate returns SymbolicDim when binding is missing."""
         dim = _core.SymbolicDim("s0 + s1")
-        self.assertIsNone(dim.evaluate({"s0": 10}))  # s1 is missing
+        result = dim.evaluate({"s0": 10})  # s1 is missing
+        self.assertIsInstance(result, _core.SymbolicDim)
+        # The result should contain the partially evaluated expression (10 + s1)
+        self.assertEqual(result.evaluate({"s1": 5}), 15)
 
     def test_expression_free_symbols(self):
         """Test that free_symbols returns the correct symbol names."""

@@ -1437,8 +1437,8 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             bindings: A mapping from symbol names to integer values.
 
         Returns:
-            The concrete integer value, or None if the dimension is unknown
-            or cannot be fully evaluated.
+            The concrete integer value if fully evaluated, or a SymbolicDim
+            containing the partially evaluated expression or None.
 
         Example::
 
@@ -1780,14 +1780,18 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
             bindings: A mapping from symbol names to integer values.
 
         Returns:
-            A tuple of concrete integer dimensions, or None if any dimension
-            cannot be evaluated.
+            A Shape with evaluated dimensions. Dimensions that can be fully
+            resolved become integers; unresolvable dimensions remain as
+            SymbolicDim instances.
+
+        Raises:
+            TypeError: If a dimension has an unexpected type.
 
         Example::
 
             >>> shape = ir.Shape(["batch", 256, ir.SymbolicDim("seq") + 1])
             >>> shape.evaluate({"batch": 32, "seq": 128})
-            (32, 256, 129)
+            Shape([32, 256, 129])
         """
         result = []
         for dim in self._dims:
