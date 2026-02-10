@@ -105,24 +105,16 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
             if infer_func is not None:
                 try:
                     # Track which outputs had shapes and dtypes before
-                    old_states: dict[int, tuple[object | None, object | None]] = {}
+                    old_states: list[tuple[ir.Shape | None, ir.TypeProtocol | None]] = []
                     for out in node.outputs:
-                        if out is None:
-                            continue
-                        old_shape = out.shape.copy() if out.shape is not None else None
-                        old_dtype = getattr(out, "dtype", None)
-                        old_states[id(out)] = (old_shape, old_dtype)
+                        old_states.append((out.shape, out.type))
 
                     # Run inference
                     infer_func(ctx, node)
 
                     # Check if any shapes or dtypes changed
-                    for out in node.outputs:
-                        if out is None:
-                            continue
-                        old_shape, old_dtype = old_states.get(id(out), (None, None))
-                        current_dtype = getattr(out, "dtype", None)
-                        if out.shape != old_shape or current_dtype != old_dtype:
+                    for out, (old_shape, old_type) in zip(node.outputs, old_states):
+                        if out.shape != old_shape or out.type != old_type:
                             modified = True
 
                 except Exception as e:
