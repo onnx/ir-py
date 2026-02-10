@@ -1800,7 +1800,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 result.append(evaluated)
             else:
                 raise TypeError(f"Unexpected dimension type: '{type(dim)}' in shape '{self}'")
-        return Shape(result)
+        return Shape(result, denotations=self._denotations)
 
     def simplify(self) -> Shape:
         """Return a new Shape with all symbolic dimensions simplified.
@@ -1816,7 +1816,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 new_dims.append(dim.simplify())
             else:
                 new_dims.append(dim)
-        return Shape(new_dims, self._denotations, frozen=self._frozen)
+        return Shape(new_dims, denotations=self._denotations)
 
     def free_symbols(self) -> frozenset[str]:
         """Return the set of all free symbol names in this shape.
