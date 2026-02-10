@@ -48,6 +48,12 @@ def _make_unique_name(name: str, callstack: CallStack, used_names: set[str]) -> 
     return candidate
 
 
+def _format_function_id(op_id: ir.OperatorIdentifier) -> str:
+    """Format an operator identifier as a human-readable string."""
+    domain, name, overload = op_id
+    return f"{domain}:{name}" + (f":{overload}" if overload else "")
+
+
 def _abbreviate(
     function_ids: Iterable[ir.OperatorIdentifier],
 ) -> dict[ir.OperatorIdentifier, str]:
@@ -143,10 +149,7 @@ class InlinePass(ir.passes.InPlacePass):
         # No cyclic dependencies allowed in functions
         cycle = _detect_function_cycles(model)
         if cycle is not None:
-            cycle_str = " -> ".join(
-                f"{domain}:{name}" + (f":{overload}" if overload else "")
-                for domain, name, overload in cycle
-            )
+            cycle_str = " -> ".join(_format_function_id(func_id) for func_id in cycle)
             raise ir.passes.PreconditionError(
                 f"Cyclic dependency detected between functions: {cycle_str}"
             )
@@ -186,10 +189,8 @@ class InlinePass(ir.passes.InPlacePass):
             if key not in self._opset_imports:
                 self._opset_imports[key] = value
             elif self._opset_imports[key] != value:
-                domain, name, overload = op_id
-                func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
                 raise ValueError(
-                    f"Opset mismatch when inlining function '{func_name}': "
+                    f"Opset mismatch when inlining function '{_format_function_id(op_id)}': "
                     f"domain '{key}' has version {self._opset_imports[key]} in the model "
                     f"but version {value} in the function"
                 )
@@ -207,18 +208,14 @@ class InlinePass(ir.passes.InPlacePass):
             attr.type in {ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS}
             for attr in attributes.values()
         ):
-            domain, name, overload = op_id
-            func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
             raise ValueError(
                 f"Inliner does not support graph attribute parameters to functions. "
-                f"Function '{func_name}' has graph attributes"
+                f"Function '{_format_function_id(op_id)}' has graph attributes"
             )
 
         if len(node.inputs) > len(function.inputs):
-            domain, name, overload = op_id
-            func_name = f"{domain}:{name}" + (f":{overload}" if overload else "")
             raise ValueError(
-                f"Input mismatch when inlining function '{func_name}': "
+                f"Input mismatch when inlining function '{_format_function_id(op_id)}': "
                 f"call site has {len(node.inputs)} inputs but function expects {len(function.inputs)} or less"
             )
         value_map = {}
