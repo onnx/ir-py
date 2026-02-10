@@ -9,7 +9,10 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference
+from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+
+FLOAT = ir.DataType.FLOAT
+FLOAT16 = ir.DataType.FLOAT16
 
 
 class InferTransposeTest(unittest.TestCase):
@@ -19,75 +22,63 @@ class InferTransposeTest(unittest.TestCase):
         [
             (
                 "explicit_perm",
-                ["batch", "seq", 256],
-                [2, 0, 1],
-                "[256,batch,seq]",
+                [ts(FLOAT, ["batch", "seq", 256])],
+                {"perm": ir.Attr("perm", ir.AttributeType.INTS, [2, 0, 1])},
+                [ts(FLOAT, [256, "batch", "seq"])],
             ),
             (
                 "swap_last_two",
-                ["batch", "seq", 256],
-                [0, 2, 1],
-                "[batch,256,seq]",
+                [ts(FLOAT, ["batch", "seq", 256])],
+                {"perm": ir.Attr("perm", ir.AttributeType.INTS, [0, 2, 1])},
+                [ts(FLOAT, ["batch", 256, "seq"])],
             ),
             (
                 "2d_transpose",
-                ["batch", 128],
-                [1, 0],
-                "[128,batch]",
+                [ts(FLOAT, ["batch", 128])],
+                {"perm": ir.Attr("perm", ir.AttributeType.INTS, [1, 0])},
+                [ts(FLOAT, [128, "batch"])],
             ),
             (
                 "concrete_dims",
-                [2, 3, 4],
-                [2, 0, 1],
-                "[4,2,3]",
+                [ts(FLOAT, [2, 3, 4])],
+                {"perm": ir.Attr("perm", ir.AttributeType.INTS, [2, 0, 1])},
+                [ts(FLOAT, [4, 2, 3])],
+            ),
+            (
+                "default_perm_reverse_3d",
+                [ts(FLOAT, [2, 3, 4])],
+                None,
+                [ts(FLOAT, [4, 3, 2])],
+            ),
+            (
+                "default_perm_reverse_2d",
+                [ts(FLOAT, [5, 7])],
+                None,
+                [ts(FLOAT, [7, 5])],
+            ),
+            (
+                "default_perm_reverse_symbolic",
+                [ts(FLOAT, ["batch", "seq"])],
+                None,
+                [ts(FLOAT, ["seq", "batch"])],
+            ),
+            (
+                "dtype_propagated",
+                [ts(FLOAT16, [2, 3])],
+                None,
+                [ts(FLOAT16, [3, 2])],
+            ),
+            (
+                "no_shape_when_input_shape_missing",
+                [ts(FLOAT)],
+                None,
+                [ts(FLOAT)],
             ),
         ]
     )
-    def test_output_shape_with_perm(self, _name, input_shape, perm, expected_shape_str):
-        x = ir.val("x", ir.DataType.FLOAT, input_shape)
-        attrs = {"perm": ir.Attr("perm", ir.AttributeType.INTS, perm)}
-        node, _ctx = run_shape_inference("", "Transpose", inputs=[x], attributes=attrs)
-
-        output = node.outputs[0]
-        self.assertEqual(str(output.shape), expected_shape_str)
-
-    @parameterized.parameterized.expand(
-        [
-            (
-                "reverse_3d",
-                [2, 3, 4],
-                "[4,3,2]",
-            ),
-            (
-                "reverse_2d",
-                [5, 7],
-                "[7,5]",
-            ),
-            (
-                "reverse_symbolic",
-                ["batch", "seq"],
-                "[seq,batch]",
-            ),
-        ]
-    )
-    def test_default_perm_reverses(self, _name, input_shape, expected_shape_str):
-        """When no perm attribute is given, dimensions are reversed."""
-        x = ir.val("x", ir.DataType.FLOAT, input_shape)
-        node, _ctx = run_shape_inference("", "Transpose", inputs=[x])
-
-        self.assertEqual(str(node.outputs[0].shape), expected_shape_str)
-
-    def test_output_dtype_propagated(self):
-        x = ir.val("x", ir.DataType.FLOAT16, [2, 3])
-        node, _ctx = run_shape_inference("", "Transpose", inputs=[x])
-
-        self.assertEqual(node.outputs[0].dtype, ir.DataType.FLOAT16)
-
-    def test_no_shape_when_input_shape_missing(self):
-        x = ir.val("x", ir.DataType.FLOAT)
-        node, _ctx = run_shape_inference("", "Transpose", inputs=[x])
-
-        self.assertIsNone(node.outputs[0].shape)
+    def test_transpose(self, _name, inputs, attributes, expected_outputs):
+        actual = run_shape_inference("", "Transpose", inputs, attributes, opset_version=17)
+        self.assertEqual(actual, expected_outputs)
 
 
 if __name__ == "__main__":
