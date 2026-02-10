@@ -20,9 +20,13 @@ __all__ = [
 # Allowed functions for parsing symbolic dimension expressions
 ALLOWED_FUNCTIONS: dict[str, Callable[..., sympy.Expr]] = {
     "max": sympy.Max,
+    "Max": sympy.Max,
     "min": sympy.Min,
+    "Min": sympy.Min,
     "floor": sympy.floor,
     "sqrt": sympy.sqrt,
+    "mod": sympy.Mod,
+    "Mod": sympy.Mod,
 }
 
 
