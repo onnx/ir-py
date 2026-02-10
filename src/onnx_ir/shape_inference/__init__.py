@@ -36,12 +36,7 @@ Registering custom shape inference::
         ctx.set_shape(node.outputs[0], output_shape)
 """
 
-# Import ops to ensure they are registered (but don't expose publicly)
-import onnx_ir
-from onnx_ir.shape_inference import _ops  # noqa: F401
-from onnx_ir.shape_inference._broadcast import broadcast_shapes
-from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
-from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
+from __future__ import annotations
 
 __all__ = [
     # Main API
@@ -56,13 +51,24 @@ __all__ = [
     "broadcast_shapes",
 ]
 
+from typing import TYPE_CHECKING
+
+# Import ops to ensure they are registered (but don't expose publicly)
+from onnx_ir.shape_inference import _ops  # noqa: F401
+from onnx_ir.shape_inference._broadcast import broadcast_shapes
+from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
+from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
+
+if TYPE_CHECKING:
+    import onnx_ir as ir
+
 
 def infer_symbolic_shapes(
-    model: onnx_ir.Model,
+    model: ir.Model,
     *,
     policy: ShapeMergePolicy = "refine",
     warn_on_missing: bool = True,
-) -> onnx_ir.Model:
+) -> ir.Model:
     """Perform symbolic shape inference on the model.
 
     Convenience function that creates and runs a SymbolicShapeInferencePass.
@@ -96,7 +102,9 @@ def __set_module() -> None:
     """Set the module of all functions in this module to this public module."""
     global_dict = globals()
     for name in __all__:
-        global_dict[name].__module__ = __name__
+        obj = global_dict[name]
+        if hasattr(obj, "__module__") and not isinstance(obj, types.GenericAlias):
+            obj.__module__ = __name__
 
 
 __set_module()
