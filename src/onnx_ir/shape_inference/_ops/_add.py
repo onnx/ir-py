@@ -42,6 +42,8 @@ def infer_add(ctx: ShapeInferenceContext, node: ir.Node) -> None:
 
     output_shape = broadcast_shapes(shape_a, shape_b)
 
+    # FIXME(justinchuby): Handle when there is a type conflict
+    # TODO(justinchuby): Generalize unary and binary element-wise ops
     # Output dtype is same as input dtype (ONNX requires inputs have same dtype)
     output_dtype = input_a.dtype or input_b.dtype
 
