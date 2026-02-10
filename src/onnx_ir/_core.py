@@ -1962,7 +1962,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         if isinstance(attributes, Mapping):
             attributes = tuple(attributes.values())
         self._attributes: _graph_containers.Attributes = _graph_containers.Attributes(
-            attributes
+            attributes, owner=self
         )
         self._overload: str = overload
         # TODO(justinchuby): Potentially support a version range
@@ -4004,7 +4004,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         self._graph = graph
         if isinstance(attributes, Mapping):
             attributes = tuple(attributes.values())
-        self._attributes = _graph_containers.Attributes(attributes)
+        self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
     def identifier(self) -> _protocols.OperatorIdentifier:
         return self.domain, self.name, self.overload
@@ -4276,7 +4276,14 @@ class Attr(
 ):
     """Base class for ONNX attributes or references."""
 
-    __slots__ = ("_metadata", "_name", "_ref_attr_name", "_type", "_value", "doc_string")
+    __slots__ = (
+        "_metadata",
+        "_name",
+        "_ref_attr_name",
+        "_type",
+        "_value",
+        "doc_string",
+    )
 
     def __init__(
         self,
