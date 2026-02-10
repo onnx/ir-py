@@ -1430,7 +1430,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             return SymbolicDim(None)
         return SymbolicDim(sympy.simplify(self._expr))
 
-    def evaluate(self, bindings: Mapping[str, int]) -> int | None:
+    def evaluate(self, bindings: Mapping[str, int]) -> int | SymbolicDim:
         """Evaluate the symbolic dimension with concrete values.
 
         Args:
@@ -1447,7 +1447,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             11
         """
         if self._expr is None:
-            return None
+            return SymbolicDim(None)
         # Build substitution map using the actual symbols present in the expression
         subs = {
             symbol: bindings[str(symbol)]
@@ -1457,7 +1457,7 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         result = self._expr.subs(subs)
         if result.is_number:
             return int(result)
-        return None
+        return SymbolicDim(result)
 
     def free_symbols(self) -> frozenset[str]:
         """Return the set of free symbol names in this dimension.
@@ -1773,7 +1773,7 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         # We can use "in" directly because SymbolicDim implements __eq__ with None
         return None in self._dims
 
-    def evaluate(self, bindings: Mapping[str, int]) -> tuple[int, ...] | None:
+    def evaluate(self, bindings: Mapping[str, int]) -> tuple[int, ...] | Shape:
         """Evaluate the shape with concrete values for symbolic dimensions.
 
         Args:
@@ -1795,12 +1795,10 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
                 result.append(dim)
             elif isinstance(dim, SymbolicDim):
                 evaluated = dim.evaluate(bindings)
-                if evaluated is None:
-                    return None
                 result.append(evaluated)
             else:
-                return None
-        return tuple(result)
+                raise TypeError(f"Unexpected dimension type: '{type(dim)}' in shape '{self}'")
+        return Shape(result)
 
     def simplify(self) -> Shape:
         """Return a new Shape with all symbolic dimensions simplified.
