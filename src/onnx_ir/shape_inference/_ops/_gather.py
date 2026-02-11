@@ -67,9 +67,23 @@ def infer_gather_elements(ctx: _context.ShapeInferenceContext, node: ir.Node) ->
 def infer_gather_nd(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for GatherND operator.
 
-    Output shape is complex; set dtype only for now (graceful degradation).
+    Output shape = indices_shape[:batch_dims] + indices_shape[batch_dims:-1]
+                   + data_shape[batch_dims + indices_shape[-1]:].
     """
-    (data, _indices) = _context.check_inputs(node, "data", "indices")
+    (data, indices) = _context.check_inputs(node, "data", "indices")
 
     if len(node.outputs) > 0:
-        ctx.set_shape_and_dtype(node.outputs[0], None, data.dtype)
+        output_shape = None
+        if data.shape is not None and indices.shape is not None:
+            batch_dims_attr = node.attributes.get("batch_dims")
+            batch_dims = batch_dims_attr.as_int() if batch_dims_attr is not None else 0
+
+            last_idx_dim = indices.shape[-1]
+            if isinstance(last_idx_dim, int):
+                output_shape = ir.Shape(
+                    [
+                        *indices.shape[:-1],
+                        *data.shape[batch_dims + last_idx_dim :],
+                    ]
+                )
+        ctx.set_shape_and_dtype(node.outputs[0], output_shape, data.dtype)

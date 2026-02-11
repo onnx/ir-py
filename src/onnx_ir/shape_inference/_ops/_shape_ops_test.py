@@ -239,5 +239,126 @@ class UniqueTest(unittest.TestCase):
             )
 
 
+class EinsumTest(unittest.TestCase):
+    """Tests for Einsum shape inference."""
+
+    def _einsum(self, equation: str, inputs: list, **kwargs):
+        attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, equation)}
+        return run_shape_inference("", "Einsum", inputs, attrs, opset_version=17, **kwargs)
+
+    def test_matmul(self):
+        """ij,jk->ik: matrix multiply."""
+        actual = self._einsum("ij,jk->ik", [ts(FLOAT, [3, 4]), ts(FLOAT, [4, 5])])
+        self.assertEqual(list(actual[0].shape), [3, 5])
+
+    def test_batch_matmul(self):
+        """bij,bjk->bik: batch matmul."""
+        actual = self._einsum("bij,bjk->bik", [ts(FLOAT, [2, 3, 4]), ts(FLOAT, [2, 4, 5])])
+        self.assertEqual(list(actual[0].shape), [2, 3, 5])
+
+    def test_transpose(self):
+        """ij->ji: transpose."""
+        actual = self._einsum("ij->ji", [ts(FLOAT, [3, 4])])
+        self.assertEqual(list(actual[0].shape), [4, 3])
+
+    def test_trace(self):
+        """ii->: trace (scalar output)."""
+        actual = self._einsum("ii->", [ts(FLOAT, [3, 3])])
+        self.assertEqual(list(actual[0].shape), [])
+
+    def test_sum_all(self):
+        """ij->: sum to scalar."""
+        actual = self._einsum("ij->", [ts(FLOAT, [3, 4])])
+        self.assertEqual(list(actual[0].shape), [])
+
+    def test_diagonal(self):
+        """ii->i: diagonal."""
+        actual = self._einsum("ii->i", [ts(FLOAT, [3, 3])])
+        self.assertEqual(list(actual[0].shape), [3])
+
+    def test_implicit_output(self):
+        """ij,jk (no ->): implicit output is sorted non-repeated labels ik."""
+        actual = self._einsum("ij,jk", [ts(FLOAT, [3, 4]), ts(FLOAT, [4, 5])])
+        self.assertEqual(list(actual[0].shape), [3, 5])
+
+    def test_implicit_single_input(self):
+        """Ij (no ->): implicit output is 'ij' (sorted non-repeated)."""
+        actual = self._einsum("ij", [ts(FLOAT, [3, 4])])
+        self.assertEqual(list(actual[0].shape), [3, 4])
+
+    def test_outer_product(self):
+        """i,j->ij: outer product."""
+        actual = self._einsum("i,j->ij", [ts(FLOAT, [3]), ts(FLOAT, [5])])
+        self.assertEqual(list(actual[0].shape), [3, 5])
+
+    def test_dot_product(self):
+        """i,i->: dot product."""
+        actual = self._einsum("i,i->", [ts(FLOAT, [4]), ts(FLOAT, [4])])
+        self.assertEqual(list(actual[0].shape), [])
+
+    def test_symbolic_dims(self):
+        """ij,jk->ik with symbolic dims."""
+        actual = self._einsum("ij,jk->ik", [ts(FLOAT, ["M", "K"]), ts(FLOAT, ["K", "N"])])
+        self.assertEqual(actual[0].shape.rank(), 2)
+
+    def test_ellipsis_batch_matmul(self):
+        """...ij,...jk->...ik: ellipsis batch matmul."""
+        actual = self._einsum(
+            "...ij,...jk->...ik", [ts(FLOAT, [2, 3, 4]), ts(FLOAT, [2, 4, 5])]
+        )
+        self.assertEqual(list(actual[0].shape), [2, 3, 5])
+
+    def test_ellipsis_multi_batch(self):
+        """...ij,...jk->...ik with 2 batch dims."""
+        actual = self._einsum(
+            "...ij,...jk->...ik",
+            [ts(FLOAT, [2, 3, 4, 5]), ts(FLOAT, [2, 3, 5, 6])],
+        )
+        self.assertEqual(list(actual[0].shape), [2, 3, 4, 6])
+
+    def test_ellipsis_broadcast_1(self):
+        """Ellipsis broadcast: [1, 3, 4] and [2, 4, 5] → batch dim 2."""
+        actual = self._einsum(
+            "...ij,...jk->...ik", [ts(FLOAT, [1, 3, 4]), ts(FLOAT, [2, 4, 5])]
+        )
+        self.assertEqual(list(actual[0].shape), [2, 3, 5])
+
+    def test_missing_equation_raises(self):
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Einsum",
+                [ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([3, 4]))],
+                opset_version=17,
+            )
+
+    def test_wrong_num_inputs_raises(self):
+        """Equation has 2 operands but only 1 input."""
+        with self.assertRaises(OpUsageError):
+            self._einsum("ij,jk->ik", [ts(FLOAT, [3, 4])])
+
+    def test_rank_mismatch_raises(self):
+        """Rank of input doesn't match equation."""
+        with self.assertRaises(OpUsageError):
+            self._einsum("ijk->ijk", [ts(FLOAT, [3, 4])])
+
+    def test_no_inputs_raises(self):
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Einsum",
+                [None],
+                {"equation": ir.Attr("equation", ir.AttributeType.STRING, "i->i")},
+                opset_version=17,
+            )
+
+    def test_unknown_input_shape_graceful(self):
+        """When an input has no shape, output shape is None."""
+        attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, "ij->ij")}
+        actual = run_shape_inference("", "Einsum", [ts(FLOAT)], attrs, opset_version=17)
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -92,7 +92,7 @@ class SliceTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
     def test_dynamic_starts_ends(self):
-        """When starts/ends are not const, output shape is unknown but dtype propagates."""
+        """When starts/ends are not const, output shape has same rank with symbolic dims."""
         data = ir.Value(name="data", shape=ir.Shape([10, 20]), type=ir.TensorType(FLOAT))
         starts = ir.Value(name="starts", type=ir.TensorType(ir.DataType.INT64))
         ends = ir.Value(name="ends", type=ir.TensorType(ir.DataType.INT64))
@@ -102,7 +102,8 @@ class SliceTest(unittest.TestCase):
             [data, starts, ends],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_slice_no_inputs(self):
@@ -121,7 +122,7 @@ class SliceTest(unittest.TestCase):
             )
 
     def test_slice_non_const_starts(self):
-        """Non-constant starts/ends → output shape unknown but dtype preserved."""
+        """Non-constant starts/ends → output shape has same rank with symbolic dims."""
         data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 20]))
         starts = ir.Value(
             name="starts", type=ir.TensorType(ir.DataType.INT64), shape=ir.Shape([1])
@@ -135,7 +136,8 @@ class SliceTest(unittest.TestCase):
             [data, starts, ends],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
 

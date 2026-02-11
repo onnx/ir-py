@@ -64,5 +64,8 @@ def infer_split(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             else:
                 ctx.set_shape_and_dtype(out, None, input_dtype)
     else:
+        # Split sizes unknown — outputs have same rank, split axis is symbolic
         for out in node.outputs:
-            ctx.set_shape_and_dtype(out, None, input_dtype)
+            new_dims = list(input_shape.dims)
+            new_dims[axis] = ctx.new_symbolic_dim("_split")
+            ctx.set_shape_and_dtype(out, ir.Shape(new_dims), input_dtype)
