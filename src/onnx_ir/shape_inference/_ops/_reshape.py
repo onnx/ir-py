@@ -8,7 +8,7 @@ __all__ = [
     "infer_reshape",
 ]
 
-import logging
+
 import math
 from typing import TYPE_CHECKING
 
@@ -17,8 +17,6 @@ from onnx_ir.shape_inference import _registry
 
 if TYPE_CHECKING:
     from onnx_ir.shape_inference import _context
-
-logger = logging.getLogger(__name__)
 
 
 @_registry.registry.register("", "Reshape", since_version=5)

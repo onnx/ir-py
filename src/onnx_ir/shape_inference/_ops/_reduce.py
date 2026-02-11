@@ -8,7 +8,7 @@ __all__ = [
     "infer_reduce",
 ]
 
-import logging
+
 from typing import TYPE_CHECKING
 
 import onnx_ir as ir
@@ -16,8 +16,6 @@ from onnx_ir.shape_inference import _registry
 
 if TYPE_CHECKING:
     from onnx_ir.shape_inference import _context
-
-logger = logging.getLogger(__name__)
 
 _reg = _registry.registry.register
 
