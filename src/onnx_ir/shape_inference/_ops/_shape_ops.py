@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 __all__ = [
+    "infer_compress",
+    "infer_det",
     "infer_flatten",
+    "infer_non_zero",
     "infer_shape",
     "infer_size",
 ]
@@ -93,3 +96,43 @@ def infer_flatten(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
+
+
+@_registry.registry.register("", "Det", since_version=11)
+def infer_det(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Det operator.
+
+    If input X has shape [..., M, M], output has shape [...].
+    """
+    (x,) = _context.check_inputs(node, "X")
+
+    output_shape: ir.Shape | None = None
+    if x.shape is not None and x.shape.rank() >= 2:
+        output_shape = ir.Shape(list(x.shape.dims[:-2]))
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], output_shape, x.dtype)
+
+
+@_registry.registry.register("", "NonZero", since_version=13)
+def infer_non_zero(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for NonZero operator.
+
+    Output dtype is INT64. Shape is dynamic (unknown).
+    """
+    _context.check_inputs(node, "X")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], None, ir.DataType.INT64)
+
+
+@_registry.registry.register("", "Compress", since_version=11)
+def infer_compress(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Compress operator.
+
+    Output dtype = input dtype. Shape is dynamic (unknown).
+    """
+    (x,) = _context.check_inputs(node, "input")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], None, x.dtype)

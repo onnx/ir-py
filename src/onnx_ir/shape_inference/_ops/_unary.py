@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 __all__ = [
+    "infer_cumsum",
+    "infer_prelu",
     "infer_unary",
 ]
 
@@ -14,6 +16,10 @@ from onnx_ir.shape_inference import _context, _registry
 _reg = _registry.registry.register
 
 
+@_reg("", "Mish", since_version=22)
+@_reg("", "Shrink", since_version=9)
+@_reg("", "Swish", since_version=22)
+@_reg("", "Trilu", since_version=14)
 @_reg("", "Abs", since_version=6)
 @_reg("", "Acos", since_version=7)
 @_reg("", "Acosh", since_version=9)
@@ -58,6 +64,31 @@ def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     Output shape and dtype are identical to the first input.
     """
     (input_val,) = _context.check_inputs(node, "X")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+
+@_reg("", "PRelu", since_version=16)
+def infer_prelu(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for PRelu operator.
+
+    Output shape and dtype are identical to the first input (X).
+    """
+    (input_val, _slope) = _context.check_inputs(node, "X", "slope")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+
+@_reg("", "CumSum", since_version=14)
+@_reg("", "CumProd", since_version=22)
+def infer_cumsum(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for CumSum/CumProd operator.
+
+    Output shape and dtype are identical to the first input.
+    """
+    (input_val,) = _context.check_inputs(node, "x")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)

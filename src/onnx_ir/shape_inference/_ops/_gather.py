@@ -6,6 +6,8 @@ from __future__ import annotations
 
 __all__ = [
     "infer_gather",
+    "infer_gather_elements",
+    "infer_gather_nd",
 ]
 
 import onnx_ir as ir
@@ -47,3 +49,27 @@ def infer_gather(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
+
+
+@_registry.registry.register("", "GatherElements", since_version=13)
+def infer_gather_elements(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for GatherElements operator.
+
+    Output shape = indices shape, output dtype = data dtype.
+    """
+    (data, indices) = _context.check_inputs(node, "data", "indices")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], indices.shape, data.dtype)
+
+
+@_registry.registry.register("", "GatherND", since_version=12)
+def infer_gather_nd(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for GatherND operator.
+
+    Output shape is complex; set dtype only for now (graceful degradation).
+    """
+    (data, _indices) = _context.check_inputs(node, "data", "indices")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], None, data.dtype)
