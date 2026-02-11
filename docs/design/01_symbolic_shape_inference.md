@@ -173,21 +173,35 @@ ir.Shape([ir.SymbolicDim(None), ir.SymbolicDim(None)])
 ir.Shape([ctx.new_symbolic_dim(), ctx.new_symbolic_dim()])
 ```
 
-#### Error Recording
+#### Error Handling
 
-`ctx.record_error(node, message)` records a `ShapeInferenceError`.  In strict
-mode (`policy="strict"`) the error is raised immediately as `ValueError`;
-otherwise it is logged as a warning and appended to `ctx.errors` for later
-inspection.
+Two error types distinguish different failure modes:
+
+- **`OpUsageError`** (always raised): Indicates the model is malformed — wrong
+  number of inputs, a required input is ``None``, or a required attribute is
+  missing.  Helper functions `check_inputs()` and `require_attr()` raise this
+  directly, eliminating boilerplate in every op:
+
+  ```python
+  (data, shape) = _context.check_inputs(node, "data", "shape")
+  axis_attr = _context.require_attr(node, "axis")
+  ```
+
+- **`ShapeInferenceError`** (via `ctx.record_error()`): Indicates a semantic
+  problem detected during inference — axis out of range, rank mismatch, etc.
+  Raised in all policies except ``"skip"``, where it is logged as a warning
+  instead.
+
+Both errors are `ValueError` subclasses.
 
 **Merge policies** (`ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]`):
 
 | Policy | Behavior |
 |--------|----------|
-| `"skip"` | Keep existing shape/dtype if present |
-| `"override"` | Always replace with inferred value |
-| `"refine"` | Update only if inferred is more specific (int > named > None) |
-| `"strict"` | Raise `ValueError` on conflicts |
+| `"skip"` | Keep existing shape/dtype if present; semantic errors logged only |
+| `"override"` | Always replace with inferred value; semantic errors raised |
+| `"refine"` | Update only if inferred is more specific (int > named > None); semantic errors raised |
+| `"strict"` | Raise `ValueError` on conflicts; semantic errors raised |
 
 ### 5. Broadcasting Utilities
 
@@ -318,10 +332,13 @@ ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]
 # Classes
 ShapeInferenceContext
 ShapeInferenceError
+OpUsageError
 OpShapeInferenceRegistry
 
 # Functions
 broadcast_shapes(shape1, shape2) -> Shape | None
+check_inputs(node, *names) -> tuple[Value, ...]
+require_attr(node, name) -> Attr
 infer_symbolic_shapes(model, *, policy, warn_on_missing) -> Model
 
 # Registry instance
