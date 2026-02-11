@@ -61,7 +61,7 @@ def infer_if(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__If.html
     """
-    (_cond,) = _context.check_inputs(node, "cond")
+    (_,) = _context.check_inputs(node, "cond")
 
     then_attr = _context.require_attr(node, "then_branch")
     else_attr = _context.require_attr(node, "else_branch")
