@@ -150,6 +150,47 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
         self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
         self.assertEqual(actual[0].shape[2], 64)
 
+    def test_4d_concrete(self):
+        """4D inputs: [batch, num_heads, seq_len, head_size]."""
+        actual = run_shape_inference(
+            "",
+            "Attention",
+            [
+                ts(FLOAT, [2, 8, 10, 64]),
+                ts(FLOAT, [2, 8, 10, 64]),
+                ts(FLOAT, [2, 8, 10, 64]),
+            ],
+            opset_version=23,
+            num_outputs=3,
+        )
+        self.assertEqual(list(actual[0].shape), [2, 8, 10, 64])
+        self.assertEqual(list(actual[1].shape), [2, 8, 10, 64])
+        self.assertEqual(list(actual[2].shape), [2, 8, 10, 64])
+
+    def test_4d_symbolic(self):
+        """4D inputs with symbolic batch and seq dims."""
+        actual = run_shape_inference(
+            "",
+            "Attention",
+            [
+                ts(FLOAT, ["B", 8, "S", 64]),
+                ts(FLOAT, ["B", 8, "Sk", 64]),
+                ts(FLOAT, ["B", 8, "Sk", 64]),
+            ],
+            opset_version=23,
+            num_outputs=3,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[1], 8)
+        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[3], 64)
+        # present_key follows K shape
+        self.assertEqual(actual[1].shape.rank(), 4)
+        # present_value follows V shape
+        self.assertEqual(actual[2].shape.rank(), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

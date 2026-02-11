@@ -27,9 +27,14 @@ def infer_topk(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             axis += rank
 
         new_dims: list[int | ir.SymbolicDim] = []
+        k_val: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+        if len(node.inputs) >= 2 and node.inputs[1] is not None:
+            k_const = node.inputs[1].const_value
+            if k_const is not None:
+                k_val = int(k_const.numpy().item())
         for i in range(rank):
             if i == axis:
-                new_dims.append(ctx.new_symbolic_dim())
+                new_dims.append(k_val)
             else:
                 new_dims.append(x.shape[i])
         output_shape = ir.Shape(new_dims)
