@@ -6,6 +6,7 @@ from __future__ import annotations
 
 __all__ = [
     "infer_cast",
+    "infer_cast_like",
 ]
 
 from typing import TYPE_CHECKING
@@ -40,5 +41,27 @@ def infer_cast(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     output_dtype = ir.DataType(to_attr.as_int())
 
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], data.shape, output_dtype)
+
+
+@_registry.registry.register("", "CastLike", since_version=15)
+def infer_cast_like(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for CastLike operator.
+
+    Shape is identical to input[0]; dtype comes from input[1].
+
+    Spec: https://onnx.ai/onnx/operators/onnx__CastLike.html
+    """
+    if len(node.inputs) < 2:
+        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
+        return
+
+    data = node.inputs[0]
+    target = node.inputs[1]
+    if data is None or target is None:
+        return
+
+    output_dtype = target.dtype
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], data.shape, output_dtype)

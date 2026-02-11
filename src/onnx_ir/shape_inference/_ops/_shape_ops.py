@@ -10,6 +10,7 @@ __all__ = [
     "infer_size",
 ]
 
+import math
 from typing import TYPE_CHECKING
 
 import onnx_ir as ir
@@ -102,8 +103,6 @@ def infer_flatten(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             axis += rank
 
         if input_shape.is_static():
-            import math
-
             left = math.prod(d if isinstance(d, int) else 1 for d in input_shape.dims[:axis])
             right = math.prod(d if isinstance(d, int) else 1 for d in input_shape.dims[axis:])
             output_shape = ir.Shape([left, right])

@@ -1,6 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for Cast shape inference."""
+"""Unit tests for Cast and CastLike shape inference."""
 
 from __future__ import annotations
 
@@ -40,6 +40,36 @@ class CastTest(unittest.TestCase):
             "Cast",
             [ts(FLOAT)],
             {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, INT64)
+
+
+class CastLikeTest(unittest.TestCase):
+    def test_cast_like_dtype_from_target(self):
+        actual = run_shape_inference(
+            "",
+            "CastLike",
+            [ts(FLOAT, [3, 4]), ts(FLOAT16, [1])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT16, [3, 4])])
+
+    def test_cast_like_preserves_shape(self):
+        actual = run_shape_inference(
+            "",
+            "CastLike",
+            [ts(INT64, ["batch", 128]), ts(FLOAT, [2, 3])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, ["batch", 128])])
+
+    def test_cast_like_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "CastLike",
+            [ts(FLOAT), ts(INT64, [1])],
             opset_version=17,
         )
         self.assertIsNone(actual[0].shape)

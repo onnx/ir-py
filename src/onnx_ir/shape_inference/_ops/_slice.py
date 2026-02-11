@@ -30,7 +30,7 @@ def _read_const_ints(value: ir.Value | None) -> list[int] | None:
     return [int(x) for x in const.numpy().flatten()]
 
 
-@_registry.registry.register("", "Slice", since_version=1)
+@_registry.registry.register("", "Slice", since_version=10)
 def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Slice operator.
 

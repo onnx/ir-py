@@ -47,7 +47,6 @@ _reg = _registry.registry.register
 @_reg("", "Acosh", since_version=9)
 @_reg("", "Atanh", since_version=9)
 @_reg("", "Clip", since_version=6)
-@_reg("", "CastLike", since_version=15)
 @_reg("", "BitwiseNot", since_version=18)
 @_reg("", "Celu", since_version=12)
 @_reg("", "Elu", since_version=6)
@@ -58,7 +57,6 @@ _reg = _registry.registry.register
 @_reg("", "Softplus", since_version=1)
 @_reg("", "Softsign", since_version=1)
 @_reg("", "ThresholdedRelu", since_version=10)
-@_reg("", "Dropout", since_version=7)
 def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for a unary element-wise operator.
 
