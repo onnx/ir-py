@@ -46,7 +46,7 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         # Dynamic starts/ends — same rank, sliced dims are symbolic
         if len(node.outputs) > 0:
             symbolic_dims: list[int | ir.SymbolicDim] = [
-                ctx.new_symbolic_dim("_slice") for _ in range(rank)
+                ctx.new_symbolic_dim() for _ in range(rank)
             ]
             ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(symbolic_dims), input_dtype)
         return

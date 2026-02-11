@@ -45,7 +45,7 @@ def _infer_rnn(
                     hidden_size = w_dim1 // num_gates
 
     if hidden_size is None:
-        hidden_size = ctx.new_symbolic_dim("_hidden")
+        hidden_size = ctx.new_symbolic_dim()
 
     output_dtype = x.dtype
 

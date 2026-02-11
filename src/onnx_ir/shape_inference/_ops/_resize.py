@@ -48,7 +48,7 @@ def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                     if isinstance(d, int):
                         output_dims_list.append(math.floor(d * scales[i]))
                     else:
-                        output_dims_list.append(ctx.new_symbolic_dim("_resize"))
+                        output_dims_list.append(ctx.new_symbolic_dim())
                 if len(node.outputs) > 0:
                     ctx.set_shape_and_dtype(
                         node.outputs[0], ir.Shape(output_dims_list), output_dtype
@@ -58,7 +58,7 @@ def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     # Fallback: same rank with symbolic dims
     if x_shape is not None:
         output_dims_sym: list[int | ir.SymbolicDim] = [
-            ctx.new_symbolic_dim("_resize") for _ in range(x_shape.rank())
+            ctx.new_symbolic_dim() for _ in range(x_shape.rank())
         ]
         if len(node.outputs) > 0:
             ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims_sym), output_dtype)

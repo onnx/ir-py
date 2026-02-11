@@ -168,7 +168,7 @@ def infer_loop(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         else:
             # Scan output: prepend a trip-count dimension to body output shape
             if body_shape is not None:
-                trip_dim = ctx.new_symbolic_dim("_loop_len")
+                trip_dim = ctx.new_symbolic_dim()
                 scan_shape = ir.Shape([trip_dim, *body_shape.dims])
             else:
                 scan_shape = None

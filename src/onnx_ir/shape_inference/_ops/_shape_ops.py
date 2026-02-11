@@ -137,11 +137,9 @@ def infer_non_zero(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         if x.shape is not None:
-            output_shape = ir.Shape([x.shape.rank(), ctx.new_symbolic_dim("_nonzero")])
+            output_shape = ir.Shape([x.shape.rank(), ctx.new_symbolic_dim()])
         else:
-            output_shape = ir.Shape(
-                [ctx.new_symbolic_dim("_nonzero_r"), ctx.new_symbolic_dim("_nonzero")]
-            )
+            output_shape = ir.Shape([ctx.new_symbolic_dim(), ctx.new_symbolic_dim()])
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, ir.DataType.INT64)
 
 
@@ -154,7 +152,7 @@ def infer_compress(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     (x,) = _context.check_inputs(node, "input")
 
     if len(node.outputs) > 0:
-        output_shape = ir.Shape([ctx.new_symbolic_dim("_compress")])
+        output_shape = ir.Shape([ctx.new_symbolic_dim()])
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, x.dtype)
 
 
@@ -166,7 +164,7 @@ def infer_unique(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """
     (x,) = _context.check_inputs(node, "X")
 
-    unique_len = ctx.new_symbolic_dim("_unique")
+    unique_len = ctx.new_symbolic_dim()
 
     # Y: unique values — 1-D with dynamic length
     if len(node.outputs) > 0:
@@ -176,7 +174,7 @@ def infer_unique(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         ctx.set_shape_and_dtype(node.outputs[1], ir.Shape([unique_len]), ir.DataType.INT64)
     # inverse_indices — 1-D, same length as input (or flattened input)
     if len(node.outputs) > 2:
-        inv_len = ctx.new_symbolic_dim("_unique_inv")
+        inv_len = ctx.new_symbolic_dim()
         ctx.set_shape_and_dtype(node.outputs[2], ir.Shape([inv_len]), ir.DataType.INT64)
     # counts — 1-D, same length as Y
     if len(node.outputs) > 3:
@@ -191,7 +189,7 @@ def infer_non_max_suppression(ctx: _context.ShapeInferenceContext, node: ir.Node
     """
     _context.check_inputs(node, "boxes", "scores")
 
-    output_shape = ir.Shape([ctx.new_symbolic_dim("_nms"), 3])
+    output_shape = ir.Shape([ctx.new_symbolic_dim(), 3])
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, ir.DataType.INT64)
 
@@ -208,7 +206,7 @@ def infer_string_split(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
     # Y: split strings — rank is X.rank + 1 with symbolic last dim
     if len(node.outputs) > 0:
         if x.shape is not None:
-            y_shape = ir.Shape([*x.shape, ctx.new_symbolic_dim("_strsplit")])
+            y_shape = ir.Shape([*x.shape, ctx.new_symbolic_dim()])
         else:
             y_shape = None
         ctx.set_shape_and_dtype(node.outputs[0], y_shape, ir.DataType.STRING)
@@ -342,7 +340,7 @@ def _einsum_shape(
                             if existing == 1:
                                 ellipsis_dims[j] = current
                             elif current != 1 and current != existing:
-                                ellipsis_dims[j] = ctx.new_symbolic_dim("_einsum_ell")
+                                ellipsis_dims[j] = ctx.new_symbolic_dim()
                         elif existing == current:
                             pass
                         else:
@@ -352,7 +350,7 @@ def _einsum_shape(
                             elif isinstance(current, int) and current == 1:
                                 pass  # keep existing
                             else:
-                                ellipsis_dims[j] = ctx.new_symbolic_dim("_einsum_ell")
+                                ellipsis_dims[j] = ctx.new_symbolic_dim()
                 shape_idx += local_ellipsis_count
                 i += 3  # skip "..."
                 continue
@@ -387,7 +385,7 @@ def _einsum_shape(
                 if c in label_dims:
                     output_dims.append(label_dims[c])
                 else:
-                    output_dims.append(ctx.new_symbolic_dim("_einsum"))
+                    output_dims.append(ctx.new_symbolic_dim())
             i += 1
     else:
         # Implicit output: ellipsis dims first, then non-repeated labels in
@@ -425,7 +423,7 @@ def infer_scan(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                     else:
                         # Scan output: body scan output shape + scan dim prepended
                         if body_out.shape is not None:
-                            scan_len = ctx.new_symbolic_dim("_scan")
+                            scan_len = ctx.new_symbolic_dim()
                             out_shape = ir.Shape([scan_len, *body_out.shape])
                         else:
                             out_shape = None
@@ -454,8 +452,8 @@ def infer_image_decoder(ctx: _context.ShapeInferenceContext, node: ir.Node) -> N
     if len(node.outputs) > 0:
         output_shape = ir.Shape(
             [
-                ctx.new_symbolic_dim("_img_h"),
-                ctx.new_symbolic_dim("_img_w"),
+                ctx.new_symbolic_dim(),
+                ctx.new_symbolic_dim(),
                 channels,
             ]
         )
@@ -478,8 +476,8 @@ def infer_mel_weight_matrix(ctx: _context.ShapeInferenceContext, node: ir.Node) 
     if len(node.outputs) > 0:
         output_shape = ir.Shape(
             [
-                ctx.new_symbolic_dim("_mel_freq"),
-                ctx.new_symbolic_dim("_mel_bins"),
+                ctx.new_symbolic_dim(),
+                ctx.new_symbolic_dim(),
             ]
         )
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
@@ -496,7 +494,7 @@ def infer_tfidf_vectorizer(ctx: _context.ShapeInferenceContext, node: ir.Node) -
         if len(node.inputs) > 0 and node.inputs[0] is not None:
             x = node.inputs[0]
             if x.shape is not None:
-                feat_dim = ctx.new_symbolic_dim("_tfidf")
+                feat_dim = ctx.new_symbolic_dim()
                 if x.shape.rank() == 1:
                     output_shape = ir.Shape([feat_dim])
                 elif x.shape.rank() == 2:

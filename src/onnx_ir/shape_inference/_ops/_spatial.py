@@ -92,7 +92,7 @@ def infer_col2im(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         image_dims = [int(d) for d in image_shape_const.numpy().flatten()]
         n = input_val.shape[0]
         # C is complex to compute; use symbolic
-        c: int | ir.SymbolicDim = ctx.new_symbolic_dim("_col2im_c")
+        c: int | ir.SymbolicDim = ctx.new_symbolic_dim()
         output_dims: list[int | ir.SymbolicDim] = [n, c, *image_dims]
         output_shape: ir.Shape | None = ir.Shape(output_dims)
     else:
@@ -125,7 +125,7 @@ def infer_center_crop_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) ->
         output_shape: ir.Shape | None = ir.Shape(output_dims)
     elif input_data.shape is not None:
         output_dims_sym: list[int | ir.SymbolicDim] = [
-            ctx.new_symbolic_dim("_ccp") for _ in range(input_data.shape.rank())
+            ctx.new_symbolic_dim() for _ in range(input_data.shape.rank())
         ]
         output_shape = ir.Shape(output_dims_sym)
     else:
@@ -157,13 +157,13 @@ def infer_roi_align(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     if rois.shape is not None and isinstance(rois.shape[0], int):
         num_rois = rois.shape[0]
     else:
-        num_rois = ctx.new_symbolic_dim("_roi_n")
+        num_rois = ctx.new_symbolic_dim()
 
     c: int | ir.SymbolicDim
     if x.shape is not None and isinstance(x.shape[1], int):
         c = x.shape[1]
     else:
-        c = ctx.new_symbolic_dim("_roi_c")
+        c = ctx.new_symbolic_dim()
 
     output_shape = ir.Shape([num_rois, c, output_height, output_width])
     if len(node.outputs) > 0:
@@ -189,13 +189,13 @@ def infer_max_roi_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
     if rois.shape is not None and isinstance(rois.shape[0], int):
         num_rois = rois.shape[0]
     else:
-        num_rois = ctx.new_symbolic_dim("_mrp_n")
+        num_rois = ctx.new_symbolic_dim()
 
     c: int | ir.SymbolicDim
     if x.shape is not None and isinstance(x.shape[1], int):
         c = x.shape[1]
     else:
-        c = ctx.new_symbolic_dim("_mrp_c")
+        c = ctx.new_symbolic_dim()
 
     output_shape = ir.Shape([num_rois, c, pooled_shape[0], pooled_shape[1]])
     if len(node.outputs) > 0:
@@ -229,7 +229,7 @@ def infer_max_unpool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None
     # Create symbolic spatial dims
     output_dims_list: list[int | ir.SymbolicDim] = [x.shape[0], x.shape[1]]
     for _ in range(x.shape.rank() - 2):
-        output_dims_list.append(ctx.new_symbolic_dim("_unpool"))
+        output_dims_list.append(ctx.new_symbolic_dim())
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims_list), output_dtype)
 
@@ -299,7 +299,7 @@ def infer_deform_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
         d = dilations[i]
 
         if not isinstance(in_dim, int) or k is None:
-            spatial_dims.append(ctx.new_symbolic_dim("_dconv"))
+            spatial_dims.append(ctx.new_symbolic_dim())
             continue
 
         out_dim = _compute_conv_output_dim(in_dim, k, s, d, pads[i], pads[i + n_spatial])

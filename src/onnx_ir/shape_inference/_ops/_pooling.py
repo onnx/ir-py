@@ -35,7 +35,7 @@ def _compute_pool_output_shape(
     for i in range(n_spatial):
         in_dim = x_shape[i + 2]
         if not isinstance(in_dim, int):
-            spatial_dims.append(ctx.new_symbolic_dim("_pool"))
+            spatial_dims.append(ctx.new_symbolic_dim())
             continue
         k = kernel_shape[i]
         s = strides[i]

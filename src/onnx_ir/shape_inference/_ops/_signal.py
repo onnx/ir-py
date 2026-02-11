@@ -32,9 +32,7 @@ def infer_dft(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     # Output has same rank as input with symbolic dims
     rank = input_val.shape.rank()
-    output_dims: list[int | ir.SymbolicDim] = [
-        ctx.new_symbolic_dim("_dft") for _ in range(rank)
-    ]
+    output_dims: list[int | ir.SymbolicDim] = [ctx.new_symbolic_dim() for _ in range(rank)]
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims), output_dtype)
 
@@ -53,8 +51,8 @@ def infer_stft(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if signal.shape is not None:
         batch_size = signal.shape[0]
-        frames = ctx.new_symbolic_dim("_stft_frames")
-        freq_bins = ctx.new_symbolic_dim("_stft_freq")
+        frames = ctx.new_symbolic_dim()
+        freq_bins = ctx.new_symbolic_dim()
         output_shape = ir.Shape([batch_size, frames, freq_bins, 2])
     else:
         output_shape = None
