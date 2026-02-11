@@ -126,7 +126,7 @@ def run_shape_inference_with_values(
     domain: str,
     op_type: str,
     input_values: Sequence[ir.Value | None],
-    attributes: dict[str, ir.Attr] | None = None,
+    attributes: dict[str, ir.Attr] | Sequence[ir.Attr] | None = None,
     *,
     opset_version: int,
     num_outputs: int = 1,
