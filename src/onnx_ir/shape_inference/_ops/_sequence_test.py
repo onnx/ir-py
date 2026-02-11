@@ -234,6 +234,41 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class SequenceLengthSymbolicDimsTest(unittest.TestCase):
+    def test_scalar_output_with_symbolic_elements(self):
+        """SequenceLength always produces a scalar INT64 regardless of element shape."""
+        seq = ir.Value(
+            name="seq",
+            type=ir.SequenceType(ir.TensorType(FLOAT)),
+        )
+        actual = run_shape_inference_with_values(
+            "",
+            "SequenceLength",
+            [seq],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [])])
+
+
+class SequenceAtSymbolicDimsTest(unittest.TestCase):
+    def test_extracts_element_type_with_symbolic_shape(self):
+        """SequenceAt extracts element type even when element shapes are symbolic."""
+        seq = ir.Value(
+            name="seq",
+            type=ir.SequenceType(ir.TensorType(FLOAT)),
+        )
+        position = ir.Value(name="pos", type=ir.TensorType(INT64))
+        actual = run_shape_inference_with_values(
+            "",
+            "SequenceAt",
+            [seq, position],
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsInstance(result.type, ir.TensorType)
+        self.assertEqual(result.type.dtype, FLOAT)
+
+
 class SequenceErrorPathsTest(unittest.TestCase):
     """Tests for error/early-return paths in sequence ops."""
 

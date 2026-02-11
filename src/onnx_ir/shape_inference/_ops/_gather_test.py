@@ -110,5 +110,30 @@ class GatherTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
 
+class GatherNDTest(unittest.TestCase):
+    def test_basic(self):
+        actual = run_shape_inference(
+            "",
+            "GatherND",
+            [ts(FLOAT, [5, 4, 3]), ts(INT64, [2, 2])],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual, [ts(FLOAT, [2, 3])])
+
+    def test_symbolic_dims(self):
+        actual = run_shape_inference(
+            "",
+            "GatherND",
+            [ts(FLOAT, ["N", "M", 3]), ts(INT64, ["K", 1])],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

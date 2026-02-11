@@ -144,5 +144,35 @@ class SoftmaxCrossEntropyLossTest(unittest.TestCase):
             )
 
 
+class NLLLossSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_batch_reduction_none(self):
+        attrs = {
+            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "none"),
+        }
+        actual = run_shape_inference(
+            "",
+            "NegativeLogLikelihoodLoss",
+            [ts(FLOAT, ["N", "C"]), ts(INT64, ["N"])],
+            attrs,
+            opset_version=13,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 1)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+
+    def test_symbolic_batch_reduction_mean(self):
+        attrs = {
+            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "mean"),
+        }
+        actual = run_shape_inference(
+            "",
+            "NegativeLogLikelihoodLoss",
+            [ts(FLOAT, ["N", "C"]), ts(INT64, ["N"])],
+            attrs,
+            opset_version=13,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [])])
+
+
 if __name__ == "__main__":
     unittest.main()

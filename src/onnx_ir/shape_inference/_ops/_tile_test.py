@@ -55,6 +55,25 @@ class TileTest(unittest.TestCase):
                 opset_version=13,
             )
 
+    def test_symbolic_input_with_const_repeats(self):
+        data = ir.Value(
+            name="data",
+            type=ir.TensorType(FLOAT),
+            shape=ir.Shape(["N", "M"]),
+        )
+        repeats = const_value([2, 3], name="repeats")
+        actual = run_shape_inference_with_values(
+            "",
+            "Tile",
+            [data, repeats],
+            opset_version=13,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        # Symbolic * int produces SymbolicDim
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+
 
 if __name__ == "__main__":
     unittest.main()

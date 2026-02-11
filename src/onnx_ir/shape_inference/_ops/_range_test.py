@@ -45,6 +45,18 @@ class RangeTest(unittest.TestCase):
         with self.assertRaises(OpUsageError):
             run_shape_inference_with_values("", "Range", [None, v1, v2], opset_version=21)
 
+    def test_symbolic_scalar_inputs(self):
+        """Range always produces 1-D output even with symbolic scalar inputs."""
+        actual = run_shape_inference(
+            "",
+            "Range",
+            [ts(FLOAT, []), ts(FLOAT, []), ts(FLOAT, [])],
+            opset_version=21,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 1)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+
 
 if __name__ == "__main__":
     unittest.main()

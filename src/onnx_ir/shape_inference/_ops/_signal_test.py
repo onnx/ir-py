@@ -90,5 +90,32 @@ class STFTTest(unittest.TestCase):
             )
 
 
+class DFTSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_dims(self):
+        actual = run_shape_inference(
+            "",
+            "DFT",
+            [ts(FLOAT, ["N", "L", 2])],
+            opset_version=20,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+
+class STFTSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_batch(self):
+        actual = run_shape_inference(
+            "",
+            "STFT",
+            [ts(FLOAT, ["N", 128, 1]), ts(ir.DataType.INT64, [])],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[3], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

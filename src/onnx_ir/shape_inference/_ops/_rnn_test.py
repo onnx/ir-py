@@ -97,5 +97,49 @@ class GRUTest(unittest.TestCase):
             run_shape_inference_with_values("", "GRU", [None], opset_version=21)
 
 
+class LSTMSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_sequence_length(self):
+        attrs = {
+            "hidden_size": ir.Attr("hidden_size", ir.AttributeType.INT, 16),
+        }
+        actual = run_shape_inference(
+            "",
+            "LSTM",
+            [ts(FLOAT, ["S", "B", 10])],
+            attrs,
+            opset_version=21,
+            num_outputs=3,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[1], 1)
+        self.assertEqual(actual[0].shape[3], 16)
+        self.assertIsNotNone(actual[1].shape)
+        self.assertEqual(actual[1].shape.rank(), 3)
+
+
+class GRUSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_sequence_length(self):
+        attrs = {
+            "hidden_size": ir.Attr("hidden_size", ir.AttributeType.INT, 32),
+        }
+        actual = run_shape_inference(
+            "",
+            "GRU",
+            [ts(FLOAT, ["S", "B", 8])],
+            attrs,
+            opset_version=21,
+            num_outputs=2,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[3], 32)
+        self.assertIsNotNone(actual[1].shape)
+        self.assertEqual(actual[1].shape.rank(), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -115,5 +115,41 @@ class RotaryEmbeddingTest(unittest.TestCase):
             )
 
 
+class AttentionSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_dims(self):
+        actual = run_shape_inference(
+            "",
+            "Attention",
+            [
+                ts(FLOAT, ["B", "S", "D"]),
+                ts(FLOAT, ["B", "S", "D"]),
+                ts(FLOAT, ["B", "S", "D"]),
+            ],
+            opset_version=23,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
+
+    def test_symbolic_with_concrete_embed_dim(self):
+        actual = run_shape_inference(
+            "",
+            "Attention",
+            [
+                ts(FLOAT, ["B", "S", 64]),
+                ts(FLOAT, ["B", "S", 64]),
+                ts(FLOAT, ["B", "S", 64]),
+            ],
+            opset_version=23,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 64)
+
+
 if __name__ == "__main__":
     unittest.main()

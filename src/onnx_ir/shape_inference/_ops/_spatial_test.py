@@ -184,5 +184,66 @@ class AffineGridTest(unittest.TestCase):
             )
 
 
+class GridSampleSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_dims(self):
+        actual = run_shape_inference(
+            "",
+            "GridSample",
+            [ts(FLOAT, ["N", "C", "H", "W"]), ts(FLOAT, ["N", 6, 7, 2])],
+            opset_version=20,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 6)
+        self.assertEqual(actual[0].shape[3], 7)
+
+
+class Col2ImSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_batch(self):
+        input_val = ir.Value(
+            name="input", type=ir.TensorType(FLOAT), shape=ir.Shape(["N", 27, 4])
+        )
+        image_shape = const_value([4, 4], name="image_shape")
+        block_shape = const_value([3, 3], name="block_shape")
+        actual = run_shape_inference_with_values(
+            "",
+            "Col2Im",
+            [input_val, image_shape, block_shape],
+            opset_version=18,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 4)
+        self.assertEqual(actual[0].shape[3], 4)
+
+
+class RoiAlignSymbolicDimsTest(unittest.TestCase):
+    def test_symbolic_dims(self):
+        attrs = {
+            "output_height": ir.Attr("output_height", ir.AttributeType.INT, 3),
+            "output_width": ir.Attr("output_width", ir.AttributeType.INT, 3),
+        }
+        actual = run_shape_inference(
+            "",
+            "RoiAlign",
+            [
+                ts(FLOAT, ["N", "C", "H", "W"]),
+                ts(FLOAT, ["R", 4]),
+                ts(INT64, ["R"]),
+            ],
+            attrs,
+            opset_version=16,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 3)
+        self.assertEqual(actual[0].shape[3], 3)
+
+
 if __name__ == "__main__":
     unittest.main()
