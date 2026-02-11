@@ -47,6 +47,50 @@ class ConstantTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(INT64, [])])
 
+    def test_value_floats(self):
+        actual = run_shape_inference(
+            "",
+            "Constant",
+            [],
+            {
+                "value_floats": ir.Attr(
+                    "value_floats", ir.AttributeType.FLOATS, [1.0, 2.0, 3.0]
+                )
+            },
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3])])
+
+    def test_value_ints(self):
+        actual = run_shape_inference(
+            "",
+            "Constant",
+            [],
+            {"value_ints": ir.Attr("value_ints", ir.AttributeType.INTS, [10, 20])},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [2])])
+
+    def test_value_string(self):
+        actual = run_shape_inference(
+            "",
+            "Constant",
+            [],
+            {"value_string": ir.Attr("value_string", ir.AttributeType.STRING, "hello")},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(ir.DataType.STRING, [])])
+
+    def test_value_strings(self):
+        actual = run_shape_inference(
+            "",
+            "Constant",
+            [],
+            {"value_strings": ir.Attr("value_strings", ir.AttributeType.STRINGS, ["a", "b"])},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(ir.DataType.STRING, [2])])
+
 
 if __name__ == "__main__":
     unittest.main()

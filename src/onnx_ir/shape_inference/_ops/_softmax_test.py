@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -62,6 +66,19 @@ class SoftmaxTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT)])
+
+    def test_softmax_no_inputs(self):
+        actual = run_shape_inference("", "Softmax", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_softmax_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Softmax",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

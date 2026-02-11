@@ -10,7 +10,6 @@ __all__ = [
     "ShapeMergePolicy",
 ]
 
-import dataclasses
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Literal
@@ -22,9 +21,11 @@ import onnx_ir as ir
 logger = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass(frozen=True)
-class ShapeInferenceError:
+class ShapeInferenceError(ValueError):
     """A recorded error from shape inference.
+
+    Can be raised directly (it is a :class:`ValueError` subclass) or stored
+    for later inspection via :attr:`ShapeInferenceContext.errors`.
 
     Attributes:
         node_name: The name of the node (or ``None`` if unnamed).
@@ -33,10 +34,19 @@ class ShapeInferenceError:
         message: Human-readable description of the error.
     """
 
-    node_name: str | None
-    op_type: str
-    domain: str
-    message: str
+    def __init__(
+        self,
+        *,
+        node_name: str | None,
+        op_type: str,
+        domain: str,
+        message: str,
+    ) -> None:
+        self.node_name = node_name
+        self.op_type = op_type
+        self.domain = domain
+        self.message = message
+        super().__init__(str(self))
 
     def __str__(self) -> str:
         op_id = f"{self.domain}::{self.op_type}" if self.domain else self.op_type
@@ -205,7 +215,8 @@ class ShapeInferenceContext:
     def record_error(self, node: ir.Node, message: str) -> None:
         """Record a shape inference error for a node.
 
-        In strict mode the error is raised immediately as a :class:`ValueError`.
+        In strict mode the error is raised immediately as a
+        :class:`ShapeInferenceError` (which is a :class:`ValueError`).
         Otherwise it is appended to an internal list that can be inspected via
         :attr:`errors` after the pass completes.
 
@@ -214,7 +225,7 @@ class ShapeInferenceContext:
             message: Human-readable description of the problem.
 
         Raises:
-            ValueError: If the merge policy is ``"strict"``.
+            ShapeInferenceError: If the merge policy is ``"strict"``.
         """
         error = ShapeInferenceError(
             node_name=node.name,
@@ -224,7 +235,7 @@ class ShapeInferenceContext:
         )
         self._errors.append(error)
         if self.policy == "strict":
-            raise ValueError(str(error))
+            raise error
         logger.warning("Shape inference error: %s", error)
 
     @property

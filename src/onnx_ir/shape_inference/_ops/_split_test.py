@@ -128,6 +128,34 @@ class SplitTest(unittest.TestCase):
         # Shape should be None since we can't determine split sizes
         self.assertIsNone(actual[0].shape)
 
+    def test_split_no_inputs(self):
+        actual = run_shape_inference("", "Split", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_split_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Split",
+            [None],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_split_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "Split",
+            [ts(FLOAT)],
+            {
+                "axis": ir.Attr("axis", ir.AttributeType.INT, 0),
+                "num_outputs": ir.Attr("num_outputs", ir.AttributeType.INT, 2),
+            },
+            opset_version=17,
+            num_outputs=2,
+        )
+        self.assertIsNone(actual[0].shape)
+
 
 if __name__ == "__main__":
     unittest.main()

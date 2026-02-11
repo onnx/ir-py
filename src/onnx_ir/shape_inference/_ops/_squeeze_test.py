@@ -174,6 +174,32 @@ class UnsqueezeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, [1, 3, 4, 5, 1])])
 
+    def test_squeeze_no_inputs(self):
+        actual = run_shape_inference("", "Squeeze", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_squeeze_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Squeeze",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_unsqueeze_no_inputs(self):
+        actual = run_shape_inference("", "Unsqueeze", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_unsqueeze_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Unsqueeze",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
 
 if __name__ == "__main__":
     unittest.main()

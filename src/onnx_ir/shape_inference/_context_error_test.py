@@ -28,6 +28,12 @@ class ErrorRecordingTest(unittest.TestCase):
     def test_record_error_strict_raises(self):
         ctx = _context.ShapeInferenceContext(policy="strict")
         node = self._make_node()
+        with self.assertRaises(_context.ShapeInferenceError):
+            ctx.record_error(node, "bad input")
+
+    def test_record_error_strict_raises_as_value_error(self):
+        ctx = _context.ShapeInferenceContext(policy="strict")
+        node = self._make_node()
         with self.assertRaises(ValueError):
             ctx.record_error(node, "bad input")
 

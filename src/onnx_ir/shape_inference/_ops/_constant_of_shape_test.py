@@ -81,6 +81,24 @@ class ConstantOfShapeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, [0])])
 
+    def test_constant_of_shape_no_inputs(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "ConstantOfShape",
+            [],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_constant_of_shape_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "ConstantOfShape",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
 
 if __name__ == "__main__":
     unittest.main()

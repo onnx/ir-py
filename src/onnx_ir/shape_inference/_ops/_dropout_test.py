@@ -7,7 +7,11 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 BOOL = ir.DataType.BOOL
@@ -57,6 +61,26 @@ class DropoutTest(unittest.TestCase):
             num_outputs=1,
         )
         self.assertEqual(actual, [ts(FLOAT, [2, 3, 4])])
+
+    def test_dropout_no_inputs(self):
+        actual = run_shape_inference(
+            "",
+            "Dropout",
+            [],
+            opset_version=17,
+            num_outputs=2,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_dropout_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Dropout",
+            [None],
+            opset_version=17,
+            num_outputs=2,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

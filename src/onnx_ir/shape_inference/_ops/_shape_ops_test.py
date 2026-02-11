@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 INT64 = ir.DataType.INT64
@@ -160,6 +164,51 @@ class FlattenTest(unittest.TestCase):
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 2)
+
+    def test_shape_no_inputs(self):
+        actual = run_shape_inference("", "Shape", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_shape_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Shape",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_size_no_inputs(self):
+        actual = run_shape_inference("", "Size", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_size_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Size",
+            [None],
+            opset_version=17,
+        )
+        self.assertEqual(actual[0].shape, ir.Shape([]))
+
+    def test_flatten_no_inputs(self):
+        actual = run_shape_inference("", "Flatten", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_flatten_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Flatten",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_flatten_missing_shape(self):
+        """Flatten with unknown input shape → dtype only."""
+        actual = run_shape_inference("", "Flatten", [ts(FLOAT)], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
 
 
 if __name__ == "__main__":

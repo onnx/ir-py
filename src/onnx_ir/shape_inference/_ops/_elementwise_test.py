@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 BOOL = ir.DataType.BOOL
@@ -92,6 +96,20 @@ class BinaryElementwiseTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(INT64, [3, 4])])
+
+    def test_add_no_inputs(self):
+        actual = run_shape_inference("", "Add", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_add_none_input(self):
+        v = ir.Value(name="a", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
+        actual = run_shape_inference_with_values(
+            "",
+            "Add",
+            [v, None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

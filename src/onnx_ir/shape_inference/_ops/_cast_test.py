@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 FLOAT16 = ir.DataType.FLOAT16
@@ -45,6 +49,37 @@ class CastTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, INT64)
 
+    def test_cast_no_inputs(self):
+        actual = run_shape_inference(
+            "",
+            "Cast",
+            [],
+            {"to": ir.Attr("to", ir.AttributeType.INT, FLOAT)},
+            opset_version=17,
+        )
+        # No output set when error is recorded
+        self.assertIsNone(actual[0].shape)
+
+    def test_cast_missing_to(self):
+        actual = run_shape_inference(
+            "",
+            "Cast",
+            [ts(FLOAT, [3])],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_cast_none_input(self):
+        """Cast with a None (missing optional) input."""
+        actual = run_shape_inference_with_values(
+            "",
+            "Cast",
+            [None],
+            {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
 
 class CastLikeTest(unittest.TestCase):
     def test_cast_like_dtype_from_target(self):
@@ -74,6 +109,27 @@ class CastLikeTest(unittest.TestCase):
         )
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, INT64)
+
+    def test_cast_like_no_inputs(self):
+        actual = run_shape_inference(
+            "",
+            "CastLike",
+            [ts(FLOAT, [3])],
+            opset_version=17,
+        )
+        # Only 1 input when 2 expected → error recorded, no output
+        self.assertIsNone(actual[0].shape)
+
+    def test_cast_like_none_target(self):
+        """CastLike with None target input."""
+        data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
+        actual = run_shape_inference_with_values(
+            "",
+            "CastLike",
+            [data, None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

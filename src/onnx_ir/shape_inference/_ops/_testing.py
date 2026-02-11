@@ -123,7 +123,7 @@ def run_shape_inference(
 def run_shape_inference_with_values(
     domain: str,
     op_type: str,
-    input_values: Sequence[ir.Value],
+    input_values: Sequence[ir.Value | None],
     attributes: dict[str, ir.Attr] | None = None,
     *,
     opset_version: int,
@@ -131,7 +131,8 @@ def run_shape_inference_with_values(
 ) -> list[ir.TypeAndShape]:
     """Like :func:`run_shape_inference` but accepts pre-built :class:`ir.Value` objects.
 
-    Use this when inputs need ``const_value`` set (e.g. for Reshape, Slice, Expand).
+    Use this when inputs need ``const_value`` set (e.g. for Reshape, Slice,
+    Expand) or when testing error paths with ``None`` (missing optional) inputs.
     """
     output_values = [ir.Value(name=f"output_{i}") for i in range(num_outputs)]
 

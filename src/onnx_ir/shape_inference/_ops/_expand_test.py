@@ -61,6 +61,40 @@ class ExpandTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
+    def test_expand_no_inputs(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Expand",
+            [],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_expand_none_input(self):
+        shape_val = const_value([3, 4])
+        actual = run_shape_inference_with_values(
+            "",
+            "Expand",
+            [None, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_expand_no_const_shape(self):
+        """When the shape input is not constant, output shape is unknown."""
+        data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3, 1]))
+        shape_val = ir.Value(
+            name="shape", type=ir.TensorType(ir.DataType.INT64), shape=ir.Shape([2])
+        )
+        actual = run_shape_inference_with_values(
+            "",
+            "Expand",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
 
 if __name__ == "__main__":
     unittest.main()

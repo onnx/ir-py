@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 FLOAT16 = ir.DataType.FLOAT16
@@ -79,6 +83,29 @@ class InferTransposeTest(unittest.TestCase):
     def test_transpose(self, _name, inputs, attributes, expected_outputs):
         actual = run_shape_inference("", "Transpose", inputs, attributes, opset_version=17)
         self.assertEqual(actual, expected_outputs)
+
+    def test_transpose_no_inputs(self):
+        actual = run_shape_inference("", "Transpose", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_transpose_none_input(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Transpose",
+            [None],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_transpose_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "Transpose",
+            [ts(FLOAT)],
+            {"perm": ir.Attr("perm", ir.AttributeType.INTS, [1, 0])},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 INT64 = ir.DataType.INT64
@@ -73,6 +77,36 @@ class GatherTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+    def test_gather_no_inputs(self):
+        actual = run_shape_inference(
+            "",
+            "Gather",
+            [],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_gather_none_data(self):
+        indices = ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([3]))
+        actual = run_shape_inference_with_values(
+            "",
+            "Gather",
+            [None, indices],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_gather_missing_shapes(self):
+        actual = run_shape_inference(
+            "",
+            "Gather",
+            [ts(FLOAT), ts(INT64, [3])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

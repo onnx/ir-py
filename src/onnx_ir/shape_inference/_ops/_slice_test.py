@@ -11,6 +11,7 @@ import parameterized
 import onnx_ir as ir
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
+    run_shape_inference,
     run_shape_inference_with_values,
     ts,
 )
@@ -94,6 +95,39 @@ class SliceTest(unittest.TestCase):
         data = ir.Value(name="data", shape=ir.Shape([10, 20]), type=ir.TensorType(FLOAT))
         starts = ir.Value(name="starts", type=ir.TensorType(ir.DataType.INT64))
         ends = ir.Value(name="ends", type=ir.TensorType(ir.DataType.INT64))
+        actual = run_shape_inference_with_values(
+            "",
+            "Slice",
+            [data, starts, ends],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+    def test_slice_no_inputs(self):
+        actual = run_shape_inference("", "Slice", [ts(FLOAT, [5])], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_slice_none_data(self):
+        starts = const_value([0])
+        ends = const_value([3])
+        actual = run_shape_inference_with_values(
+            "",
+            "Slice",
+            [None, starts, ends],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_slice_non_const_starts(self):
+        """Non-constant starts/ends → output shape unknown but dtype preserved."""
+        data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 20]))
+        starts = ir.Value(
+            name="starts", type=ir.TensorType(ir.DataType.INT64), shape=ir.Shape([1])
+        )
+        ends = ir.Value(
+            name="ends", type=ir.TensorType(ir.DataType.INT64), shape=ir.Shape([1])
+        )
         actual = run_shape_inference_with_values(
             "",
             "Slice",

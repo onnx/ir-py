@@ -78,6 +78,78 @@ class ReshapeTest(unittest.TestCase):
         # Can infer target shape from const shape input
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 
+    def test_allowzero(self):
+        """allowzero=1: 0 in target means literal zero-size dim."""
+        data = ir.Value(name="data", shape=ir.Shape([2, 0, 4]), type=ir.TensorType(FLOAT))
+        shape_val = const_value([0, 4])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            attributes={"allowzero": ir.Attr("allowzero", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [0, 4])])
+
+    def test_neg_one_non_static_input(self):
+        """When input shape is symbolic, -1 becomes a new symbolic dim."""
+        data = ir.Value(
+            name="data",
+            shape=ir.Shape([ir.SymbolicDim("batch"), 12]),
+            type=ir.TensorType(FLOAT),
+        )
+        shape_val = const_value([-1, 3, 4])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertEqual(actual[0].shape[1], 3)
+        # -1 dim should be symbolic, not literal -1
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+
+    def test_no_inputs(self):
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_dynamic_shape_no_rank(self):
+        """Shape input with unknown rank → dtype only."""
+        data = ir.Value(name="data", shape=ir.Shape([2, 3]), type=ir.TensorType(FLOAT))
+        shape_val = ir.Value(name="shape", type=ir.TensorType(ir.DataType.INT64))
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+    def test_zero_copies_from_input_missing_dim(self):
+        """0-dim in target copies from input; when input has the dim, it's used."""
+        data = ir.Value(name="data", shape=ir.Shape([6]), type=ir.TensorType(FLOAT))
+        shape_val = const_value([0, 2, 3])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        # dim 0: 0 copies from input dim 0 → 6
+        self.assertEqual(actual[0].shape[0], 6)
+        self.assertEqual(actual[0].shape[1], 2)
+        self.assertEqual(actual[0].shape[2], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

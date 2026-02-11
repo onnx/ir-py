@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
+from onnx_ir.shape_inference._ops._testing import (
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -259,6 +263,33 @@ class ConvTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT, [1, 16, 26, 26])])
+
+    def test_conv_no_inputs(self):
+        actual = run_shape_inference("", "Conv", [], opset_version=17)
+        self.assertIsNone(actual[0].shape)
+
+    def test_conv_none_input(self):
+        w = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([16, 3, 3, 3]))
+        actual = run_shape_inference_with_values(
+            "",
+            "Conv",
+            [None, w],
+            {"kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3])},
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_conv_missing_input_spatial(self):
+        """Conv with unknown spatial dims but known batch/channels."""
+        actual = run_shape_inference(
+            "",
+            "Conv",
+            [ts(FLOAT, [1, 3]), ts(FLOAT, [16, 3, 3, 3])],
+            {"kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3])},
+            opset_version=17,
+        )
+        # Rank mismatch means we can't compute spatial dims
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":
