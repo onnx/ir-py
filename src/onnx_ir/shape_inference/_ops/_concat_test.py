@@ -47,6 +47,20 @@ class ConcatTest(unittest.TestCase):
                 1,
                 [ts(FLOAT, [2, 12])],
             ),
+            # From ONNX test_concat: (2,4,3) + (7,4,3) → (9,4,3)
+            (
+                "onnx_basic",
+                [ts(FLOAT, [2, 4, 3]), ts(FLOAT, [7, 4, 3])],
+                0,
+                [ts(FLOAT, [9, 4, 3])],
+            ),
+            # From ONNX test_concat_3d_axis_2: (2,2,2) + (2,2,2) → (2,2,4)
+            (
+                "3d_axis_2",
+                [ts(FLOAT, [2, 2, 2]), ts(FLOAT, [2, 2, 2])],
+                2,
+                [ts(FLOAT, [2, 2, 4])],
+            ),
         ]
     )
     def test_concat(self, _name, inputs, axis, expected):
@@ -70,6 +84,32 @@ class ConcatTest(unittest.TestCase):
         # dtype should still propagate even if shape is unknown
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)
+
+    def test_symbolic_concat_dim(self):
+        """When the concat dim is symbolic, result should also be symbolic."""
+        actual = run_shape_inference(
+            "",
+            "Concat",
+            [ts(FLOAT, [2, "a"]), ts(FLOAT, [2, "b"])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape[0], 2)
+        # Concat of symbolic dims should be symbolic
+        self.assertNotIsInstance(result.shape[1], int)
+
+    def test_single_input(self):
+        """Single input concat is identity."""
+        actual = run_shape_inference(
+            "",
+            "Concat",
+            [ts(FLOAT, [3, 4, 5])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4, 5])])
 
 
 if __name__ == "__main__":

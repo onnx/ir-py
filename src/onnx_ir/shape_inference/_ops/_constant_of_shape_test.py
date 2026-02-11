@@ -55,6 +55,28 @@ class ConstantOfShapeTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
+    def test_scalar_output(self):
+        """From ONNX test_constantofshape_without_input_shape_scalar: shape=[] → scalar."""
+        shape_val = _testing.const_value([], name="shape")
+        actual = _testing.run_shape_inference_with_values(
+            "",
+            "ConstantOfShape",
+            [shape_val],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [_testing.ts(FLOAT, [])])
+
+    def test_zero_size_tensor(self):
+        """From ONNX test_constantofshape_with_shape_zero: shape=[0] → (0,)."""
+        shape_val = _testing.const_value([0], name="shape")
+        actual = _testing.run_shape_inference_with_values(
+            "",
+            "ConstantOfShape",
+            [shape_val],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [_testing.ts(FLOAT, [0])])
+
 
 if __name__ == "__main__":
     unittest.main()

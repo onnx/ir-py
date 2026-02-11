@@ -33,6 +33,8 @@ class ReshapeTest(unittest.TestCase):
             ("with_zero", [2, 3, 4], [0, -1], [_testing.ts(FLOAT, [2, 12])]),
             ("flatten_all", [2, 3, 4], [-1], [_testing.ts(FLOAT, [24])]),
             ("add_dim", [6], [2, 3], [_testing.ts(FLOAT, [2, 3])]),
+            # From ONNX test_reshape_static_shape_zero: 0 means copy from input
+            ("zero_keeps_dim", [2, 3, 4], [0, 0, 4], [_testing.ts(FLOAT, [2, 3, 4])]),
         ]
     )
     def test_reshape(self, _name, input_shape, target_shape, expected):
@@ -58,6 +60,19 @@ class ReshapeTest(unittest.TestCase):
         )
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 3)
+
+    def test_missing_data_shape(self):
+        """When data shape is unknown, can still infer rank from shape input."""
+        data = ir.Value(name="data", type=ir.TensorType(FLOAT))
+        shape_val = _testing.const_value([3, 4], name="shape")
+        actual = _testing.run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        # Can infer target shape from const shape input
+        self.assertEqual(actual, [_testing.ts(FLOAT, [3, 4])])
 
 
 if __name__ == "__main__":

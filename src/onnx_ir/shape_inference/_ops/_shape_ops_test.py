@@ -46,6 +46,61 @@ class ShapeOpTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(INT64, [2])])
 
+    def test_shape_start_only(self):
+        """From ONNX test_shape_start_1."""
+        actual = run_shape_inference(
+            "",
+            "Shape",
+            [ts(FLOAT, [2, 4, 3])],
+            {"start": ir.Attr("start", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [2])])
+
+    def test_shape_end_only(self):
+        """From ONNX test_shape_end_1."""
+        actual = run_shape_inference(
+            "",
+            "Shape",
+            [ts(FLOAT, [2, 4, 3])],
+            {"end": ir.Attr("end", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [1])])
+
+    def test_shape_negative_start(self):
+        """From ONNX test_shape_negative_start."""
+        actual = run_shape_inference(
+            "",
+            "Shape",
+            [ts(FLOAT, [2, 4, 3])],
+            {"start": ir.Attr("start", ir.AttributeType.INT, -1)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [1])])
+
+    def test_shape_clip_start(self):
+        """From ONNX test_shape_clip1: start=-5 clipped to 0."""
+        actual = run_shape_inference(
+            "",
+            "Shape",
+            [ts(FLOAT, [2, 4, 3])],
+            {"start": ir.Attr("start", ir.AttributeType.INT, -5)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [3])])
+
+    def test_shape_clip_end(self):
+        """From ONNX test_shape_clip2: end=10 clipped to rank."""
+        actual = run_shape_inference(
+            "",
+            "Shape",
+            [ts(FLOAT, [2, 4, 3])],
+            {"end": ir.Attr("end", ir.AttributeType.INT, 10)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(INT64, [3])])
+
 
 class SizeTest(unittest.TestCase):
     def test_size(self):
@@ -70,10 +125,13 @@ class SizeTest(unittest.TestCase):
 class FlattenTest(unittest.TestCase):
     @parameterized.parameterized.expand(
         [
+            # From ONNX test_flatten: axis=2
+            ("axis_2", [2, 3, 4, 5], 2, [6, 20]),
+            # From ONNX test_flatten_default_axis: axis=1 default
             ("default_axis", [2, 3, 4], None, [2, 12]),
+            # From ONNX test_flatten_zero_axis: axis=0
             ("axis_0", [2, 3, 4], 0, [1, 24]),
-            ("axis_2", [2, 3, 4], 2, [6, 4]),
-            ("axis_3", [2, 3, 4], 3, [24, 1]),
+            ("axis_end", [2, 3, 4], 3, [24, 1]),
         ]
     )
     def test_flatten(self, _name, input_shape, axis, expected_shape):
@@ -88,6 +146,20 @@ class FlattenTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
+
+    def test_flatten_unknown_dim(self):
+        """From ONNX test_flatten_unknown_dim: symbolic dims → unknown dims."""
+        actual = run_shape_inference(
+            "",
+            "Flatten",
+            [ts(FLOAT, [2, "N", 4, 5])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 2)},
+            opset_version=17,
+        )
+        # Both output dims should be unknown (symbolic input)
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
 
 
 if __name__ == "__main__":

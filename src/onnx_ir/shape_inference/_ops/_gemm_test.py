@@ -17,10 +17,10 @@ FLOAT = ir.DataType.FLOAT
 class GemmTest(unittest.TestCase):
     @parameterized.parameterized.expand(
         [
-            ("basic", [3, 4], [4, 5], 0, 0, [3, 5]),
-            ("transA", [4, 3], [4, 5], 1, 0, [3, 5]),
-            ("transB", [3, 4], [5, 4], 0, 1, [3, 5]),
-            ("both_trans", [4, 3], [5, 4], 1, 1, [3, 5]),
+            ("basic", [7, 5], [5, 11], 0, 0, [7, 11]),
+            ("trans_a", [5, 7], [5, 11], 1, 0, [7, 11]),
+            ("trans_b", [7, 5], [11, 5], 0, 1, [7, 11]),
+            ("both_trans", [5, 7], [11, 5], 1, 1, [7, 11]),
             ("symbolic", ["M", 64], [64, "N"], 0, 0, ["M", "N"]),
         ]
     )
@@ -38,6 +38,35 @@ class GemmTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
+
+    def test_no_bias(self):
+        """From ONNX test_gemm_no_bias: C is optional."""
+        actual = run_shape_inference(
+            "",
+            "Gemm",
+            [ts(FLOAT, [7, 5]), ts(FLOAT, [5, 11])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [7, 11])])
+
+    def test_with_bias(self):
+        """Gemm with bias (C) — does not affect output shape."""
+        actual = run_shape_inference(
+            "",
+            "Gemm",
+            [ts(FLOAT, [7, 5]), ts(FLOAT, [5, 11]), ts(FLOAT, [11])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [7, 11])])
+
+    def test_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "Gemm",
+            [ts(FLOAT), ts(FLOAT, [5, 11])],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
 
 
 if __name__ == "__main__":

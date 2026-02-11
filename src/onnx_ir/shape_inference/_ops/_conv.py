@@ -8,6 +8,7 @@ __all__ = [
     "infer_conv",
 ]
 
+import math
 from typing import TYPE_CHECKING
 
 import onnx_ir as ir
@@ -17,11 +18,40 @@ if TYPE_CHECKING:
     from onnx_ir.shape_inference import _context
 
 
+def _compute_conv_output_dim(
+    in_dim: int,
+    kernel: int,
+    stride: int,
+    dilation: int,
+    pad_begin: int,
+    pad_end: int,
+) -> int:
+    """Compute the output spatial dimension for Conv with explicit padding."""
+    effective_kernel = dilation * (kernel - 1) + 1
+    return (in_dim + pad_begin + pad_end - effective_kernel) // stride + 1
+
+
+def _compute_auto_pad_output_dim(
+    in_dim: int,
+    stride: int,
+    auto_pad: str,
+) -> int:
+    """Compute the output spatial dimension for Conv with auto_pad.
+
+    SAME_UPPER/SAME_LOWER: output_dim = ceil(in_dim / stride)
+    VALID: output with no padding (handled by caller).
+    """
+    if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
+        return math.ceil(in_dim / stride)
+    # Should not be called for NOTSET or VALID
+    raise ValueError(f"Unexpected auto_pad value: {auto_pad}")
+
+
 @_registry.registry.register("", "Conv", since_version=1)
 def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Conv operator.
 
-    Spatial output dim = floor((input + 2*pad - dilation*(kernel-1) - 1) / stride + 1)
+    Supports explicit ``pads`` and ``auto_pad`` (VALID, SAME_UPPER, SAME_LOWER).
 
     Spec: https://onnx.ai/onnx/operators/onnx__Conv.html
     """
@@ -50,11 +80,11 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     n_spatial = x_rank - 2
 
-    # Read attributes
+    # Read kernel_shape from attribute or weight tensor
     kernel_shape_attr = node.attributes.get("kernel_shape")
     if kernel_shape_attr is not None:
-        kernel_shape = list(kernel_shape_attr.as_ints())
-    elif w_shape.rank() >= 2:
+        kernel_shape: list[int | None] = list(kernel_shape_attr.as_ints())
+    elif w_shape.rank() > 2:
         kernel_shape = [
             w_shape[i + 2] if isinstance(w_shape[i + 2], int) else None
             for i in range(n_spatial)
@@ -72,14 +102,17 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         list(dilations_attr.as_ints()) if dilations_attr is not None else [1] * n_spatial
     )
 
-    pads_attr = node.attributes.get("pads")
-    if pads_attr is not None:
-        pads = list(pads_attr.as_ints())
-    else:
-        pads = [0] * (2 * n_spatial)
+    auto_pad_attr = node.attributes.get("auto_pad")
+    auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
 
-    group_attr = node.attributes.get("group")
-    _group = group_attr.as_int() if group_attr is not None else 1
+    pads_attr = node.attributes.get("pads")
+    if auto_pad == "NOTSET":
+        if pads_attr is not None:
+            pads = list(pads_attr.as_ints())
+        else:
+            pads = [0] * (2 * n_spatial)
+    else:
+        pads = None  # Computed from auto_pad
 
     # Batch dim and output channels
     batch_dim = x_shape[0]
@@ -92,14 +125,20 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         k = kernel_shape[i]
         s = strides[i]
         d = dilations[i]
-        pad_begin = pads[i]
-        pad_end = pads[i + n_spatial]
 
-        if isinstance(in_dim, int) and k is not None:
-            out_dim = (in_dim + pad_begin + pad_end - d * (k - 1) - 1) // s + 1
-            spatial_dims.append(out_dim)
-        else:
+        if not isinstance(in_dim, int) or k is None:
             spatial_dims.append(ir.SymbolicDim(None))
+            continue
+
+        if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
+            out_dim = _compute_auto_pad_output_dim(in_dim, s, auto_pad)
+        elif auto_pad == "VALID":
+            out_dim = _compute_conv_output_dim(in_dim, k, s, d, 0, 0)
+        else:
+            # NOTSET — use explicit pads
+            assert pads is not None
+            out_dim = _compute_conv_output_dim(in_dim, k, s, d, pads[i], pads[i + n_spatial])
+        spatial_dims.append(out_dim)
 
     output_dims: list[int | ir.SymbolicDim] = [batch_dim, out_channels, *spatial_dims]
     output_shape = ir.Shape(output_dims)

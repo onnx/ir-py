@@ -42,11 +42,36 @@ class SliceTest(unittest.TestCase):
             ("step_2", [10, 20], [0], [10], [0], [2], [5, 20]),
             ("axis_1", [10, 20], [2], [8], [1], [1], [10, 6]),
             ("multi_axis", [10, 20, 30], [1, 2], [5, 10], [0, 1], [1, 1], [4, 8, 30]),
+            # From ONNX test_slice_giant_number: large end value clipped
+            ("giant_end", [3, 2], [0, 0], [3, 2147483647], [0, 1], [1, 1], [3, 2]),
+            # From ONNX test_slice_giant_step
+            ("giant_step", [3, 2], [0, 0], [3, 2], [0, 1], [1, 2147483647], [3, 1]),
+            # From ONNX test_slice_negative_start
+            ("negative_start", [3, 2], [-2, 0], [3, 2], [0, 1], [1, 1], [2, 2]),
         ]
     )
     def test_slice(self, _name, shape, starts, ends, axes, steps, expected_shape):
         actual = self._run(_testing.ts(FLOAT, shape), starts, ends, axes, steps)
         self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])
+
+    def test_negative_step(self):
+        # From ONNX test_slice_negative_step: backward slicing
+        actual = self._run(_testing.ts(FLOAT, [3, 4]), [2, 3], [0, 1], [0, 1], [-1, -1])
+        self.assertEqual(actual, [_testing.ts(FLOAT, [2, 2])])
+
+    def test_no_axes_defaults_to_range(self):
+        """When axes is not provided, defaults to [0, 1, ..., len(starts)-1]."""
+        actual = self._run(_testing.ts(FLOAT, [3, 2]), [1, 0], [2, 2])
+        self.assertEqual(actual, [_testing.ts(FLOAT, [1, 2])])
+
+    def test_symbolic_dim_becomes_unknown(self):
+        """Symbolic dims that are sliced become unknown."""
+        actual = self._run(_testing.ts(FLOAT, ["a", 2]), [0], [1], [1], [1])
+        result = actual[0]
+        # Dim 0 is symbolic and untouched
+        self.assertNotIsInstance(result.shape[0], int)
+        # Dim 1 is concrete sliced
+        self.assertEqual(result.shape[1], 1)
 
     def test_missing_input_shape(self):
         data = ir.Value(name="data", type=ir.TensorType(FLOAT))
@@ -59,6 +84,20 @@ class SliceTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertIsNone(actual[0].shape)
+
+    def test_dynamic_starts_ends(self):
+        """When starts/ends are not const, output shape is unknown but dtype propagates."""
+        data = ir.Value(name="data", shape=ir.Shape([10, 20]), type=ir.TensorType(FLOAT))
+        starts = ir.Value(name="starts", type=ir.TensorType(ir.DataType.INT64))
+        ends = ir.Value(name="ends", type=ir.TensorType(ir.DataType.INT64))
+        actual = _testing.run_shape_inference_with_values(
+            "",
+            "Slice",
+            [data, starts, ends],
+            opset_version=17,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
 
 
 if __name__ == "__main__":
