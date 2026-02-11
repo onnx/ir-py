@@ -73,7 +73,7 @@ def _infer_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     size_const = size.const_value
     if size_const is not None:
-        size_val = int(size_const.numpy())
+        size_val = int(size_const.numpy().item())
         output_shape: ir.Shape = ir.Shape([size_val])
     else:
         output_shape = ir.Shape([ctx.new_symbolic_dim()])

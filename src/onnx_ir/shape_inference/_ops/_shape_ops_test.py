@@ -212,5 +212,32 @@ class FlattenTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
 
+class UniqueTest(unittest.TestCase):
+    def test_basic(self):
+        actual = run_shape_inference(
+            "", "Unique", [ts(FLOAT, [5])], opset_version=17, num_outputs=4
+        )
+        # Y: 1-D with symbolic length
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 1)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+        # indices: 1-D INT64, same symbolic length as Y
+        self.assertEqual(actual[1].shape.rank(), 1)
+        self.assertEqual(actual[1].type.dtype, INT64)
+        # inverse_indices: 1-D INT64
+        self.assertEqual(actual[2].shape.rank(), 1)
+        self.assertEqual(actual[2].type.dtype, INT64)
+        # counts: 1-D INT64, same symbolic length as Y
+        self.assertEqual(actual[3].shape.rank(), 1)
+        self.assertEqual(actual[3].type.dtype, INT64)
+
+    def test_none_input_raises(self):
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "", "Unique", [None], opset_version=17, num_outputs=4
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
