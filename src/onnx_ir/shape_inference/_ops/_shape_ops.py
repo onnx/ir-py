@@ -242,7 +242,7 @@ def infer_einsum(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     equation = equation_attr.as_string().replace(" ", "")
 
     # Check all inputs have shapes
-    for i, inp in enumerate(node.inputs):
+    for inp in node.inputs:
         if inp is None or inp.shape is None:
             if len(node.outputs) > 0:
                 ctx.set_shape_and_dtype(node.outputs[0], None, output_dtype)
