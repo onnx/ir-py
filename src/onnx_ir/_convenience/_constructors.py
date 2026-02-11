@@ -244,7 +244,7 @@ def val(
         >>> t.type
         Tensor(FLOAT)
         >>> t.shape
-        Shape([SymbolicDim(N), 42, 3])
+        Shape([SymbolicDim('N'), 42, 3])
 
     .. versionadded:: 0.1.9
 

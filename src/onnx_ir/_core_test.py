@@ -937,6 +937,129 @@ class SymbolicDimTest(unittest.TestCase):
         self.assertIn(dim, {dim})
         self.assertIn(dim, {value})
 
+    def test_expression_parsing_simple_addition(self):
+        """Test that simple addition expressions are parsed correctly."""
+        dim = _core.SymbolicDim("n + 1")
+        self.assertEqual(dim.value, "n + 1")
+        self.assertEqual(dim.evaluate({"n": 10}), 11)
+
+    def test_expression_parsing_subtraction(self):
+        """Test that subtraction expressions are parsed correctly."""
+        dim = _core.SymbolicDim("n - 1")
+        self.assertEqual(dim.evaluate({"n": 10}), 9)
+
+    def test_expression_parsing_multiplication(self):
+        """Test that multiplication expressions are parsed correctly."""
+        dim = _core.SymbolicDim("n * 2")
+        self.assertEqual(dim.evaluate({"n": 10}), 20)
+
+    def test_expression_parsing_floor_division(self):
+        """Test that floor division expressions are parsed correctly."""
+        dim = _core.SymbolicDim("n // 2")
+        self.assertEqual(dim.evaluate({"n": 11}), 5)
+
+    def test_expression_parsing_power(self):
+        """Test that power expressions are parsed correctly."""
+        dim = _core.SymbolicDim("n ** 2")
+        self.assertEqual(dim.evaluate({"n": 3}), 9)
+
+    def test_expression_parsing_complex_expression(self):
+        """Test that complex expressions are parsed correctly."""
+        dim = _core.SymbolicDim("(n + 1) * 2")
+        self.assertEqual(dim.evaluate({"n": 10}), 22)
+
+    def test_expression_parsing_max_function(self):
+        """Test that max function expressions are parsed correctly."""
+        dim = _core.SymbolicDim("max(s1, s2)")
+        self.assertEqual(dim.evaluate({"s1": 10, "s2": 20}), 20)
+        self.assertEqual(dim.evaluate({"s1": 30, "s2": 20}), 30)
+
+    def test_expression_parsing_min_function(self):
+        """Test that min function expressions are parsed correctly."""
+        dim = _core.SymbolicDim("min(s1, s2)")
+        self.assertEqual(dim.evaluate({"s1": 10, "s2": 20}), 10)
+        self.assertEqual(dim.evaluate({"s1": 30, "s2": 20}), 20)
+
+    def test_expression_parsing_floor_function(self):
+        """Test that floor function expressions are parsed correctly."""
+        dim = _core.SymbolicDim("floor(s0 / 2)")
+        self.assertEqual(dim.evaluate({"s0": 11}), 5)
+
+    def test_expression_parsing_sqrt_function(self):
+        """Test that sqrt function expressions are parsed correctly."""
+        dim = _core.SymbolicDim("sqrt(s0)")
+        self.assertEqual(dim.evaluate({"s0": 16}), 4)
+
+    def test_expression_arithmetic_operations_return_symbolic_dim(self):
+        """Test that arithmetic operations on SymbolicDim return new SymbolicDim."""
+        dim = _core.SymbolicDim("s0")
+        result = dim + 1
+        self.assertIsInstance(result, _core.SymbolicDim)
+        self.assertEqual(result.evaluate({"s0": 10}), 11)
+
+    def test_expression_compound_floor_with_arithmetic(self):
+        """Test compound expression with floor() and arithmetic operations."""
+        # Example: computing output size of a convolution-like operation
+        # output_size = floor((input_size + 2 * padding - kernel_size) / stride) + 1
+        dim = _core.SymbolicDim("floor((s0 + 2 * s1 - s2) / s3) + 1")
+        # input_size=28, padding=1, kernel_size=3, stride=2
+        # output = floor((28 + 2*1 - 3) / 2) + 1 = floor(27/2) + 1 = 13 + 1 = 14
+        self.assertEqual(dim.evaluate({"s0": 28, "s1": 1, "s2": 3, "s3": 2}), 14)
+        # input_size=224, padding=3, kernel_size=7, stride=2
+        # output = floor((224 + 2*3 - 7) / 2) + 1 = floor(223/2) + 1 = 111 + 1 = 112
+        self.assertEqual(dim.evaluate({"s0": 224, "s1": 3, "s2": 7, "s3": 2}), 112)
+
+    def test_expression_compound_max_min_with_arithmetic(self):
+        """Test compound expression with max(), min() and arithmetic."""
+        # Clamped dimension: max(1, min(s0 // 2, 256))
+        dim = _core.SymbolicDim("max(1, min(s0 // 2, 256))")
+        self.assertEqual(dim.evaluate({"s0": 100}), 50)  # 100 // 2 = 50, clamped to [1, 256]
+        self.assertEqual(dim.evaluate({"s0": 600}), 256)  # 600 // 2 = 300, clamped to 256
+        self.assertEqual(dim.evaluate({"s0": 1}), 1)  # 1 // 2 = 0, clamped to 1
+
+    def test_expression_evaluate_returns_symbolic_dim_for_unknown_dim(self):
+        """Test that evaluate returns SymbolicDim(None) for unknown dimensions."""
+        dim = _core.SymbolicDim(None)
+        result = dim.evaluate({"s0": 10})
+        self.assertIsInstance(result, _core.SymbolicDim)
+        self.assertIsNone(result.value)
+
+    def test_expression_evaluate_returns_symbolic_dim_for_missing_binding(self):
+        """Test that evaluate returns SymbolicDim when binding is missing."""
+        dim = _core.SymbolicDim("s0 + s1")
+        result = dim.evaluate({"s0": 10})  # s1 is missing
+        self.assertIsInstance(result, _core.SymbolicDim)
+        # The result should contain the partially evaluated expression (10 + s1)
+        self.assertEqual(result.evaluate({"s1": 5}), 15)
+
+    def test_expression_free_symbols(self):
+        """Test that free_symbols returns the correct symbol names."""
+        dim = _core.SymbolicDim("s0 + s1 * 2")
+        self.assertEqual(dim.free_symbols(), frozenset({"s0", "s1"}))
+
+    def test_expression_free_symbols_empty_for_none(self):
+        """Test that free_symbols returns empty set for None dimension."""
+        dim = _core.SymbolicDim(None)
+        self.assertEqual(dim.free_symbols(), frozenset())
+
+    def test_expression_simplify(self):
+        """Test that simplify reduces expressions."""
+        dim = _core.SymbolicDim("N + N")
+        simplified = dim.simplify()
+        self.assertEqual(simplified.evaluate({"N": 5}), 10)
+
+    def test_expression_rejects_malicious_code(self):
+        """Test that malicious expressions are rejected."""
+        with self.assertRaises(ValueError):
+            dim = _core.SymbolicDim("__import__('os')")
+            _ = dim._expr  # Trigger parsing
+
+    def test_expression_rejects_unknown_functions(self):
+        """Test that unknown functions are rejected."""
+        with self.assertRaises(ValueError):
+            dim = _core.SymbolicDim("eval('1+1')")
+            _ = dim._expr  # Trigger parsing
+
 
 class ShapeTest(unittest.TestCase):
     def test_init_raises_when_denotations_and_dims_have_different_lengths(self):

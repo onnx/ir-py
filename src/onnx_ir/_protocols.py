@@ -474,7 +474,7 @@ class SymbolicDimProtocol(Protocol):
         value: The value of the dimension.
     """
 
-    value: str | None  # TODO(justinchuby): Maybe support sympy
+    value: str | None
 
 
 @typing.runtime_checkable
