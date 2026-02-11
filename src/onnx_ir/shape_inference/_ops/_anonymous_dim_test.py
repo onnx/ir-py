@@ -429,6 +429,198 @@ class TestChainedOpsAnonymousDims(unittest.TestCase):
             self.assertIsInstance(dim, ir.SymbolicDim)
             self.assertIsNotNone(dim.value, f"Dim still anonymous: {dim}")
 
+    def test_mlp_block(self) -> None:
+        """Simulate a small MLP: MatMul → Add → Relu → MatMul → Softmax.
+
+        All graph inputs have None batch dims.  Every intermediate and
+        output value must end up with named (non-None) dims.
+        """
+        # Graph inputs — batch is None everywhere
+        x = _input("x", ir.DataType.FLOAT, [None, 4])
+        w1 = _input("w1", ir.DataType.FLOAT, [4, 8])
+        b1 = _input("b1", ir.DataType.FLOAT, [None, 8])
+        w2 = _input("w2", ir.DataType.FLOAT, [8, 3])
+
+        # Intermediates
+        mm1 = ir.Value(name="mm1")  # [None, 8]
+        add1 = ir.Value(name="add1")  # [None, 8]
+        relu1 = ir.Value(name="relu1")  # [None, 8]
+        mm2 = ir.Value(name="mm2")  # [None, 3]
+        out = ir.Value(name="out")  # [None, 3]
+
+        nodes = [
+            ir.Node("", "MatMul", inputs=[x, w1], outputs=[mm1]),
+            ir.Node("", "Add", inputs=[mm1, b1], outputs=[add1]),
+            ir.Node("", "Relu", inputs=[add1], outputs=[relu1]),
+            ir.Node("", "MatMul", inputs=[relu1, w2], outputs=[mm2]),
+            ir.Node("", "Softmax", inputs=[mm2], outputs=[out]),
+        ]
+
+        model = _make_model([x, w1, b1, w2], [out], nodes)
+        infer_symbolic_shapes(model)
+
+        # Every value in the graph must have no anonymous dims
+        all_values = [x, w1, b1, w2, mm1, add1, relu1, mm2, out]
+        for v in all_values:
+            _assert_no_none_dims(self, v)
+
+        # Verify concrete dims are preserved
+        self.assertEqual(mm1.shape[1], 8)
+        self.assertEqual(relu1.shape[1], 8)
+        self.assertEqual(mm2.shape[1], 3)
+        self.assertEqual(out.shape[1], 3)
+
+    def test_conv_flatten_gemm(self) -> None:
+        """Simulate Conv → Flatten → Gemm with None batch dim throughout."""
+        x = _input("x", ir.DataType.FLOAT, [None, 1, 5, 5])
+        w_conv = _input("w_conv", ir.DataType.FLOAT, [4, 1, 3, 3])
+        w_fc = _input("w_fc", ir.DataType.FLOAT, [36, 10])
+        b_fc = _input("b_fc", ir.DataType.FLOAT, [10])
+
+        conv_out = ir.Value(name="conv_out")
+        flat_out = ir.Value(name="flat_out")
+        fc_out = ir.Value(name="fc_out")
+
+        nodes = [
+            ir.Node(
+                "",
+                "Conv",
+                inputs=[x, w_conv],
+                outputs=[conv_out],
+                attributes={
+                    "kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3]),
+                },
+            ),
+            ir.Node(
+                "",
+                "Flatten",
+                inputs=[conv_out],
+                outputs=[flat_out],
+                attributes={"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
+            ),
+            ir.Node("", "Gemm", inputs=[flat_out, w_fc, b_fc], outputs=[fc_out]),
+        ]
+
+        model = _make_model([x, w_conv, w_fc, b_fc], [fc_out], nodes)
+        infer_symbolic_shapes(model)
+
+        all_values = [x, conv_out, flat_out, fc_out]
+        for v in all_values:
+            _assert_no_none_dims(self, v)
+
+        # Conv: [batch, 4, 3, 3]
+        self.assertEqual(conv_out.shape[1], 4)
+        self.assertEqual(conv_out.shape[2], 3)
+        # Flatten: [batch, 36]
+        self.assertEqual(flat_out.shape.rank(), 2)
+        # Gemm: [batch, 10]
+        self.assertEqual(fc_out.shape[1], 10)
+
+    def test_transformer_block(self) -> None:
+        """Simulate a single-head self-attention + FFN transformer block.
+
+        x [batch, seq, 64]
+        ─ MatMul(Wq) → Q [batch, seq, 64]
+        ─ MatMul(Wk) → K [batch, seq, 64]
+        ─ MatMul(Wv) → V [batch, seq, 64]
+        ─ Transpose(K) → Kt [batch, 64, seq]
+        ─ MatMul(Q, Kt) → scores [batch, seq, seq]
+        ─ Softmax → attn [batch, seq, seq]
+        ─ MatMul(attn, V) → ctx [batch, seq, 64]
+        ─ Add(x, ctx) → res1 (residual)
+        ─ MatMul(Wff) → ff1 [batch, seq, 128]
+        ─ Relu → ff1_act
+        ─ MatMul(Wff2) → ff2 [batch, seq, 64]
+        ─ Add(res1, ff2) → out (residual)
+
+        All batch and seq dims start as None.
+        """
+        d_model, d_ff = 64, 128
+
+        # --- Graph inputs (batch and seq are None) ---
+        x = _input("x", ir.DataType.FLOAT, [None, None, d_model])
+        wq = _input("wq", ir.DataType.FLOAT, [d_model, d_model])
+        wk = _input("wk", ir.DataType.FLOAT, [d_model, d_model])
+        wv = _input("wv", ir.DataType.FLOAT, [d_model, d_model])
+        wff1 = _input("wff1", ir.DataType.FLOAT, [d_model, d_ff])
+        wff2 = _input("wff2", ir.DataType.FLOAT, [d_ff, d_model])
+
+        # --- Intermediates ---
+        q = ir.Value(name="q")
+        k = ir.Value(name="k")
+        v = ir.Value(
+            name="v", shape=ir.Shape([None, None, None])
+        )  # intentionally all None to test naming
+        kt = ir.Value(
+            name="kt", shape=ir.Shape([None, None, None])
+        )  # intentionally all None to test naming
+        scores = ir.Value(
+            name="scores", shape=ir.Shape([None, None, None])
+        )  # intentionally all None to test naming through MatMul + Softmax
+        attn = ir.Value(name="attn")
+        ctx_out = ir.Value(name="ctx")
+        res1 = ir.Value(name="res1")
+        ff1 = ir.Value(name="ff1")
+        ff1_act = ir.Value(name="ff1_act")
+        ff2 = ir.Value(name="ff2")
+        out = ir.Value(name="out")
+
+        nodes = [
+            # Q, K, V projections
+            ir.Node("", "MatMul", inputs=[x, wq], outputs=[q]),
+            ir.Node("", "MatMul", inputs=[x, wk], outputs=[k]),
+            ir.Node("", "MatMul", inputs=[x, wv], outputs=[v]),
+            # Attention scores: Q @ K^T
+            ir.Node(
+                "",
+                "Transpose",
+                inputs=[k],
+                outputs=[kt],
+                attributes={"perm": ir.Attr("perm", ir.AttributeType.INTS, [0, 2, 1])},
+            ),
+            ir.Node("", "MatMul", inputs=[q, kt], outputs=[scores]),
+            ir.Node("", "Softmax", inputs=[scores], outputs=[attn]),
+            # Context: attn @ V
+            ir.Node("", "MatMul", inputs=[attn, v], outputs=[ctx_out]),
+            # Residual add
+            ir.Node("", "Add", inputs=[x, ctx_out], outputs=[res1]),
+            # FFN
+            ir.Node("", "MatMul", inputs=[res1, wff1], outputs=[ff1]),
+            ir.Node("", "Relu", inputs=[ff1], outputs=[ff1_act]),
+            ir.Node("", "MatMul", inputs=[ff1_act, wff2], outputs=[ff2]),
+            # Residual add
+            ir.Node("", "Add", inputs=[res1, ff2], outputs=[out]),
+        ]
+
+        model = _make_model([x, wq, wk, wv, wff1, wff2], [out], nodes)
+        infer_symbolic_shapes(model)
+
+        # Every value must have no anonymous dims
+        all_values = [
+            x,
+            q,
+            k,
+            v,
+            kt,
+            scores,
+            attn,
+            ctx_out,
+            res1,
+            ff1,
+            ff1_act,
+            ff2,
+            out,
+        ]
+        for val in all_values:
+            _assert_no_none_dims(self, val)
+
+        # Verify concrete dims are correct
+        self.assertEqual(q.shape[2], d_model)
+        self.assertEqual(kt.shape[1], d_model)
+        self.assertEqual(ff1.shape[2], d_ff)
+        self.assertEqual(out.shape[2], d_model)
+        self.assertEqual(out.shape.rank(), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
