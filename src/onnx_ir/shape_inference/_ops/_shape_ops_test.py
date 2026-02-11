@@ -300,6 +300,8 @@ class EinsumTest(unittest.TestCase):
         """ij,jk->ik with symbolic dims."""
         actual = self._einsum("ij,jk->ik", [ts(FLOAT, ["M", "K"]), ts(FLOAT, ["K", "N"])])
         self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
 
     def test_ellipsis_batch_matmul(self):
         """...ij,...jk->...ik: ellipsis batch matmul."""
@@ -358,6 +360,32 @@ class EinsumTest(unittest.TestCase):
         actual = run_shape_inference("", "Einsum", [ts(FLOAT)], attrs, opset_version=17)
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)
+
+
+class NonZeroTest(unittest.TestCase):
+    def test_symbolic_input(self):
+        """NonZero on ["N", 3] → rank-2 output with symbolic dims."""
+        actual = run_shape_inference(
+            "", "NonZero", [ts(FLOAT, ["N", 3])], opset_version=17
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertEqual(result.shape[0], 2)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+        self.assertEqual(result.type.dtype, INT64)
+
+
+class CompressTest(unittest.TestCase):
+    def test_symbolic_input(self):
+        """Compress on ["N", 3] → 1D output with symbolic dim."""
+        actual = run_shape_inference(
+            "", "Compress", [ts(FLOAT, ["N", 3])], opset_version=17
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 1)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
 
 
 if __name__ == "__main__":

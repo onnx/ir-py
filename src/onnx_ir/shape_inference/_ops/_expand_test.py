@@ -49,6 +49,15 @@ class ExpandTest(unittest.TestCase):
         actual = self._run(ts(FLOAT, []), [4, 8])
         self.assertEqual(actual, [ts(FLOAT, [4, 8])])
 
+    def test_symbolic_input(self):
+        """Expand with symbolic input: ["N", 1] → [target], preserves SymbolicDim."""
+        actual = self._run(ts(FLOAT, ["N", 1]), [3, 4])
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertEqual(result.shape[0], 3)
+        self.assertEqual(result.shape[1], 4)
+
     def test_dynamic_shape(self):
         """When shape input is not const, output shape is unknown."""
         data = ir.Value(name="data", shape=ir.Shape([1, 2, 3]), type=ir.TensorType(FLOAT))

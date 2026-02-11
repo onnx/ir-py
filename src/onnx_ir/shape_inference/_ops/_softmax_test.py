@@ -68,6 +68,20 @@ class SoftmaxTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT)])
 
+    def test_symbolic_dims(self):
+        """Softmax on ["N", "C"] → same shape, both SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "Softmax",
+            [ts(FLOAT, ["N", "C"])],
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_softmax_no_inputs(self):
         with self.assertRaises(OpUsageError):
             run_shape_inference("", "Softmax", [], opset_version=17)

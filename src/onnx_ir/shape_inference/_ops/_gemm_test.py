@@ -44,6 +44,20 @@ class GemmTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
+    def test_symbolic_dims(self):
+        """Gemm with symbolic: ["M", "K"] @ ["K", "N"] → ["M", "N"], both SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "Gemm",
+            [ts(FLOAT, ["M", "K"]), ts(FLOAT, ["K", "N"])],
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_no_bias(self):
         """From ONNX test_gemm_no_bias: C is optional."""
         actual = run_shape_inference(

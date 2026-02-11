@@ -203,6 +203,20 @@ class ConvTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
+    def test_symbolic_batch_dim(self):
+        """Conv with symbolic batch: ["N", 3, "H", "W"] → rank 4, batch is SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "Conv",
+            [ts(FLOAT, ["N", 3, "H", "W"]), ts(FLOAT, [16, 3, 3, 3])],
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 4)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertEqual(result.shape[1], 16)
+
     def test_partial_missing_input_shape(self):
         """When a spatial dim is unknown, output dim should also be unknown."""
         actual = run_shape_inference(

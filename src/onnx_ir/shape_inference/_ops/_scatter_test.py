@@ -36,6 +36,20 @@ class ScatterElementsTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 
+    def test_symbolic_dims(self):
+        """Verify symbolic dims are SymbolicDim instances."""
+        actual = run_shape_inference(
+            "",
+            "ScatterElements",
+            [ts(FLOAT, ["N", "C"])],
+            opset_version=18,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
@@ -64,6 +78,21 @@ class ScatterNDTest(unittest.TestCase):
             opset_version=18,
         )
         self.assertEqual(actual, [ts(FLOAT, ["N", "C", "D"])])
+
+    def test_symbolic_dims(self):
+        """Verify symbolic dims are SymbolicDim instances."""
+        actual = run_shape_inference(
+            "",
+            "ScatterND",
+            [ts(FLOAT, ["N", "C", "D"])],
+            opset_version=18,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 3)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[2], ir.SymbolicDim)
 
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):

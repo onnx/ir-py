@@ -41,6 +41,19 @@ class ResizeTest(unittest.TestCase):
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 4)
 
+    def test_symbolic_fallback(self):
+        """Resize with symbolic input: ["N", 3, 4, 4] → rank 4, batch is SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "Resize",
+            [ts(FLOAT, ["N", 3, 4, 4])],
+            opset_version=19,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 4)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+
     def test_with_sizes_const(self):
         x = ir.Value(name="X", shape=ir.Shape([1, 3, 4, 4]), type=ir.TensorType(FLOAT))
         roi = ir.Value(name="roi", type=ir.TensorType(FLOAT))

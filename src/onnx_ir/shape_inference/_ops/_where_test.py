@@ -62,6 +62,19 @@ class WhereTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
+    def test_symbolic_broadcast(self):
+        """Symbolic broadcast: cond ["N", 1], x [1, "M"], y [1, "M"] → ["N", "M"]."""
+        actual = run_shape_inference(
+            "",
+            "Where",
+            [ts(BOOL, ["N", 1]), ts(FLOAT, [1, "M"]), ts(FLOAT, [1, "M"])],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+
     def test_missing_shape(self):
         actual = run_shape_inference(
             "",

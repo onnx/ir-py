@@ -151,6 +151,24 @@ class ReduceTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, [])])
 
+    def test_symbolic_no_keepdims(self):
+        """ReduceSum on ["N", "C", "H"] with axes=[1] keepdims=0 → ["N", "H"]."""
+        actual = run_shape_inference(
+            "",
+            "ReduceSum",
+            [ts(FLOAT, ["N", "C", "H"])],
+            {
+                "axes": ir.Attr("axes", ir.AttributeType.INTS, [1]),
+                "keepdims": ir.Attr("keepdims", ir.AttributeType.INT, 0),
+            },
+            opset_version=13,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_reduce_opset18_axes_input(self):
         """Opset 18+: axes come from input[1]."""
         data = ir.Value(name="data", shape=ir.Shape([24, 4, 11]), type=ir.TensorType(FLOAT))

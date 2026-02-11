@@ -69,6 +69,21 @@ class SqueezeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
+    def test_symbolic_squeeze(self):
+        """Squeeze ["N", 1, "C"] axis=1 → ["N", "C"], both SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "Squeeze",
+            [ts(FLOAT, ["N", 1, "C"])],
+            {"axes": ir.Attr("axes", ir.AttributeType.INTS, [1])},
+            opset_version=11,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_squeeze_opset13_axes_input(self):
         """Opset 13+: axes come from input[1]."""
         data = ir.Value(name="data", shape=ir.Shape([1, 3, 1, 5]), type=ir.TensorType(FLOAT))

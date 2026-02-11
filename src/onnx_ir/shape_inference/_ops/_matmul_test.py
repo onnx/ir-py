@@ -41,6 +41,20 @@ class MatMulTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
+    def test_symbolic_dims(self):
+        """MatMul with symbolic: ["M", "K"] @ ["K", "N"] → ["M", "N"], both SymbolicDim."""
+        actual = run_shape_inference(
+            "",
+            "MatMul",
+            [ts(FLOAT, ["M", "K"]), ts(FLOAT, ["K", "N"])],
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
     def test_missing_shape(self):
         actual = run_shape_inference(
             "",

@@ -90,6 +90,21 @@ class ConcatTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
+    def test_symbolic_batch_dim(self):
+        """Concat with symbolic batch: ["N", 3] + ["N", 5] on axis=1 → ["N", 8]."""
+        actual = run_shape_inference(
+            "",
+            "Concat",
+            [ts(FLOAT, ["N", 3]), ts(FLOAT, ["N", 5])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertEqual(result.shape[1], 8)
+
     def test_symbolic_concat_dim(self):
         """When the concat dim is symbolic, result should also be symbolic."""
         actual = run_shape_inference(
