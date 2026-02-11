@@ -126,5 +126,45 @@ class BinaryElementwiseTest(unittest.TestCase):
             )
 
 
+class VariadicElementwiseTest(unittest.TestCase):
+    """Tests for variadic element-wise ops (Max, Min, Mean, Sum)."""
+
+    @parameterized.parameterized.expand(
+        [(op,) for op in ["Max", "Min", "Mean", "Sum"]]
+    )
+    def test_variadic_three_inputs(self, op):
+        actual = run_shape_inference(
+            "",
+            op,
+            [ts(FLOAT, [3, 4]), ts(FLOAT, [3, 4]), ts(FLOAT, [3, 4])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+    @parameterized.parameterized.expand(
+        [(op,) for op in ["Max", "Min", "Mean", "Sum"]]
+    )
+    def test_variadic_broadcast(self, op):
+        actual = run_shape_inference(
+            "",
+            op,
+            [ts(FLOAT, [3, 1]), ts(FLOAT, [1, 4]), ts(FLOAT, [3, 4])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+    @parameterized.parameterized.expand(
+        [(op,) for op in ["Max", "Min", "Mean", "Sum"]]
+    )
+    def test_variadic_single_input(self, op):
+        actual = run_shape_inference(
+            "",
+            op,
+            [ts(FLOAT, [3, 4])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+
 if __name__ == "__main__":
     unittest.main()

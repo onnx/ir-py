@@ -112,6 +112,97 @@ class ReshapeTest(unittest.TestCase):
         # -1 dim should be symbolic, not literal -1
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
 
+    def test_dynamic_shape_with_known_rank(self):
+        """Dynamic shape input (non-const) but shape input's shape gives output rank."""
+        data = ir.Value(
+            name="data",
+            shape=ir.Shape([2, 3, 4]),
+            type=ir.TensorType(FLOAT),
+        )
+        shape_val = ir.Value(
+            name="shape",
+            shape=ir.Shape([2]),
+            type=ir.TensorType(ir.DataType.INT64),
+        )
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+
+    def test_neg_one_with_symbolic_known_dims(self):
+        """Reshape with -1 where known dims don't fully resolve (symbolic in output)."""
+        data = ir.Value(
+            name="data",
+            shape=ir.Shape([ir.SymbolicDim("N"), 3, 4]),
+            type=ir.TensorType(FLOAT),
+        )
+        shape_val = const_value([-1, 12])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[1], 12)
+
+    def test_zero_dim_no_input_shape(self):
+        """0-dim in target with no input shape → symbolic dim."""
+        data = ir.Value(name="data", type=ir.TensorType(FLOAT))
+        shape_val = const_value([0, 3])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[1], 3)
+
+    def test_double_neg_one_error(self):
+        """Two -1 dims should record an error."""
+        from onnx_ir.shape_inference import ShapeInferenceError
+
+        data = ir.Value(
+            name="data", shape=ir.Shape([2, 3, 4]), type=ir.TensorType(FLOAT)
+        )
+        shape_val = const_value([-1, -1])
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference_with_values(
+                "",
+                "Reshape",
+                [data, shape_val],
+                opset_version=17,
+            )
+
+    def test_neg_one_with_zero_dim_static(self):
+        """Reshape [-1, 0] with static input [2, 3] and allowzero=0 → -1 resolves."""
+        data = ir.Value(
+            name="data", shape=ir.Shape([2, 3]), type=ir.TensorType(FLOAT)
+        )
+        shape_val = const_value([-1, 0])
+        actual = run_shape_inference_with_values(
+            "",
+            "Reshape",
+            [data, shape_val],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        # 0 copies dim from input → 3, -1 is 6/3=2
+        self.assertEqual(actual[0].shape[0], 2)
+        self.assertEqual(actual[0].shape[1], 3)
+
     def test_no_inputs(self):
         with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(

@@ -376,6 +376,217 @@ class NonZeroTest(unittest.TestCase):
         self.assertEqual(result.type.dtype, INT64)
 
 
+class DetTest(unittest.TestCase):
+    def test_det_basic(self):
+        actual = run_shape_inference(
+            "", "Det", [ts(FLOAT, [3, 3])], opset_version=17
+        )
+        self.assertEqual(actual, [ts(FLOAT, [])])
+
+    def test_det_batched(self):
+        actual = run_shape_inference(
+            "", "Det", [ts(FLOAT, [2, 5, 3, 3])], opset_version=17
+        )
+        self.assertEqual(actual, [ts(FLOAT, [2, 5])])
+
+
+class NonZeroConcreteTest(unittest.TestCase):
+    def test_non_zero_concrete_rank(self):
+        """NonZero on [3, 4] → output shape [2, symbolic]."""
+        actual = run_shape_inference(
+            "", "NonZero", [ts(FLOAT, [3, 4])], opset_version=17
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape[0], 2)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
+    def test_non_zero_no_shape(self):
+        """NonZero without input shape → both dims are symbolic."""
+        actual = run_shape_inference(
+            "", "NonZero", [ts(FLOAT)], opset_version=17
+        )
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 2)
+        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+
+
+class StringSplitTest(unittest.TestCase):
+    def test_string_split_basic(self):
+        STRING = ir.DataType.STRING
+        actual = run_shape_inference(
+            "", "StringSplit", [ts(STRING, [3])], opset_version=22, num_outputs=2
+        )
+        # Y: rank 2 (X.rank + 1)
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertEqual(actual[0].shape[0], 3)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].type.dtype, STRING)
+        # Z: same shape as X
+        self.assertEqual(actual[1].shape, ir.Shape([3]))
+        self.assertEqual(actual[1].type.dtype, INT64)
+
+    def test_string_split_no_shape(self):
+        STRING = ir.DataType.STRING
+        actual = run_shape_inference(
+            "", "StringSplit", [ts(STRING)], opset_version=22, num_outputs=2
+        )
+        self.assertIsNone(actual[0].shape)
+
+
+class StringNormalizerTest(unittest.TestCase):
+    def test_string_normalizer_basic(self):
+        STRING = ir.DataType.STRING
+        actual = run_shape_inference(
+            "", "StringNormalizer", [ts(STRING, [5])], opset_version=10
+        )
+        self.assertEqual(actual, [ts(STRING, [5])])
+
+
+class ScanTest(unittest.TestCase):
+    def test_scan_basic(self):
+        """Scan with a body graph: 1 state var + 1 scan output."""
+        # Body graph: 1 input (state), 2 outputs (state_out, scan_out)
+        body_state_in = ir.Value(
+            name="state_in", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
+        )
+        body_state_out = ir.Value(
+            name="state_out", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
+        )
+        body_scan_out = ir.Value(
+            name="scan_out", type=ir.TensorType(FLOAT), shape=ir.Shape([3])
+        )
+        body_graph = ir.Graph(
+            inputs=[body_state_in],
+            outputs=[body_state_out, body_scan_out],
+            nodes=[],
+            name="scan_body",
+        )
+        attrs = {
+            "body": ir.Attr("body", ir.AttributeType.GRAPH, body_graph),
+            "num_scan_inputs": ir.Attr("num_scan_inputs", ir.AttributeType.INT, 0),
+        }
+        # 1 input (the state), 0 scan inputs → num_state = 1
+        state_val = ir.Value(
+            name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
+        )
+        actual = run_shape_inference_with_values(
+            "", "Scan", [state_val], attrs, opset_version=11, num_outputs=2
+        )
+        # State output: same shape as body state output
+        self.assertEqual(actual[0].shape, ir.Shape([2]))
+        # Scan output: symbolic_dim prepended to body scan output shape
+        self.assertIsNotNone(actual[1].shape)
+        self.assertEqual(actual[1].shape.rank(), 2)
+        self.assertIsInstance(actual[1].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[1].shape[1], 3)
+
+    def test_scan_no_body(self):
+        """Scan without body graph → all outputs are None."""
+        state_val = ir.Value(
+            name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
+        )
+        actual = run_shape_inference_with_values(
+            "", "Scan", [state_val], opset_version=11, num_outputs=2
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertIsNone(actual[1].shape)
+
+
+class ImageDecoderTest(unittest.TestCase):
+    def test_image_decoder_basic(self):
+        UINT8 = ir.DataType.UINT8
+        actual = run_shape_inference(
+            "", "ImageDecoder", [ts(UINT8, [100])], opset_version=20
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 3)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 3)
+        self.assertEqual(actual[0].type.dtype, UINT8)
+
+    def test_image_decoder_grayscale(self):
+        UINT8 = ir.DataType.UINT8
+        attrs = {
+            "pixel_format": ir.Attr("pixel_format", ir.AttributeType.STRING, "Grayscale"),
+        }
+        actual = run_shape_inference(
+            "", "ImageDecoder", [ts(UINT8, [100])], attrs, opset_version=20
+        )
+        self.assertEqual(actual[0].shape[2], 1)
+
+
+class MelWeightMatrixTest(unittest.TestCase):
+    def test_mel_weight_matrix_basic(self):
+        actual = run_shape_inference(
+            "",
+            "MelWeightMatrix",
+            [ts(INT64, []), ts(INT64, []), ts(FLOAT, []), ts(FLOAT, []), ts(INT64, [])],
+            opset_version=17,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+
+class TfIdfVectorizerTest(unittest.TestCase):
+    def test_tfidf_vectorizer_1d(self):
+        actual = run_shape_inference(
+            "", "TfIdfVectorizer", [ts(INT64, [10])], opset_version=9
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 1)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
+    def test_tfidf_vectorizer_2d(self):
+        actual = run_shape_inference(
+            "", "TfIdfVectorizer", [ts(INT64, [4, 10])], opset_version=9
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 2)
+        self.assertEqual(actual[0].shape[0], 4)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+
+
+class OptionalTest(unittest.TestCase):
+    def test_optional_basic(self):
+        actual = run_shape_inference(
+            "", "Optional", [ts(FLOAT, [3, 4])], opset_version=15
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+    def test_optional_get_element(self):
+        actual = run_shape_inference(
+            "", "OptionalGetElement", [ts(FLOAT, [3, 4])], opset_version=18
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+
+    def test_optional_has_element(self):
+        BOOL = ir.DataType.BOOL
+        actual = run_shape_inference(
+            "", "OptionalHasElement", [ts(FLOAT, [3, 4])], opset_version=18
+        )
+        self.assertEqual(actual, [ts(BOOL, [])])
+
+
+class TensorScatterTest(unittest.TestCase):
+    def test_tensor_scatter_basic(self):
+        actual = run_shape_inference(
+            "",
+            "TensorScatter",
+            [ts(FLOAT, [5, 3]), ts(INT64, [2, 1]), ts(FLOAT, [2, 3])],
+            opset_version=24,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [5, 3])])
+
+
 class CompressTest(unittest.TestCase):
     def test_symbolic_input(self):
         """Compress on ["N", 3] → 1D output with symbolic dim."""

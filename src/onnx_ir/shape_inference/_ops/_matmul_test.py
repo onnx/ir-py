@@ -89,5 +89,68 @@ class MatMulTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [5])])
 
 
+INT8 = ir.DataType.INT8
+INT32 = ir.DataType.INT32
+UINT8 = ir.DataType.UINT8
+
+
+class MatMulIntegerTest(unittest.TestCase):
+    def test_matmul_integer_basic(self):
+        actual = run_shape_inference(
+            "",
+            "MatMulInteger",
+            [ts(INT8, [3, 4]), ts(INT8, [4, 5])],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [3, 5])])
+
+    def test_matmul_integer_batch(self):
+        actual = run_shape_inference(
+            "",
+            "MatMulInteger",
+            [ts(INT8, [2, 3, 4]), ts(INT8, [2, 4, 5])],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [2, 3, 5])])
+
+
+class QLinearMatMulTest(unittest.TestCase):
+    def test_qlinear_matmul_basic(self):
+        actual = run_shape_inference(
+            "",
+            "QLinearMatMul",
+            [
+                ts(UINT8, [3, 4]),  # a
+                ts(FLOAT, []),  # a_scale
+                ts(UINT8, []),  # a_zero_point
+                ts(UINT8, [4, 5]),  # b
+                ts(FLOAT, []),  # b_scale
+                ts(UINT8, []),  # b_zero_point
+                ts(FLOAT, []),  # y_scale
+                ts(UINT8, []),  # y_zero_point
+            ],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(UINT8, [3, 5])])
+
+    def test_qlinear_matmul_int8_output(self):
+        actual = run_shape_inference(
+            "",
+            "QLinearMatMul",
+            [
+                ts(INT8, [3, 4]),
+                ts(FLOAT, []),
+                ts(INT8, []),
+                ts(INT8, [4, 5]),
+                ts(FLOAT, []),
+                ts(INT8, []),
+                ts(FLOAT, []),
+                ts(INT8, []),  # y_zero_point dtype determines output
+            ],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT8, [3, 5])])
+
+
 if __name__ == "__main__":
     unittest.main()

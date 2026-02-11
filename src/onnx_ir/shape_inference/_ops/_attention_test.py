@@ -114,6 +114,23 @@ class RotaryEmbeddingTest(unittest.TestCase):
                 opset_version=24,
             )
 
+    def test_rotary_embedding_with_position_ids_two_outputs(self):
+        input_val = ir.Value(
+            name="input", shape=ir.Shape([1, 10, 64]), type=ir.TensorType(FLOAT)
+        )
+        position_ids = ir.Value(
+            name="position_ids", shape=ir.Shape([1, 10]), type=ir.TensorType(INT64)
+        )
+        actual = run_shape_inference_with_values(
+            "",
+            "RotaryEmbedding",
+            [input_val, position_ids],
+            opset_version=24,
+            num_outputs=2,
+        )
+        self.assertEqual(actual[0], ts(FLOAT, [1, 10, 64]))
+        self.assertEqual(actual[1], ts(INT64, [1, 10]))
+
 
 class AttentionSymbolicDimsTest(unittest.TestCase):
     def test_symbolic_dims(self):

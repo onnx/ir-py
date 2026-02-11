@@ -109,6 +109,49 @@ class GatherTest(unittest.TestCase):
         )
         self.assertIsNone(actual[0].shape)
 
+    def test_gather_axis_out_of_range(self):
+        from onnx_ir.shape_inference import ShapeInferenceError
+
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Gather",
+                [ts(FLOAT, [5, 4]), ts(INT64, [3])],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 5)},
+                opset_version=17,
+            )
+
+
+class GatherElementsTest(unittest.TestCase):
+    def test_gather_elements_basic(self):
+        actual = run_shape_inference(
+            "",
+            "GatherElements",
+            [ts(FLOAT, [3, 4]), ts(INT64, [3, 2])],
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 2])])
+
+    def test_gather_elements_with_axis(self):
+        actual = run_shape_inference(
+            "",
+            "GatherElements",
+            [ts(FLOAT, [3, 4]), ts(INT64, [3, 2])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [3, 2])])
+
+    def test_gather_elements_axis_0(self):
+        actual = run_shape_inference(
+            "",
+            "GatherElements",
+            [ts(FLOAT, [5, 4, 3]), ts(INT64, [2, 4, 3])],
+            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+            opset_version=17,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [2, 4, 3])])
+
 
 class GatherNDTest(unittest.TestCase):
     def test_basic(self):

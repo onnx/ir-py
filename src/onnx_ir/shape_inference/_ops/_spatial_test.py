@@ -220,6 +220,139 @@ class Col2ImSymbolicDimsTest(unittest.TestCase):
         self.assertEqual(actual[0].shape[3], 4)
 
 
+class CenterCropPadTest(unittest.TestCase):
+    def test_center_crop_pad_basic(self):
+        input_val = ir.Value(
+            name="input", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 3, 10, 10])
+        )
+        shape = const_value([1, 3, 5, 5], name="shape")
+        actual = run_shape_inference_with_values(
+            "", "CenterCropPad", [input_val, shape], opset_version=18
+        )
+        self.assertEqual(actual, [ts(FLOAT, [1, 3, 5, 5])])
+
+    def test_center_crop_pad_no_const_shape(self):
+        """Without const shape, output has symbolic dims preserving rank."""
+        input_val = ir.Value(
+            name="input", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 3, 10, 10])
+        )
+        shape_val = ir.Value(
+            name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4])
+        )
+        actual = run_shape_inference_with_values(
+            "", "CenterCropPad", [input_val, shape_val], opset_version=18
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+
+    def test_center_crop_pad_missing_input_shape(self):
+        input_val = ir.Value(name="input", type=ir.TensorType(FLOAT))
+        shape_val = ir.Value(
+            name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4])
+        )
+        actual = run_shape_inference_with_values(
+            "", "CenterCropPad", [input_val, shape_val], opset_version=18
+        )
+        self.assertIsNone(actual[0].shape)
+
+
+class MaxUnpoolTest(unittest.TestCase):
+    def test_max_unpool_basic(self):
+        actual = run_shape_inference(
+            "",
+            "MaxUnpool",
+            [ts(FLOAT, [1, 1, 2, 2]), ts(INT64, [1, 1, 2, 2])],
+            opset_version=11,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertEqual(actual[0].shape[0], 1)
+        self.assertEqual(actual[0].shape[1], 1)
+
+    def test_max_unpool_with_output_shape(self):
+        x_val = ir.Value(
+            name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 1, 2, 2])
+        )
+        i_val = ir.Value(
+            name="i", type=ir.TensorType(INT64), shape=ir.Shape([1, 1, 2, 2])
+        )
+        os_val = const_value([1, 1, 4, 4], name="output_shape")
+        actual = run_shape_inference_with_values(
+            "", "MaxUnpool", [x_val, i_val, os_val], opset_version=11
+        )
+        self.assertEqual(actual, [ts(FLOAT, [1, 1, 4, 4])])
+
+    def test_max_unpool_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "MaxUnpool",
+            [ts(FLOAT), ts(INT64)],
+            opset_version=11,
+        )
+        self.assertIsNone(actual[0].shape)
+
+
+class DeformConvTest(unittest.TestCase):
+    def test_deform_conv_basic(self):
+        actual = run_shape_inference(
+            "",
+            "DeformConv",
+            [
+                ts(FLOAT, [1, 1, 5, 5]),
+                ts(FLOAT, [1, 1, 3, 3]),
+                ts(FLOAT, [1, 18, 3, 3]),
+            ],
+            opset_version=19,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [1, 1, 3, 3])])
+
+    def test_deform_conv_with_kernel_shape_attr(self):
+        attrs = {
+            "kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3]),
+        }
+        actual = run_shape_inference(
+            "",
+            "DeformConv",
+            [
+                ts(FLOAT, [1, 1, 5, 5]),
+                ts(FLOAT, [1, 1, 3, 3]),
+                ts(FLOAT, [1, 18, 3, 3]),
+            ],
+            attrs,
+            opset_version=19,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [1, 1, 3, 3])])
+
+    def test_deform_conv_missing_x_shape(self):
+        actual = run_shape_inference(
+            "",
+            "DeformConv",
+            [ts(FLOAT), ts(FLOAT, [1, 1, 3, 3]), ts(FLOAT, [1, 18, 3, 3])],
+            opset_version=19,
+        )
+        self.assertIsNone(actual[0].shape)
+
+
+class MaxRoiPoolSymbolicDimsTest(unittest.TestCase):
+    def test_max_roi_pool_symbolic_rois(self):
+        attrs = {
+            "pooled_shape": ir.Attr("pooled_shape", ir.AttributeType.INTS, [2, 2]),
+        }
+        actual = run_shape_inference(
+            "",
+            "MaxRoiPool",
+            [ts(FLOAT, ["N", "C", 10, 10]), ts(FLOAT, ["R", 5])],
+            attrs,
+            opset_version=1,
+        )
+        self.assertIsNotNone(actual[0].shape)
+        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[2], 2)
+        self.assertEqual(actual[0].shape[3], 2)
+
+
 class RoiAlignSymbolicDimsTest(unittest.TestCase):
     def test_symbolic_dims(self):
         attrs = {

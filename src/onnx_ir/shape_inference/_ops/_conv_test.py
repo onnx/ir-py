@@ -17,6 +17,9 @@ from onnx_ir.shape_inference._ops._testing import (
 )
 
 FLOAT = ir.DataType.FLOAT
+INT8 = ir.DataType.INT8
+INT32 = ir.DataType.INT32
+UINT8 = ir.DataType.UINT8
 
 
 def _attrs(**kwargs) -> dict[str, ir.Attr]:
@@ -303,6 +306,160 @@ class ConvTest(unittest.TestCase):
                 [ts(FLOAT, [1, 3]), ts(FLOAT, [16, 3, 3, 3])],
                 {"kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3])},
                 opset_version=17,
+            )
+
+
+class ConvIntegerTest(unittest.TestCase):
+    def test_conv_integer_basic(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, 5, 5]), ts(INT8, [1, 1, 3, 3])],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 3, 3])])
+
+    def test_conv_integer_with_zero_points(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [
+                ts(INT8, [1, 1, 5, 5]),
+                ts(INT8, [1, 1, 3, 3]),
+                ts(INT8, []),
+                ts(INT8, []),
+            ],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 3, 3])])
+
+    def test_conv_integer_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8), ts(INT8, [1, 1, 3, 3])],
+            opset_version=10,
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual[0].type.dtype, INT32)
+
+    def test_conv_integer_with_padding(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, 5, 5]), ts(INT8, [1, 1, 3, 3])],
+            _attrs(pads=[1, 1, 1, 1]),
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 5, 5])])
+
+    def test_conv_integer_auto_pad_same_upper(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, 5, 5]), ts(INT8, [1, 1, 3, 3])],
+            _attrs(auto_pad="SAME_UPPER"),
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 5, 5])])
+
+    def test_conv_integer_auto_pad_valid(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, 5, 5]), ts(INT8, [1, 1, 3, 3])],
+            _attrs(auto_pad="VALID"),
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 3, 3])])
+
+    def test_conv_integer_kernel_shape_attr(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, 5, 5]), ts(INT8, [1, 1, None, None])],
+            _attrs(kernel_shape=[3, 3]),
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT32, [1, 1, 3, 3])])
+
+    def test_conv_integer_symbolic_spatial(self):
+        actual = run_shape_inference(
+            "",
+            "ConvInteger",
+            [ts(INT8, [1, 1, "H", "W"]), ts(INT8, [1, 1, 3, 3])],
+            opset_version=10,
+        )
+        result = actual[0]
+        self.assertEqual(result.shape.rank(), 4)
+        self.assertIsInstance(result.shape[2], ir.SymbolicDim)
+        self.assertIsInstance(result.shape[3], ir.SymbolicDim)
+
+
+class QLinearConvTest(unittest.TestCase):
+    def test_qlinear_conv_basic(self):
+        actual = run_shape_inference(
+            "",
+            "QLinearConv",
+            [
+                ts(UINT8, [1, 1, 5, 5]),  # x
+                ts(FLOAT, []),  # x_scale
+                ts(UINT8, []),  # x_zero_point
+                ts(UINT8, [1, 1, 3, 3]),  # w
+                ts(FLOAT, []),  # w_scale
+                ts(UINT8, []),  # w_zero_point
+                ts(FLOAT, []),  # y_scale
+                ts(UINT8, []),  # y_zero_point
+            ],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(UINT8, [1, 1, 3, 3])])
+
+    def test_qlinear_conv_int8_output(self):
+        actual = run_shape_inference(
+            "",
+            "QLinearConv",
+            [
+                ts(INT8, [1, 1, 5, 5]),
+                ts(FLOAT, []),
+                ts(INT8, []),
+                ts(INT8, [1, 1, 3, 3]),
+                ts(FLOAT, []),
+                ts(INT8, []),
+                ts(FLOAT, []),
+                ts(INT8, []),  # y_zero_point dtype determines output dtype
+            ],
+            opset_version=10,
+        )
+        self.assertEqual(actual, [ts(INT8, [1, 1, 3, 3])])
+
+    def test_qlinear_conv_missing_shape(self):
+        actual = run_shape_inference(
+            "",
+            "QLinearConv",
+            [
+                ts(UINT8),
+                ts(FLOAT, []),
+                ts(UINT8, []),
+                ts(UINT8, [1, 1, 3, 3]),
+                ts(FLOAT, []),
+                ts(UINT8, []),
+                ts(FLOAT, []),
+                ts(UINT8, []),
+            ],
+            opset_version=10,
+        )
+        self.assertIsNone(actual[0].shape)
+
+    def test_qlinear_conv_too_few_inputs(self):
+        from onnx_ir.shape_inference import OpUsageError
+
+        with self.assertRaises(OpUsageError):
+            run_shape_inference(
+                "",
+                "QLinearConv",
+                [ts(UINT8, [1, 1, 5, 5]), ts(FLOAT, [])],
+                opset_version=10,
             )
 
 
