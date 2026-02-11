@@ -1,0 +1,41 @@
+# Copyright (c) ONNX Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+"""Shape inference for Softmax and LogSoftmax operators."""
+
+from __future__ import annotations
+
+__all__ = [
+    "infer_softmax",
+]
+
+from typing import TYPE_CHECKING
+
+import onnx_ir as ir
+from onnx_ir.shape_inference import _registry
+
+if TYPE_CHECKING:
+    from onnx_ir.shape_inference import _context
+
+_reg = _registry.registry.register
+
+
+@_reg("", "Softmax", since_version=1)
+@_reg("", "LogSoftmax", since_version=1)
+@_reg("", "Hardmax", since_version=1)
+def infer_softmax(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Softmax / LogSoftmax / Hardmax.
+
+    Output shape and dtype are the same as the input.
+
+    Spec: https://onnx.ai/onnx/operators/onnx__Softmax.html
+    """
+    if len(node.inputs) < 1:
+        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
+        return
+
+    data = node.inputs[0]
+    if data is None:
+        return
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], data.shape, data.dtype)

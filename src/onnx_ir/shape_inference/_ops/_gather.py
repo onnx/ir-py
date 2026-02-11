@@ -1,0 +1,61 @@
+# Copyright (c) ONNX Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+"""Shape inference for Gather operator."""
+
+from __future__ import annotations
+
+__all__ = [
+    "infer_gather",
+]
+
+from typing import TYPE_CHECKING
+
+import onnx_ir as ir
+from onnx_ir.shape_inference import _registry
+
+if TYPE_CHECKING:
+    from onnx_ir.shape_inference import _context
+
+
+@_registry.registry.register("", "Gather", since_version=1)
+def infer_gather(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Gather operator.
+
+    output_shape = data_shape[:axis] + indices_shape + data_shape[axis+1:]
+
+    Spec: https://onnx.ai/onnx/operators/onnx__Gather.html
+    """
+    if len(node.inputs) < 2:
+        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
+        return
+
+    data = node.inputs[0]
+    indices = node.inputs[1]
+    if data is None or indices is None:
+        return
+
+    data_shape = data.shape
+    indices_shape = indices.shape
+    output_dtype = data.dtype
+
+    output_shape: ir.Shape | None = None
+    if data_shape is not None and indices_shape is not None:
+        axis_attr = node.attributes.get("axis")
+        axis = axis_attr.as_int() if axis_attr is not None else 0
+
+        rank = data_shape.rank()
+        if axis < 0:
+            axis += rank
+
+        if not 0 <= axis < rank:
+            ctx.record_error(node, f"axis={axis} is out of range for rank {rank}")
+            return
+
+        output_dims: list[int | ir.SymbolicDim] = []
+        output_dims.extend(data_shape[:axis])
+        output_dims.extend(indices_shape.dims)
+        output_dims.extend(data_shape[axis + 1 :])
+        output_shape = ir.Shape(output_dims)
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)

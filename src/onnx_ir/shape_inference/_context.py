@@ -6,11 +6,13 @@ from __future__ import annotations
 
 __all__ = [
     "ShapeInferenceContext",
+    "ShapeInferenceError",
     "ShapeMergePolicy",
 ]
 
+import dataclasses
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 import sympy
@@ -18,6 +20,28 @@ import sympy
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
+
+@dataclasses.dataclass(frozen=True)
+class ShapeInferenceError:
+    """A recorded error from shape inference.
+
+    Attributes:
+        node_name: The name of the node (or ``None`` if unnamed).
+        op_type: The operator type (e.g. ``"Add"``).
+        domain: The operator domain.
+        message: Human-readable description of the error.
+    """
+
+    node_name: str | None
+    op_type: str
+    domain: str
+    message: str
+
+    def __str__(self) -> str:
+        op_id = f"{self.domain}::{self.op_type}" if self.domain else self.op_type
+        node_desc = f" (node {self.node_name!r})" if self.node_name else ""
+        return f"{op_id}{node_desc}: {self.message}"
+
 
 ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]
 """Policy for merging inferred shapes/dtypes with existing values.
@@ -88,6 +112,8 @@ class ShapeInferenceContext:
 
         # Dimension variable bindings (symbol name -> concrete value or expression)
         self._bindings: dict[str, int | sympy.Expr] = {}
+        # Recorded errors from shape inference
+        self._errors: list[ShapeInferenceError] = []
 
     @property
     def opset(self) -> int:
@@ -128,6 +154,36 @@ class ShapeInferenceContext:
     def bindings(self) -> Mapping[str, int | sympy.Expr]:
         """Get all current bindings."""
         return self._bindings
+
+    def record_error(self, node: ir.Node, message: str) -> None:
+        """Record a shape inference error for a node.
+
+        In strict mode the error is raised immediately as a :class:`ValueError`.
+        Otherwise it is appended to an internal list that can be inspected via
+        :attr:`errors` after the pass completes.
+
+        Args:
+            node: The node that caused the error.
+            message: Human-readable description of the problem.
+
+        Raises:
+            ValueError: If the merge policy is ``"strict"``.
+        """
+        error = ShapeInferenceError(
+            node_name=node.name,
+            op_type=node.op_type,
+            domain=node.domain,
+            message=message,
+        )
+        self._errors.append(error)
+        if self.policy == "strict":
+            raise ValueError(str(error))
+        logger.warning("Shape inference error: %s", error)
+
+    @property
+    def errors(self) -> Sequence[ShapeInferenceError]:
+        """All errors recorded during shape inference."""
+        return self._errors
 
     def set_shape(self, value: ir.Value, shape: ir.Shape) -> bool:
         """Set the shape of a value according to the merge policy.

@@ -43,6 +43,7 @@ __all__ = [
     "infer_symbolic_shapes",
     # Context and policy
     "ShapeInferenceContext",
+    "ShapeInferenceError",
     "ShapeMergePolicy",
     # Registry
     "OpShapeInferenceRegistry",
@@ -56,7 +57,11 @@ from typing import TYPE_CHECKING
 # Import ops to ensure they are registered (but don't expose publicly)
 from onnx_ir.shape_inference import _ops  # noqa: F401
 from onnx_ir.shape_inference._broadcast import broadcast_shapes
-from onnx_ir.shape_inference._context import ShapeInferenceContext, ShapeMergePolicy
+from onnx_ir.shape_inference._context import (
+    ShapeInferenceContext,
+    ShapeInferenceError,
+    ShapeMergePolicy,
+)
 from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
 
 if TYPE_CHECKING:
