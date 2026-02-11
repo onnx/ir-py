@@ -79,7 +79,7 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                 if isinstance(total, int) and isinstance(d, int):
                     total += d
                 else:
-                    total = ir.SymbolicDim(None)
+                    total = ctx.new_symbolic_dim()
                     break
             output_dims.append(total)  # type: ignore[arg-type]
         else:

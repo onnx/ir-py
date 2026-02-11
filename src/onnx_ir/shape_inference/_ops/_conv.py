@@ -127,7 +127,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         d = dilations[i]
 
         if not isinstance(in_dim, int) or k is None:
-            spatial_dims.append(ir.SymbolicDim(None))
+            spatial_dims.append(ctx.new_symbolic_dim())
             continue
 
         if auto_pad in ("SAME_UPPER", "SAME_LOWER"):

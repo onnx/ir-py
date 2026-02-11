@@ -115,6 +115,8 @@ class ShapeInferenceContext:
         self._bindings: dict[str, int | sympy.Expr] = {}
         # Recorded errors from shape inference
         self._errors: list[ShapeInferenceError] = []
+        # Counter for generating unique symbolic dimension names
+        self._dim_counter: int = 0
 
     @property
     def opset(self) -> int:
@@ -128,6 +130,24 @@ class ShapeInferenceContext:
         if domain in ("", "ai.onnx"):
             return self.opset
         return 1
+
+    def new_symbolic_dim(self, prefix: str = "_d") -> ir.SymbolicDim:
+        """Create a new symbolic dimension with a unique auto-generated name.
+
+        Use this instead of ``ir.SymbolicDim(None)`` so that each unknown
+        dimension gets a distinct identity.  Subsequent inference steps can
+        then establish relationships between these named dimensions.
+
+        Args:
+            prefix: Prefix for the generated name.  The default ``"_d"``
+                produces names like ``_d0``, ``_d1``, …
+
+        Returns:
+            A :class:`ir.SymbolicDim` with a unique name.
+        """
+        name = f"{prefix}{self._dim_counter}"
+        self._dim_counter += 1
+        return ir.SymbolicDim(name)
 
     def bind(self, symbol: str, value: int | sympy.Expr) -> None:
         """Bind a symbol to a concrete value or expression.

@@ -46,7 +46,7 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         if shape_input.shape is not None and shape_input.shape.rank() == 1:
             dim0 = shape_input.shape[0]
             if isinstance(dim0, int):
-                output_shape = ir.Shape([ir.SymbolicDim(None)] * dim0)
+                output_shape = ir.Shape([ctx.new_symbolic_dim() for _ in range(dim0)])
                 if len(node.outputs) > 0:
                     ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
         else:
@@ -69,7 +69,7 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             if input_shape is not None and i < input_shape.rank():
                 output_dims.append(input_shape[i])
             else:
-                output_dims.append(ir.SymbolicDim(None))
+                output_dims.append(ctx.new_symbolic_dim())
         elif dim_val == -1:
             if inferred_idx is not None:
                 ctx.record_error(node, "At most one dimension can be -1 in Reshape")
@@ -96,9 +96,9 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         if all_known and known_output > 0 and total_input > 0:
             output_dims[inferred_idx] = total_input // known_output
         else:
-            output_dims[inferred_idx] = ir.SymbolicDim(None)
+            output_dims[inferred_idx] = ctx.new_symbolic_dim()
     elif inferred_idx is not None:
-        output_dims[inferred_idx] = ir.SymbolicDim(None)
+        output_dims[inferred_idx] = ctx.new_symbolic_dim()
 
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:

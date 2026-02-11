@@ -3,6 +3,7 @@ authors:
   - '@justinchuby'
   - '@copilot'
 created: 2026-01-27
+updated: 2026-02-11
 ---
 
 # Symbolic Shape Inference for ONNX IR
@@ -21,6 +22,7 @@ This document describes the design of symbolic shape inference capability for th
 3. **Backward Compatibility**: Extend existing classes without breaking current usage
 4. **Modularity**: Easy to add shape inference for new operators
 5. **Opset Awareness**: Support different inference logic for different ONNX opset versions
+6. **Unique Dimension Tracking**: Assign unique names to unknown dimensions so relationships can be established across operations
 
 ## Non-Goals
 
@@ -135,16 +137,48 @@ The context tracks state during inference and applies merge policies:
 class ShapeInferenceContext:
     def __init__(
         self,
-        model: ir.Model,
-        opset: int | None = None,
+        opset_imports: Mapping[str, int] | None = None,
         policy: ShapeMergePolicy = "refine",
     ) -> None:
         ...
 
     def set_shape(self, value: ir.Value, shape: ir.Shape) -> bool: ...
     def set_dtype(self, value: ir.Value, dtype: ir.DataType) -> bool: ...
+    def set_shape_and_dtype(self, value, shape, dtype) -> bool: ...
+    def set_type(self, value: ir.Value, type_: ir.TypeProtocol) -> bool: ...
+    def new_symbolic_dim(self, prefix: str = "_d") -> ir.SymbolicDim: ...
     def bind(self, symbol: str, value: int | sympy.Expr) -> None: ...
+    def record_error(self, node: ir.Node, message: str) -> None: ...
 ```
+
+#### Type Setting Methods
+
+- **`set_shape_and_dtype`**: Convenience for tensor-typed values.
+- **`set_type`**: For non-tensor types like `SequenceType` and `OptionalType`.
+  Follows the same merge policy as `set_shape` and `set_dtype`.
+
+#### Unique Dimension Naming
+
+When the exact size of a dimension is unknown, operators must **not** use
+`ir.SymbolicDim(None)`.  Instead they call `ctx.new_symbolic_dim()` which
+returns a `SymbolicDim` with a unique auto-generated name (e.g. `_d0`,
+`_d1`, …).  This ensures every unknown dimension has a distinct identity, so
+downstream inference can establish relationships between inputs and outputs.
+
+```python
+# BAD  – all unknowns are anonymous and indistinguishable
+ir.Shape([ir.SymbolicDim(None), ir.SymbolicDim(None)])
+
+# GOOD – each unknown gets a unique name
+ir.Shape([ctx.new_symbolic_dim(), ctx.new_symbolic_dim()])
+```
+
+#### Error Recording
+
+`ctx.record_error(node, message)` records a `ShapeInferenceError`.  In strict
+mode (`policy="strict"`) the error is raised immediately as `ValueError`;
+otherwise it is logged as a warning and appended to `ctx.errors` for later
+inspection.
 
 **Merge policies** (`ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]`):
 
@@ -184,27 +218,69 @@ shape_inference/
 ├── _context.py
 ├── _broadcast.py
 └── _ops/
-    ├── __init__.py
-    ├── _add.py
-    └── _transpose.py
+    ├── __init__.py         # Imports all modules to trigger registration
+    ├── _testing.py         # Test infrastructure (ts, const_value, run_shape_inference, …)
+    ├── _elementwise.py     # Generic binary elementwise (Add, Sub, Mul, Div, …)
+    ├── _unary.py           # Generic unary passthrough (~40 ops)
+    ├── _reduce.py          # Generic Reduce* (10 ops)
+    ├── _cast.py            # Cast, CastLike
+    ├── _concat.py          # Concat
+    ├── _constant.py        # Constant
+    ├── _constant_of_shape.py
+    ├── _conv.py            # Conv (with auto_pad support)
+    ├── _dropout.py         # Dropout (output + mask)
+    ├── _expand.py          # Expand
+    ├── _gather.py          # Gather
+    ├── _gemm.py            # Gemm (transA/transB)
+    ├── _matmul.py          # MatMul (batch, 1-D handling)
+    ├── _reshape.py         # Reshape (0, -1, allowzero)
+    ├── _sequence.py        # Sequence ops (8 ops)
+    ├── _shape_ops.py       # Shape, Size, Flatten
+    ├── _slice.py           # Slice (v10+, input-based)
+    ├── _softmax.py         # Softmax, LogSoftmax, Hardmax
+    ├── _split.py           # Split (attr and input-based)
+    ├── _squeeze.py         # Squeeze, Unsqueeze (attr and input-based)
+    ├── _transpose.py       # Transpose
+    └── _where.py           # Where (3-input broadcast)
 ```
 
-**Example: Add operator**
+#### Generic Helpers
+
+Shared patterns are implemented as generic functions with stacked decorators
+for multiple-op registration, avoiding code duplication:
 
 ```python
-@registry.register("", "Add", since_version=1)
-def infer_add(ctx: ShapeInferenceContext, node: ir.Node) -> None:
-    a, b = node.inputs[0], node.inputs[1]
-    output = node.outputs[0]
+_reg = _registry.registry.register
 
-    # Infer shape via broadcasting
-    result_shape = broadcast_shapes(a.shape, b.shape)
-
-    # Infer dtype (same as inputs for Add)
-    result_dtype = a.dtype or b.dtype
-
-    ctx.set_shape_and_dtype(output, result_shape, result_dtype)
+@_reg("", "Add", since_version=7)
+@_reg("", "Sub", since_version=7)
+@_reg("", "Mul", since_version=7)
+# ... more ops
+def infer_binary_elementwise(ctx, node):
+    ...
 ```
+
+Three generic helpers cover a large number of ops:
+
+- **`_elementwise.py`**: Binary broadcast (arithmetic, comparison, logical)
+- **`_unary.py`**: Shape+dtype passthrough; logical unary (output BOOL)
+- **`_reduce.py`**: Axes handling (attribute or input), keepdims, noop_with_empty_axes
+
+#### Sequence Operators
+
+Sequence operators produce `SequenceType` outputs rather than `TensorType`.
+They use `ctx.set_type()` instead of `ctx.set_shape_and_dtype()`:
+
+```python
+@_reg("", "SequenceConstruct", since_version=11)
+def infer_sequence_construct(ctx, node):
+    elem_type = node.inputs[0].type
+    ctx.set_type(node.outputs[0], ir.SequenceType(elem_type))
+```
+
+Implemented sequence ops: `SequenceConstruct`, `SequenceEmpty`, `SequenceAt`,
+`SequenceLength`, `SequenceInsert`, `SequenceErase`, `SplitToSequence`,
+`ConcatFromSequence`.
 
 ### 7. Inference Pass
 
@@ -241,6 +317,7 @@ ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]
 
 # Classes
 ShapeInferenceContext
+ShapeInferenceError
 OpShapeInferenceRegistry
 
 # Functions
@@ -262,6 +339,54 @@ Shape.evaluate(bindings) -> tuple[int, ...] | Shape
 Shape.simplify() -> Shape
 Shape.free_symbols() -> set[str]
 ```
+
+## Supported Operators
+
+### Tier 1: Generic Helpers (~70 ops)
+
+| Category | Ops | Module |
+|----------|-----|--------|
+| Arithmetic | Add, Sub, Mul, Div, Mod, Pow, BitShift | `_elementwise.py` |
+| Comparison | Equal, Less, Greater, LessOrEqual, GreaterOrEqual | `_elementwise.py` |
+| Logical | And, Or, Xor | `_elementwise.py` |
+| Unary | Neg, Abs, Ceil, Floor, Relu, Sigmoid, Tanh, Exp, Log, Sin, Cos, … | `_unary.py` |
+| Logical Unary | Not, IsNaN, IsInf | `_unary.py` |
+| Reduce | ReduceSum, ReduceMean, ReduceMax, ReduceMin, ReduceProd, ReduceL1/L2, … | `_reduce.py` |
+
+### Tier 2: Individual Ops
+
+| Op | Module | Notes |
+|----|--------|-------|
+| Reshape | `_reshape.py` | Handles 0, -1, allowzero |
+| Concat | `_concat.py` | Sum along axis |
+| Squeeze / Unsqueeze | `_squeeze.py` | Attribute and input-based axes |
+| Gather | `_gather.py` | Any axis |
+| Slice | `_slice.py` | v10+ input-based only |
+| Split | `_split.py` | Attribute and input-based split |
+| Expand | `_expand.py` | Broadcast to target shape |
+| MatMul | `_matmul.py` | Batch, 1-D handling |
+| Gemm | `_gemm.py` | transA/transB |
+| Conv | `_conv.py` | auto_pad (VALID, SAME_UPPER, SAME_LOWER) |
+| Cast / CastLike | `_cast.py` | dtype from attribute or input |
+| Constant | `_constant.py` | Shape/dtype from attribute |
+| ConstantOfShape | `_constant_of_shape.py` | Shape from const input |
+| Shape / Size / Flatten | `_shape_ops.py` | start/end for Shape v15+ |
+| Softmax / LogSoftmax / Hardmax | `_softmax.py` | Passthrough |
+| Where | `_where.py` | 3-input broadcast |
+| Dropout | `_dropout.py` | Output + optional mask (BOOL) |
+| Transpose | `_transpose.py` | Perm attribute |
+
+### Tier 3: Sequence Ops
+
+| Op | Module | Notes |
+|----|--------|-------|
+| SequenceConstruct | `_sequence.py` | Tensor inputs → SequenceType |
+| SequenceEmpty | `_sequence.py` | dtype attribute |
+| SequenceAt | `_sequence.py` | SequenceType → element TensorType |
+| SequenceLength | `_sequence.py` | Scalar INT64 |
+| SequenceInsert / Erase | `_sequence.py` | Preserves sequence type |
+| SplitToSequence | `_sequence.py` | Tensor → SequenceType |
+| ConcatFromSequence | `_sequence.py` | SequenceType → Tensor |
 
 ## Usage Examples
 
@@ -317,7 +442,9 @@ symbols = shape.free_symbols()  # {"batch", "seq"}
 
 1. **Constraint System**: Track dimension equality constraints and propagate bindings
 2. **Bidirectional Inference**: Infer input shapes from output constraints
-3. **More Operators**: Expand coverage beyond Add and Transpose
+3. **ConvTranspose**: Implement shape inference for ConvTranspose operator
+4. **SequenceMap**: Implement body-graph-based inference for SequenceMap
+5. **QLinearConv / ConvInteger**: Quantized convolution operators
 
 ## Dependencies
 

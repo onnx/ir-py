@@ -107,7 +107,7 @@ def infer_flatten(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             right = math.prod(d if isinstance(d, int) else 1 for d in input_shape.dims[axis:])
             output_shape = ir.Shape([left, right])
         else:
-            output_shape = ir.Shape([ir.SymbolicDim(None), ir.SymbolicDim(None)])
+            output_shape = ir.Shape([ctx.new_symbolic_dim(), ctx.new_symbolic_dim()])
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)

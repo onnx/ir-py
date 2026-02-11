@@ -102,7 +102,7 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             output_dims[axis] = slice_len
         else:
             # Symbolic dim: can't determine exact size
-            output_dims[axis] = ir.SymbolicDim(None)
+            output_dims[axis] = ctx.new_symbolic_dim()
 
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:
