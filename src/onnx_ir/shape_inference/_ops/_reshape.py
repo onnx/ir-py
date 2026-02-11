@@ -27,7 +27,7 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     input_shape = data.shape
 
     # Try to read the target shape from const_value
-    shape_const = shape_input.const_value
+    shape_const = ir.convenience.get_const_tensor(shape_input)
     if shape_const is None:
         # Shape is dynamic — we can try to infer rank from the shape input's shape
         if shape_input.shape is not None and shape_input.shape.rank() == 1:

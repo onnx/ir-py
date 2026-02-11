@@ -39,7 +39,7 @@ def infer_split(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     # Read split sizes from input[1] (opset >= 13) or attribute
     split_sizes: list[int] | None = None
     if len(node.inputs) >= 2 and node.inputs[1] is not None:
-        const = node.inputs[1].const_value
+        const = ir.convenience.get_const_tensor(node.inputs[1])
         if const is not None:
             split_sizes = [int(x) for x in const.numpy().flatten()]
     if split_sizes is None:

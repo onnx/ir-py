@@ -29,7 +29,7 @@ def infer_topk(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         new_dims: list[int | ir.SymbolicDim] = []
         k_val: int | ir.SymbolicDim = ctx.new_symbolic_dim()
         if len(node.inputs) >= 2 and node.inputs[1] is not None:
-            k_const = node.inputs[1].const_value
+            k_const = ir.convenience.get_const_tensor(node.inputs[1])
             if k_const is not None:
                 k_val = int(k_const.numpy().item())
         for i in range(rank):

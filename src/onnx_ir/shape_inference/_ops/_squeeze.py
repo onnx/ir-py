@@ -16,7 +16,7 @@ from onnx_ir.shape_inference import _context, _registry
 def _read_axes_from_input_or_attr(node: ir.Node) -> list[int] | None:
     """Read axes from second input (opset >= 13) or attribute (opset < 13)."""
     if len(node.inputs) >= 2 and node.inputs[1] is not None:
-        const = node.inputs[1].const_value
+        const = ir.convenience.get_const_tensor(node.inputs[1])
         if const is not None:
             return [int(x) for x in const.numpy().flatten()]
         return None

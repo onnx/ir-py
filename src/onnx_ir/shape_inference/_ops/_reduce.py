@@ -33,7 +33,7 @@ def _read_axes(node: ir.Node) -> list[int] | None:
     """
     if len(node.inputs) >= 2 and node.inputs[1] is not None:
         axes_value = node.inputs[1]
-        const = axes_value.const_value
+        const = ir.convenience.get_const_tensor(axes_value)
         if const is not None:
             return [int(x) for x in const.numpy().flatten()]
         return None

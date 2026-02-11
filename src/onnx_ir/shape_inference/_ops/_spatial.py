@@ -31,7 +31,7 @@ def infer_affine_grid(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
 
     output_dtype = theta.dtype
 
-    size_const = size.const_value
+    size_const = ir.convenience.get_const_tensor(size)
     if size_const is not None:
         size_vals = [int(s) for s in size_const.numpy().flatten()]
         n = size_vals[0]
@@ -87,7 +87,7 @@ def infer_col2im(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     output_dtype = input_val.dtype
 
-    image_shape_const = image_shape.const_value
+    image_shape_const = ir.convenience.get_const_tensor(image_shape)
     if input_val.shape is not None and image_shape_const is not None:
         image_dims = [int(d) for d in image_shape_const.numpy().flatten()]
         n = input_val.shape[0]
@@ -112,7 +112,7 @@ def infer_center_crop_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) ->
 
     output_dtype = input_data.dtype
 
-    shape_const = shape.const_value
+    shape_const = ir.convenience.get_const_tensor(shape)
     if input_data.shape is not None and shape_const is not None:
         shape_vals = [int(s) for s in shape_const.numpy().flatten()]
         input_dims = list(input_data.shape.dims)
@@ -214,7 +214,7 @@ def infer_max_unpool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None
 
     # Check for output_shape input (index 2)
     if len(node.inputs) > 2 and node.inputs[2] is not None:
-        os_const = node.inputs[2].const_value
+        os_const = ir.convenience.get_const_tensor(node.inputs[2])
         if os_const is not None:
             output_dims = [int(d) for d in os_const.numpy().flatten()]
             if len(node.outputs) > 0:

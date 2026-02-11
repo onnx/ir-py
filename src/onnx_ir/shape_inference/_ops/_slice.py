@@ -16,7 +16,7 @@ def _read_const_ints(value: ir.Value | None) -> list[int] | None:
     """Read a 1-D constant integer tensor, or return None."""
     if value is None:
         return None
-    const = value.const_value
+    const = ir.convenience.get_const_tensor(value)
     if const is None:
         return None
     return [int(x) for x in const.numpy().flatten()]

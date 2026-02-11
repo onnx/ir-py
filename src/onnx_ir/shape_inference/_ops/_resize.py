@@ -28,7 +28,7 @@ def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     # Check if sizes input (index 3) has const_value
     if x_shape is not None and len(node.inputs) > 3 and node.inputs[3] is not None:
         sizes_input = node.inputs[3]
-        sizes_const = sizes_input.const_value
+        sizes_const = ir.convenience.get_const_tensor(sizes_input)
         if sizes_const is not None:
             output_dims = [int(s) for s in sizes_const.numpy().flatten()]
             if len(node.outputs) > 0:
@@ -38,7 +38,7 @@ def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     # Check if scales input (index 2) has const_value and X has all concrete dims
     if x_shape is not None and len(node.inputs) > 2 and node.inputs[2] is not None:
         scales_input = node.inputs[2]
-        scales_const = scales_input.const_value
+        scales_const = ir.convenience.get_const_tensor(scales_input)
         if scales_const is not None:
             scales = [float(s) for s in scales_const.numpy().flatten()]
             if len(scales) == x_shape.rank() and x_shape.is_static():

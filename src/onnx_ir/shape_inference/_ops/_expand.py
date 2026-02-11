@@ -25,7 +25,7 @@ def infer_expand(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     # Try to read the target shape from const_value
     target_shape: ir.Shape | None = None
-    shape_const = shape_input.const_value
+    shape_const = ir.convenience.get_const_tensor(shape_input)
     if shape_const is not None:
         target_dims = [int(x) for x in shape_const.numpy().flatten()]
         target_shape = ir.Shape(target_dims)

@@ -21,7 +21,9 @@ def infer_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     if data.shape is not None:
         rank = data.shape.rank()
         pads_value = node.inputs[1] if len(node.inputs) > 1 else None
-        pads_const = pads_value.const_value if pads_value is not None else None
+        pads_const = (
+            ir.convenience.get_const_tensor(pads_value) if pads_value is not None else None
+        )
 
         if pads_const is not None:
             pads = [int(x) for x in pads_const.numpy().flatten()]

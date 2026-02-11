@@ -71,7 +71,7 @@ def _infer_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         ir.DataType(dtype_attr.as_int()) if dtype_attr is not None else ir.DataType.FLOAT
     )
 
-    size_const = size.const_value
+    size_const = ir.convenience.get_const_tensor(size)
     if size_const is not None:
         size_val = int(size_const.numpy().item())
         output_shape: ir.Shape = ir.Shape([size_val])

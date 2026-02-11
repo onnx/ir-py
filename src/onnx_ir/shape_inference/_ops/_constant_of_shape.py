@@ -30,7 +30,7 @@ def infer_constant_of_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) 
 
     # Try to read shape from const_value
     output_shape: ir.Shape | None = None
-    shape_const = shape_input.const_value
+    shape_const = ir.convenience.get_const_tensor(shape_input)
     if shape_const is not None:
         output_dims = [int(x) for x in shape_const.numpy().flatten()]
         output_shape = ir.Shape(output_dims)
