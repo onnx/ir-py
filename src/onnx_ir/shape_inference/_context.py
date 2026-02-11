@@ -149,6 +149,32 @@ class ShapeInferenceContext:
         self._dim_counter += 1
         return ir.SymbolicDim(name)
 
+    def name_anonymous_dims(self, value: ir.Value) -> bool:
+        """Replace anonymous (``None``) symbolic dims on *value* with unique names.
+
+        This mutates the value's shape in-place.  It is a no-op when the value
+        has no shape or all dims are already named/concrete.
+
+        Returns:
+            ``True`` if any dim was renamed.
+        """
+        shape = value.shape
+        if shape is None:
+            return False
+
+        new_dims: list[int | ir.SymbolicDim] = []
+        changed = False
+        for dim in shape.dims:
+            if isinstance(dim, ir.SymbolicDim) and dim.value is None:
+                new_dims.append(self.new_symbolic_dim())
+                changed = True
+            else:
+                new_dims.append(dim)
+
+        if changed:
+            value.shape = ir.Shape(new_dims)
+        return changed
+
     def bind(self, symbol: str, value: int | sympy.Expr) -> None:
         """Bind a symbol to a concrete value or expression.
 
@@ -206,6 +232,21 @@ class ShapeInferenceContext:
         """All errors recorded during shape inference."""
         return self._errors
 
+    @staticmethod
+    def _check_no_anonymous_dims(shape: ir.Shape) -> None:
+        """Raise if *shape* contains any anonymous (``None``) symbolic dims.
+
+        All unknown dimensions must be given a unique name via
+        :meth:`new_symbolic_dim` so that downstream inference can establish
+        relationships between dimensions.
+        """
+        for i, dim in enumerate(shape.dims):
+            if isinstance(dim, ir.SymbolicDim) and dim.value is None:
+                raise ValueError(
+                    f"Shape dim {i} is an anonymous SymbolicDim(None). "
+                    "Use ctx.new_symbolic_dim() to create a uniquely named dim."
+                )
+
     def set_shape(self, value: ir.Value, shape: ir.Shape) -> bool:
         """Set the shape of a value according to the merge policy.
 
@@ -217,8 +258,11 @@ class ShapeInferenceContext:
             True if the shape was updated, False otherwise.
 
         Raises:
-            ValueError: If policy is STRICT and shapes conflict.
+            ValueError: If policy is STRICT and shapes conflict, or if
+                the shape contains anonymous (None) symbolic dims.
         """
+        self._check_no_anonymous_dims(shape)
+
         existing = value.shape
 
         if existing is None:

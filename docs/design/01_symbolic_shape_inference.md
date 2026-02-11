@@ -442,9 +442,12 @@ symbols = shape.free_symbols()  # {"batch", "seq"}
 
 1. **Constraint System**: Track dimension equality constraints and propagate bindings
 2. **Bidirectional Inference**: Infer input shapes from output constraints
-3. **ConvTranspose**: Implement shape inference for ConvTranspose operator
-4. **SequenceMap**: Implement body-graph-based inference for SequenceMap
-5. **QLinearConv / ConvInteger**: Quantized convolution operators
+3. **Model Local Functions**: Inline shape inference for functions defined in `model.functions`, propagating shapes through function call boundaries
+4. **Subgraph Support**: Infer shapes inside subgraphs used by control-flow operators (If, Loop, Scan), propagating outer-scope bindings into the subgraph and back
+5. **Newer Operators**: Add inference for operators introduced in recent opsets, such as `Attention`, `GroupNormalization`, `RotaryEmbedding`, and other transformer-related ops
+6. **ConvTranspose**: Implement shape inference for ConvTranspose operator
+7. **SequenceMap**: Implement body-graph-based inference for SequenceMap
+8. **QLinearConv / ConvInteger**: Quantized convolution operators
 
 ## Dependencies
 

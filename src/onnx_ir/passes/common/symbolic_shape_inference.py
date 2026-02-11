@@ -93,6 +93,11 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
         modified = False
         warned_ops: set[tuple[str, str]] = set()
 
+        # Assign unique names to any anonymous (None) dims on graph inputs
+        for value in graph.inputs:
+            if ctx.name_anonymous_dims(value):
+                modified = True
+
         # Traverse nodes in topological order
         for node in graph:
             domain = node.domain or ""
@@ -104,6 +109,11 @@ class SymbolicShapeInferencePass(ir.passes.InPlacePass):
 
             if infer_func is not None:
                 try:
+                    # Name anonymous dims on node inputs before inference
+                    for inp in node.inputs:
+                        if inp is not None:
+                            ctx.name_anonymous_dims(inp)
+
                     # Track which outputs had shapes and dtypes before
                     old_states: list[tuple[ir.Shape | None, ir.TypeProtocol | None]] = []
                     for out in node.outputs:

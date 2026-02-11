@@ -36,9 +36,7 @@ def _get_sequence_elem_type(value: ir.Value) -> ir.TypeProtocol | None:
 
 
 @_reg("", "SequenceConstruct", since_version=11)
-def infer_sequence_construct(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_construct(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceConstruct operator.
 
     Output is a sequence whose element type matches the input tensors' type.
@@ -63,9 +61,7 @@ def infer_sequence_construct(
 
 
 @_reg("", "SequenceEmpty", since_version=11)
-def infer_sequence_empty(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_empty(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceEmpty operator.
 
     Output is an empty sequence. Element dtype comes from the ``dtype`` attribute.
@@ -81,9 +77,7 @@ def infer_sequence_empty(
 
 
 @_reg("", "SequenceAt", since_version=11)
-def infer_sequence_at(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_at(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceAt operator.
 
     Output is a tensor extracted from the input sequence.
@@ -104,9 +98,7 @@ def infer_sequence_at(
 
 
 @_reg("", "SequenceLength", since_version=11)
-def infer_sequence_length(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_length(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceLength operator.
 
     Output is a scalar INT64 tensor.
@@ -122,9 +114,7 @@ def infer_sequence_length(
 
 
 @_reg("", "SequenceInsert", since_version=11)
-def infer_sequence_insert(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_insert(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceInsert operator.
 
     Output sequence has the same element type as the input sequence.
@@ -144,9 +134,7 @@ def infer_sequence_insert(
 
 
 @_reg("", "SequenceErase", since_version=11)
-def infer_sequence_erase(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_sequence_erase(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SequenceErase operator.
 
     Output sequence has the same element type as the input sequence.
@@ -166,9 +154,7 @@ def infer_sequence_erase(
 
 
 @_reg("", "SplitToSequence", since_version=11)
-def infer_split_to_sequence(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_split_to_sequence(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for SplitToSequence operator.
 
     Output is a sequence of tensors with the same dtype as the input tensor.
@@ -192,9 +178,7 @@ def infer_split_to_sequence(
 
 
 @_reg("", "ConcatFromSequence", since_version=11)
-def infer_concat_from_sequence(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_concat_from_sequence(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer type for ConcatFromSequence operator.
 
     Output is a tensor with the same dtype as the sequence elements.
