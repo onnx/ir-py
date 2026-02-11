@@ -55,7 +55,7 @@ def infer_matmul(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         output_shape = ir.Shape([])
     elif rank_a == 1:
         # (K,) x (..., K, N) -> (..., N)
-        output_dims = list(shape_b.dims[:-2]) + [shape_b.dims[-1]]
+        output_dims = [*shape_b.dims[:-2], shape_b.dims[-1]]
         output_shape = ir.Shape(output_dims)
     elif rank_b == 1:
         # (..., M, K) x (K,) -> (..., M)
@@ -72,7 +72,7 @@ def infer_matmul(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         n_dim = shape_b.dims[-1]
 
         if batch_shape is not None:
-            output_dims = list(batch_shape.dims) + [m_dim, n_dim]
+            output_dims = [*batch_shape.dims, m_dim, n_dim]
         else:
             output_dims = [m_dim, n_dim]
         output_shape = ir.Shape(output_dims)

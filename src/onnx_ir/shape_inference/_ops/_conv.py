@@ -101,7 +101,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         else:
             spatial_dims.append(ir.SymbolicDim(None))
 
-    output_dims: list[int | ir.SymbolicDim] = [batch_dim, out_channels] + spatial_dims
+    output_dims: list[int | ir.SymbolicDim] = [batch_dim, out_channels, *spatial_dims]
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)

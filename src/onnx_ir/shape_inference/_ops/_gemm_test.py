@@ -24,12 +24,12 @@ class GemmTest(unittest.TestCase):
             ("symbolic", ["M", 64], [64, "N"], 0, 0, ["M", "N"]),
         ]
     )
-    def test_gemm(self, _name, shape_a, shape_b, transA, transB, expected_shape):
+    def test_gemm(self, _name, shape_a, shape_b, trans_a, trans_b, expected_shape):
         attrs = {}
-        if transA:
-            attrs["transA"] = ir.Attr("transA", ir.AttributeType.INT, transA)
-        if transB:
-            attrs["transB"] = ir.Attr("transB", ir.AttributeType.INT, transB)
+        if trans_a:
+            attrs["transA"] = ir.Attr("transA", ir.AttributeType.INT, trans_a)
+        if trans_b:
+            attrs["transB"] = ir.Attr("transB", ir.AttributeType.INT, trans_b)
         actual = run_shape_inference(
             "",
             "Gemm",
