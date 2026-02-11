@@ -55,10 +55,6 @@ __all__ = [
     "require_attr",
 ]
 
-from typing import TYPE_CHECKING
-
-# Import ops to ensure they are registered (but don't expose publicly)
-from onnx_ir.shape_inference import _ops  # noqa: F401
 from onnx_ir.shape_inference._broadcast import broadcast_shapes
 from onnx_ir.shape_inference._context import (
     OpUsageError,
@@ -68,45 +64,8 @@ from onnx_ir.shape_inference._context import (
     check_inputs,
     require_attr,
 )
+from onnx_ir.shape_inference._engine import infer_symbolic_shapes
 from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
-
-if TYPE_CHECKING:
-    import onnx_ir as ir
-
-
-def infer_symbolic_shapes(
-    model: ir.Model,
-    *,
-    policy: ShapeMergePolicy = "refine",
-    warn_on_missing: bool = True,
-) -> ir.Model:
-    """Perform symbolic shape inference on the model.
-
-    Convenience function that creates and runs a SymbolicShapeInferencePass.
-
-    Args:
-        model: The model to perform shape inference on.
-        policy: How to merge inferred shapes with existing shapes.
-        warn_on_missing: If True, log warnings for ops without registered
-            shape inference.
-
-    Returns:
-        The model with shape inference applied (modified in place).
-
-    Example::
-
-        import onnx_ir as ir
-        from onnx_ir.shape_inference import infer_symbolic_shapes
-
-        model = ir.load("model.onnx")
-        model = infer_symbolic_shapes(model)
-    """
-    from onnx_ir.passes.common.symbolic_shape_inference import SymbolicShapeInferencePass
-
-    return SymbolicShapeInferencePass(
-        policy=policy,
-        warn_on_missing=warn_on_missing,
-    )(model).model
 
 
 def __set_module() -> None:

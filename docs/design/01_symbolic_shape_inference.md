@@ -296,21 +296,85 @@ Implemented sequence ops: `SequenceConstruct`, `SequenceEmpty`, `SequenceAt`,
 `SequenceLength`, `SequenceInsert`, `SequenceErase`, `SplitToSequence`,
 `ConcatFromSequence`.
 
-### 7. Inference Pass
+### 7. Inference Engine and Pass
 
-The main pass traverses the graph in topological order:
+The core inference logic lives in `_engine.py`, decoupled from the pass
+framework.  `SymbolicShapeInferencePass` delegates to `_engine` so that
+calling `infer_symbolic_shapes` directly does not wrap errors in `PassError`.
+
+```
+infer_symbolic_shapes(model)          ◄── public API in onnx_ir.shape_inference
+│
+▼
+_infer_symbolic_shapes(model)         ◄── _engine.py, returns modified: bool
+│
+├─ Create ShapeInferenceContext(opset_imports, policy)
+│
+▼
+_process_graph(ctx, model.graph)      ◄── starts from the main graph
+│
+├─ Name anonymous dims on graph inputs     ◄── SymbolicDim(None) → SymbolicDim("_d0")
+│
+├─ For each node in topological order:
+│   │
+│   ├─ Recurse into subgraph attrs         ◄── If/Loop bodies processed in-order
+│   │   └─ _process_graph(ctx, subgraph)
+│   │
+│   ├─ Lookup infer_func from registry     ◄── registry.get(domain, op_type, version)
+│   │
+│   ├─ [not found] ──► log warning, skip
+│   │
+│   ├─ [found] ──►
+│   │   │
+│   │   ├─ Name anonymous dims on inputs   ◄── ensures no None dims enter the op
+│   │   │
+│   │   ├─ Save old output states
+│   │   │
+│   │   ├─ Call infer_func(ctx, node)       ◄── see "Op-Level Flow" below
+│   │   │
+│   │   ├─ Compare output states → set modified=True if changed
+│   │   │
+│   │   └─ [exception] ──► log warning, continue
+│   │
+│   └─ next node
+│
+└─ Return modified: bool
+```
+
+`SymbolicShapeInferencePass` is a thin wrapper that calls `_infer_symbolic_shapes`
+and returns a `PassResult`:
 
 ```python
 class SymbolicShapeInferencePass(ir.passes.InPlacePass):
-    def __init__(
-        self,
-        policy: ShapeMergePolicy = "refine",
-        warn_on_missing: bool = True,
-    ) -> None:
-        ...
+    def call(self, model):
+        modified = _infer_symbolic_shapes(model, policy=self.policy, ...)
+        return ir.passes.PassResult(model, modified)
+```
 
-    def call(self, model: ir.Model) -> ir.passes.PassResult:
-        ...
+**Op-Level Flow** (inside each `infer_func`):
+
+```
+infer_func(ctx, node)
+│
+├─ check_inputs(node, "A", "B", ...)       ◄── validates count & non-None
+│   └─ [fail] ──► raise OpUsageError       ◄── always raised, caught by engine
+│
+├─ require_attr(node, "axis")              ◄── optional, for ops needing attrs
+│   └─ [fail] ──► raise OpUsageError
+│
+├─ Graceful degradation                    ◄── e.g. shape is None → set dtype only
+│   └─ ctx.set_shape_and_dtype(out, None, dtype)
+│
+├─ Semantic validation                     ◄── e.g. rank check, axis range
+│   └─ [fail] ──► ctx.record_error(node, msg)
+│               └─ policy="skip" → log warning
+│               └─ otherwise     → raise ShapeInferenceError
+│
+├─ Compute output shape                   ◄── op-specific logic, broadcast, etc.
+│
+└─ ctx.set_shape_and_dtype(out, shape, dtype)
+    │
+    └─ _check_no_anonymous_dims(shape)     ◄── rejects SymbolicDim(None) in outputs
 ```
 
 **Convenience function:**
@@ -428,15 +492,13 @@ for node in model.graph:
 ### Custom Operator Registration
 
 ```python
-from onnx_ir.shape_inference import registry, ShapeInferenceContext
+from onnx_ir.shape_inference import registry, ShapeInferenceContext, check_inputs
 
 @registry.register("com.custom", "MyOp", since_version=1)
 def infer_my_op(ctx: ShapeInferenceContext, node: ir.Node) -> None:
-    # Custom inference logic
-    input_shape = node.inputs[0].shape
-    if input_shape is not None:
-        # Output has same shape as input
-        ctx.set_shape(node.outputs[0], input_shape)
+    (data,) = check_inputs(node, "data")
+    if data.shape is not None:
+        ctx.set_shape(node.outputs[0], data.shape)
 ```
 
 ### Symbolic Arithmetic
