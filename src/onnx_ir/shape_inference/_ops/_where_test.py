@@ -16,31 +16,42 @@ BOOL = ir.DataType.BOOL
 
 
 class WhereTest(unittest.TestCase):
-    @parameterized.parameterized.expand([
-        (
-            "same_shape",
-            [3, 4], [3, 4], [3, 4],
-            [3, 4],
-        ),
-        (
-            "broadcast_condition",
-            [1, 4], [3, 1], [3, 4],
-            [3, 4],
-        ),
-        (
-            "broadcast_all",
-            [1], [3, 1], [1, 4],
-            [3, 4],
-        ),
-        (
-            "symbolic",
-            ["batch", 1], [1, 128], ["batch", 128],
-            ["batch", 128],
-        ),
-    ])
+    @parameterized.parameterized.expand(
+        [
+            (
+                "same_shape",
+                [3, 4],
+                [3, 4],
+                [3, 4],
+                [3, 4],
+            ),
+            (
+                "broadcast_condition",
+                [1, 4],
+                [3, 1],
+                [3, 4],
+                [3, 4],
+            ),
+            (
+                "broadcast_all",
+                [1],
+                [3, 1],
+                [1, 4],
+                [3, 4],
+            ),
+            (
+                "symbolic",
+                ["batch", 1],
+                [1, 128],
+                ["batch", 128],
+                ["batch", 128],
+            ),
+        ]
+    )
     def test_where(self, _name, cond_shape, x_shape, y_shape, expected_shape):
         actual = run_shape_inference(
-            "", "Where",
+            "",
+            "Where",
             [ts(BOOL, cond_shape), ts(FLOAT, x_shape), ts(FLOAT, y_shape)],
             opset_version=17,
         )
@@ -48,7 +59,8 @@ class WhereTest(unittest.TestCase):
 
     def test_missing_shape(self):
         actual = run_shape_inference(
-            "", "Where",
+            "",
+            "Where",
             [ts(BOOL, [3, 4]), ts(FLOAT), ts(FLOAT, [3, 4])],
             opset_version=17,
         )

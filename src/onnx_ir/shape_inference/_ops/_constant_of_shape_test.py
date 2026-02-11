@@ -19,7 +19,10 @@ class ConstantOfShapeTest(unittest.TestCase):
     def test_basic(self):
         shape_val = _testing.const_value([3, 4, 5], name="shape")
         actual = _testing.run_shape_inference_with_values(
-            "", "ConstantOfShape", [shape_val], opset_version=17,
+            "",
+            "ConstantOfShape",
+            [shape_val],
+            opset_version=17,
         )
         # Default dtype is FLOAT
         self.assertEqual(actual, [_testing.ts(FLOAT, [3, 4, 5])])
@@ -28,7 +31,9 @@ class ConstantOfShapeTest(unittest.TestCase):
         shape_val = _testing.const_value([2, 3], name="shape")
         tensor = ir.Tensor(np.array([0], dtype=np.int64))
         actual = _testing.run_shape_inference_with_values(
-            "", "ConstantOfShape", [shape_val],
+            "",
+            "ConstantOfShape",
+            [shape_val],
             {"value": ir.Attr("value", ir.AttributeType.TENSOR, tensor)},
             opset_version=17,
         )
@@ -37,11 +42,15 @@ class ConstantOfShapeTest(unittest.TestCase):
     def test_dynamic_shape(self):
         """When shape input is not const, output shape is unknown."""
         shape_val = ir.Value(
-            name="shape", shape=ir.Shape([3]),
+            name="shape",
+            shape=ir.Shape([3]),
             type=ir.TensorType(INT64),
         )
         actual = _testing.run_shape_inference_with_values(
-            "", "ConstantOfShape", [shape_val], opset_version=17,
+            "",
+            "ConstantOfShape",
+            [shape_val],
+            opset_version=17,
         )
         self.assertIsNone(actual[0].shape)
         self.assertEqual(actual[0].type.dtype, FLOAT)

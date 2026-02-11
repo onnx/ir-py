@@ -19,15 +19,20 @@ class ExpandTest(unittest.TestCase):
         data = ir.Value(name="data", shape=input_ts.shape, type=input_ts.type)
         shape_val = _testing.const_value(target_shape, name="shape")
         return _testing.run_shape_inference_with_values(
-            "", "Expand", [data, shape_val], opset_version=17,
+            "",
+            "Expand",
+            [data, shape_val],
+            opset_version=17,
         )
 
-    @parameterized.parameterized.expand([
-        ("basic", [1, 4], [3, 4], [3, 4]),
-        ("broadcast_rank", [4], [2, 3, 4], [2, 3, 4]),
-        ("broadcast_ones", [3, 1], [3, 4], [3, 4]),
-        ("noop", [3, 4], [3, 4], [3, 4]),
-    ])
+    @parameterized.parameterized.expand(
+        [
+            ("basic", [1, 4], [3, 4], [3, 4]),
+            ("broadcast_rank", [4], [2, 3, 4], [2, 3, 4]),
+            ("broadcast_ones", [3, 1], [3, 4], [3, 4]),
+            ("noop", [3, 4], [3, 4], [3, 4]),
+        ]
+    )
     def test_expand(self, _name, input_shape, target, expected_shape):
         actual = self._run(_testing.ts(FLOAT, input_shape), target)
         self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])

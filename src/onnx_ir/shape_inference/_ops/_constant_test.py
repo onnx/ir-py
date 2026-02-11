@@ -19,7 +19,9 @@ class ConstantTest(unittest.TestCase):
     def test_tensor_value(self):
         tensor = ir.Tensor(np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
         actual = run_shape_inference(
-            "", "Constant", [],
+            "",
+            "Constant",
+            [],
             {"value": ir.Attr("value", ir.AttributeType.TENSOR, tensor)},
             opset_version=17,
         )
@@ -27,7 +29,9 @@ class ConstantTest(unittest.TestCase):
 
     def test_value_float(self):
         actual = run_shape_inference(
-            "", "Constant", [],
+            "",
+            "Constant",
+            [],
             {"value_float": ir.Attr("value_float", ir.AttributeType.FLOAT, 3.14)},
             opset_version=17,
         )
@@ -35,7 +39,9 @@ class ConstantTest(unittest.TestCase):
 
     def test_value_int(self):
         actual = run_shape_inference(
-            "", "Constant", [],
+            "",
+            "Constant",
+            [],
             {"value_int": ir.Attr("value_int", ir.AttributeType.INT, 42)},
             opset_version=17,
         )

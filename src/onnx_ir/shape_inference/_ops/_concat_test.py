@@ -15,41 +15,45 @@ FLOAT = ir.DataType.FLOAT
 
 
 class ConcatTest(unittest.TestCase):
-    @parameterized.parameterized.expand([
-        (
-            "axis_1",
-            [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 5])],
-            1,
-            [ts(FLOAT, [2, 8])],
-        ),
-        (
-            "symbolic_batch",
-            [ts(FLOAT, ["batch", 3]), ts(FLOAT, ["batch", 5])],
-            1,
-            [ts(FLOAT, ["batch", 8])],
-        ),
-        (
-            "axis_0",
-            [ts(FLOAT, [2, 4]), ts(FLOAT, [3, 4])],
-            0,
-            [ts(FLOAT, [5, 4])],
-        ),
-        (
-            "negative_axis",
-            [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 5])],
-            -1,
-            [ts(FLOAT, [2, 8])],
-        ),
-        (
-            "three_inputs",
-            [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 4]), ts(FLOAT, [2, 5])],
-            1,
-            [ts(FLOAT, [2, 12])],
-        ),
-    ])
+    @parameterized.parameterized.expand(
+        [
+            (
+                "axis_1",
+                [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 5])],
+                1,
+                [ts(FLOAT, [2, 8])],
+            ),
+            (
+                "symbolic_batch",
+                [ts(FLOAT, ["batch", 3]), ts(FLOAT, ["batch", 5])],
+                1,
+                [ts(FLOAT, ["batch", 8])],
+            ),
+            (
+                "axis_0",
+                [ts(FLOAT, [2, 4]), ts(FLOAT, [3, 4])],
+                0,
+                [ts(FLOAT, [5, 4])],
+            ),
+            (
+                "negative_axis",
+                [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 5])],
+                -1,
+                [ts(FLOAT, [2, 8])],
+            ),
+            (
+                "three_inputs",
+                [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 4]), ts(FLOAT, [2, 5])],
+                1,
+                [ts(FLOAT, [2, 12])],
+            ),
+        ]
+    )
     def test_concat(self, _name, inputs, axis, expected):
         actual = run_shape_inference(
-            "", "Concat", inputs,
+            "",
+            "Concat",
+            inputs,
             {"axis": ir.Attr("axis", ir.AttributeType.INT, axis)},
             opset_version=17,
         )
@@ -57,7 +61,8 @@ class ConcatTest(unittest.TestCase):
 
     def test_missing_input_shape(self):
         actual = run_shape_inference(
-            "", "Concat",
+            "",
+            "Concat",
             [ts(FLOAT, [2, 3]), ts(FLOAT)],
             {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
             opset_version=17,

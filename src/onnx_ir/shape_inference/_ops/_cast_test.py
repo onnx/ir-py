@@ -17,14 +17,18 @@ INT64 = ir.DataType.INT64
 
 
 class CastTest(unittest.TestCase):
-    @parameterized.parameterized.expand([
-        ("float_to_half", FLOAT, [3, 4], FLOAT16),
-        ("float_to_int64", FLOAT, ["batch", 128], INT64),
-        ("int64_to_float", INT64, [2, 3], FLOAT),
-    ])
+    @parameterized.parameterized.expand(
+        [
+            ("float_to_half", FLOAT, [3, 4], FLOAT16),
+            ("float_to_int64", FLOAT, ["batch", 128], INT64),
+            ("int64_to_float", INT64, [2, 3], FLOAT),
+        ]
+    )
     def test_cast(self, _name, src_dtype, shape, target_dtype):
         actual = run_shape_inference(
-            "", "Cast", [ts(src_dtype, shape)],
+            "",
+            "Cast",
+            [ts(src_dtype, shape)],
             {"to": ir.Attr("to", ir.AttributeType.INT, target_dtype)},
             opset_version=17,
         )
@@ -32,7 +36,9 @@ class CastTest(unittest.TestCase):
 
     def test_missing_shape(self):
         actual = run_shape_inference(
-            "", "Cast", [ts(FLOAT)],
+            "",
+            "Cast",
+            [ts(FLOAT)],
             {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
             opset_version=17,
         )
