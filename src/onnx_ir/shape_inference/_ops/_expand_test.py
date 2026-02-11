@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops import _testing
+from onnx_ir.shape_inference._ops._testing import (
+    const_value,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -17,8 +21,8 @@ FLOAT = ir.DataType.FLOAT
 class ExpandTest(unittest.TestCase):
     def _run(self, input_ts, target_shape):
         data = ir.Value(name="data", shape=input_ts.shape, type=input_ts.type)
-        shape_val = _testing.const_value(target_shape, name="shape")
-        return _testing.run_shape_inference_with_values(
+        shape_val = const_value(target_shape, name="shape")
+        return run_shape_inference_with_values(
             "",
             "Expand",
             [data, shape_val],
@@ -36,19 +40,19 @@ class ExpandTest(unittest.TestCase):
         ]
     )
     def test_expand(self, _name, input_shape, target, expected_shape):
-        actual = self._run(_testing.ts(FLOAT, input_shape), target)
-        self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])
+        actual = self._run(ts(FLOAT, input_shape), target)
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_scalar_input(self):
         """From ONNX test_expand_scalar_input: () → (4,8)."""
-        actual = self._run(_testing.ts(FLOAT, []), [4, 8])
-        self.assertEqual(actual, [_testing.ts(FLOAT, [4, 8])])
+        actual = self._run(ts(FLOAT, []), [4, 8])
+        self.assertEqual(actual, [ts(FLOAT, [4, 8])])
 
     def test_dynamic_shape(self):
         """When shape input is not const, output shape is unknown."""
         data = ir.Value(name="data", shape=ir.Shape([1, 2, 3]), type=ir.TensorType(FLOAT))
         shape_val = ir.Value(name="shape", type=ir.TensorType(ir.DataType.INT64))
-        actual = _testing.run_shape_inference_with_values(
+        actual = run_shape_inference_with_values(
             "",
             "Expand",
             [data, shape_val],

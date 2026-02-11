@@ -9,7 +9,12 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops import _testing
+from onnx_ir.shape_inference._ops._testing import (
+    const_value,
+    run_shape_inference,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -54,36 +59,36 @@ class SqueezeTest(unittest.TestCase):
         attrs = {}
         if axes is not None:
             attrs["axes"] = ir.Attr("axes", ir.AttributeType.INTS, axes)
-        actual = _testing.run_shape_inference(
+        actual = run_shape_inference(
             "",
             "Squeeze",
-            [_testing.ts(FLOAT, input_shape)],
+            [ts(FLOAT, input_shape)],
             attrs,
             opset_version=11,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_squeeze_opset13_axes_input(self):
         """Opset 13+: axes come from input[1]."""
         data = ir.Value(name="data", shape=ir.Shape([1, 3, 1, 5]), type=ir.TensorType(FLOAT))
-        axes = _testing.const_value([0, 2], "axes")
-        actual = _testing.run_shape_inference_with_values(
+        axes = const_value([0, 2], "axes")
+        actual = run_shape_inference_with_values(
             "",
             "Squeeze",
             [data, axes],
             opset_version=13,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [3, 5])])
+        self.assertEqual(actual, [ts(FLOAT, [3, 5])])
 
     def test_squeeze_no_axes_removes_all_ones(self):
         """No axes specified: remove all dims that are statically 1."""
-        actual = _testing.run_shape_inference(
+        actual = run_shape_inference(
             "",
             "Squeeze",
-            [_testing.ts(FLOAT, [1, 3, 1, 1, 2, 1])],
+            [ts(FLOAT, [1, 3, 1, 1, 2, 1])],
             opset_version=13,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [3, 2])])
+        self.assertEqual(actual, [ts(FLOAT, [3, 2])])
 
 
 class UnsqueezeTest(unittest.TestCase):
@@ -123,51 +128,51 @@ class UnsqueezeTest(unittest.TestCase):
         ]
     )
     def test_unsqueeze_attr(self, _name, input_shape, axes, expected_shape):
-        actual = _testing.run_shape_inference(
+        actual = run_shape_inference(
             "",
             "Unsqueeze",
-            [_testing.ts(FLOAT, input_shape)],
+            [ts(FLOAT, input_shape)],
             {"axes": ir.Attr("axes", ir.AttributeType.INTS, axes)},
             opset_version=11,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_unsqueeze_opset13_axes_input(self):
         """Opset 13+: axes come from input[1]."""
         data = ir.Value(name="data", shape=ir.Shape([3, 4, 5]), type=ir.TensorType(FLOAT))
-        axes = _testing.const_value([0, 4], "axes")
-        actual = _testing.run_shape_inference_with_values(
+        axes = const_value([0, 4], "axes")
+        actual = run_shape_inference_with_values(
             "",
             "Unsqueeze",
             [data, axes],
             opset_version=13,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [1, 3, 4, 5, 1])])
+        self.assertEqual(actual, [ts(FLOAT, [1, 3, 4, 5, 1])])
 
     def test_unsqueeze_scalar(self):
         """From ONNX test_unsqueeze_scalar: scalar input with axis=-1."""
         data = ir.Value(name="data", shape=ir.Shape([]), type=ir.TensorType(FLOAT))
-        axes = _testing.const_value([-1], "axes")
-        actual = _testing.run_shape_inference_with_values(
+        axes = const_value([-1], "axes")
+        actual = run_shape_inference_with_values(
             "",
             "Unsqueeze",
             [data, axes],
             opset_version=13,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [1])])
+        self.assertEqual(actual, [ts(FLOAT, [1])])
 
     def test_unsqueeze_negative_axes(self):
         """From ONNX test_unsqueeze_negative_axes."""
         data = ir.Value(name="data", shape=ir.Shape([3, 4, 5]), type=ir.TensorType(FLOAT))
         # -5 normalizes to 0 in output_rank=5, giving axes [0, 4]
-        axes = _testing.const_value([-5, 4], "axes")
-        actual = _testing.run_shape_inference_with_values(
+        axes = const_value([-5, 4], "axes")
+        actual = run_shape_inference_with_values(
             "",
             "Unsqueeze",
             [data, axes],
             opset_version=13,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [1, 3, 4, 5, 1])])
+        self.assertEqual(actual, [ts(FLOAT, [1, 3, 4, 5, 1])])
 
 
 if __name__ == "__main__":

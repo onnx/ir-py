@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops import _testing
+from onnx_ir.shape_inference._ops._testing import (
+    const_value,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -19,16 +23,16 @@ class SliceTest(unittest.TestCase):
         data = ir.Value(name="data", shape=input_ts.shape, type=input_ts.type)
         inputs = [
             data,
-            _testing.const_value(starts, "starts"),
-            _testing.const_value(ends, "ends"),
+            const_value(starts, "starts"),
+            const_value(ends, "ends"),
         ]
         if axes is not None:
-            inputs.append(_testing.const_value(axes, "axes"))
+            inputs.append(const_value(axes, "axes"))
         if steps is not None:
             if axes is None:
                 inputs.append(ir.Value(name="axes_empty"))
-            inputs.append(_testing.const_value(steps, "steps"))
-        return _testing.run_shape_inference_with_values(
+            inputs.append(const_value(steps, "steps"))
+        return run_shape_inference_with_values(
             "",
             "Slice",
             inputs,
@@ -51,22 +55,22 @@ class SliceTest(unittest.TestCase):
         ]
     )
     def test_slice(self, _name, shape, starts, ends, axes, steps, expected_shape):
-        actual = self._run(_testing.ts(FLOAT, shape), starts, ends, axes, steps)
-        self.assertEqual(actual, [_testing.ts(FLOAT, expected_shape)])
+        actual = self._run(ts(FLOAT, shape), starts, ends, axes, steps)
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_negative_step(self):
         # From ONNX test_slice_negative_step: backward slicing
-        actual = self._run(_testing.ts(FLOAT, [3, 4]), [2, 3], [0, 1], [0, 1], [-1, -1])
-        self.assertEqual(actual, [_testing.ts(FLOAT, [2, 2])])
+        actual = self._run(ts(FLOAT, [3, 4]), [2, 3], [0, 1], [0, 1], [-1, -1])
+        self.assertEqual(actual, [ts(FLOAT, [2, 2])])
 
     def test_no_axes_defaults_to_range(self):
         """When axes is not provided, defaults to [0, 1, ..., len(starts)-1]."""
-        actual = self._run(_testing.ts(FLOAT, [3, 2]), [1, 0], [2, 2])
-        self.assertEqual(actual, [_testing.ts(FLOAT, [1, 2])])
+        actual = self._run(ts(FLOAT, [3, 2]), [1, 0], [2, 2])
+        self.assertEqual(actual, [ts(FLOAT, [1, 2])])
 
     def test_symbolic_dim_becomes_unknown(self):
         """Symbolic dims that are sliced become unknown."""
-        actual = self._run(_testing.ts(FLOAT, ["a", 2]), [0], [1], [1], [1])
+        actual = self._run(ts(FLOAT, ["a", 2]), [0], [1], [1], [1])
         result = actual[0]
         # Dim 0 is symbolic and untouched
         self.assertNotIsInstance(result.shape[0], int)
@@ -75,9 +79,9 @@ class SliceTest(unittest.TestCase):
 
     def test_missing_input_shape(self):
         data = ir.Value(name="data", type=ir.TensorType(FLOAT))
-        starts = _testing.const_value([0], "starts")
-        ends = _testing.const_value([5], "ends")
-        actual = _testing.run_shape_inference_with_values(
+        starts = const_value([0], "starts")
+        ends = const_value([5], "ends")
+        actual = run_shape_inference_with_values(
             "",
             "Slice",
             [data, starts, ends],
@@ -90,7 +94,7 @@ class SliceTest(unittest.TestCase):
         data = ir.Value(name="data", shape=ir.Shape([10, 20]), type=ir.TensorType(FLOAT))
         starts = ir.Value(name="starts", type=ir.TensorType(ir.DataType.INT64))
         ends = ir.Value(name="ends", type=ir.TensorType(ir.DataType.INT64))
-        actual = _testing.run_shape_inference_with_values(
+        actual = run_shape_inference_with_values(
             "",
             "Slice",
             [data, starts, ends],

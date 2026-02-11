@@ -9,7 +9,11 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops import _testing
+from onnx_ir.shape_inference._ops._testing import (
+    const_value,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 
@@ -17,8 +21,8 @@ FLOAT = ir.DataType.FLOAT
 class ReshapeTest(unittest.TestCase):
     def _run(self, input_ts, shape_data, expected):
         data = ir.Value(name="data", shape=input_ts.shape, type=input_ts.type)
-        shape_val = _testing.const_value(shape_data, name="shape")
-        actual = _testing.run_shape_inference_with_values(
+        shape_val = const_value(shape_data, name="shape")
+        actual = run_shape_inference_with_values(
             "",
             "Reshape",
             [data, shape_val],
@@ -28,17 +32,17 @@ class ReshapeTest(unittest.TestCase):
 
     @parameterized.parameterized.expand(
         [
-            ("simple", [2, 3, 4], [6, 4], [_testing.ts(FLOAT, [6, 4])]),
-            ("with_neg_one", [2, 3, 4], [2, -1], [_testing.ts(FLOAT, [2, 12])]),
-            ("with_zero", [2, 3, 4], [0, -1], [_testing.ts(FLOAT, [2, 12])]),
-            ("flatten_all", [2, 3, 4], [-1], [_testing.ts(FLOAT, [24])]),
-            ("add_dim", [6], [2, 3], [_testing.ts(FLOAT, [2, 3])]),
+            ("simple", [2, 3, 4], [6, 4], [ts(FLOAT, [6, 4])]),
+            ("with_neg_one", [2, 3, 4], [2, -1], [ts(FLOAT, [2, 12])]),
+            ("with_zero", [2, 3, 4], [0, -1], [ts(FLOAT, [2, 12])]),
+            ("flatten_all", [2, 3, 4], [-1], [ts(FLOAT, [24])]),
+            ("add_dim", [6], [2, 3], [ts(FLOAT, [2, 3])]),
             # From ONNX test_reshape_static_shape_zero: 0 means copy from input
-            ("zero_keeps_dim", [2, 3, 4], [0, 0, 4], [_testing.ts(FLOAT, [2, 3, 4])]),
+            ("zero_keeps_dim", [2, 3, 4], [0, 0, 4], [ts(FLOAT, [2, 3, 4])]),
         ]
     )
     def test_reshape(self, _name, input_shape, target_shape, expected):
-        self._run(_testing.ts(FLOAT, input_shape), target_shape, expected)
+        self._run(ts(FLOAT, input_shape), target_shape, expected)
 
     def test_dynamic_shape(self):
         """When shape input is not const, output rank can still be inferred."""
@@ -52,7 +56,7 @@ class ReshapeTest(unittest.TestCase):
             shape=ir.Shape([3]),
             type=ir.TensorType(ir.DataType.INT64),
         )
-        actual = _testing.run_shape_inference_with_values(
+        actual = run_shape_inference_with_values(
             "",
             "Reshape",
             [data, shape_val],
@@ -64,15 +68,15 @@ class ReshapeTest(unittest.TestCase):
     def test_missing_data_shape(self):
         """When data shape is unknown, can still infer rank from shape input."""
         data = ir.Value(name="data", type=ir.TensorType(FLOAT))
-        shape_val = _testing.const_value([3, 4], name="shape")
-        actual = _testing.run_shape_inference_with_values(
+        shape_val = const_value([3, 4], name="shape")
+        actual = run_shape_inference_with_values(
             "",
             "Reshape",
             [data, shape_val],
             opset_version=17,
         )
         # Can infer target shape from const shape input
-        self.assertEqual(actual, [_testing.ts(FLOAT, [3, 4])])
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 
 
 if __name__ == "__main__":

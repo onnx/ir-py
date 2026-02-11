@@ -9,7 +9,11 @@ import unittest
 import numpy as np
 
 import onnx_ir as ir
-from onnx_ir.shape_inference._ops import _testing
+from onnx_ir.shape_inference._ops._testing import (
+    const_value,
+    run_shape_inference_with_values,
+    ts,
+)
 
 FLOAT = ir.DataType.FLOAT
 INT64 = ir.DataType.INT64
@@ -17,27 +21,27 @@ INT64 = ir.DataType.INT64
 
 class ConstantOfShapeTest(unittest.TestCase):
     def test_basic(self):
-        shape_val = _testing.const_value([3, 4, 5], name="shape")
-        actual = _testing.run_shape_inference_with_values(
+        shape_val = const_value([3, 4, 5], name="shape")
+        actual = run_shape_inference_with_values(
             "",
             "ConstantOfShape",
             [shape_val],
             opset_version=17,
         )
         # Default dtype is FLOAT
-        self.assertEqual(actual, [_testing.ts(FLOAT, [3, 4, 5])])
+        self.assertEqual(actual, [ts(FLOAT, [3, 4, 5])])
 
     def test_int64_value(self):
-        shape_val = _testing.const_value([2, 3], name="shape")
+        shape_val = const_value([2, 3], name="shape")
         tensor = ir.Tensor(np.array([0], dtype=np.int64))
-        actual = _testing.run_shape_inference_with_values(
+        actual = run_shape_inference_with_values(
             "",
             "ConstantOfShape",
             [shape_val],
             {"value": ir.Attr("value", ir.AttributeType.TENSOR, tensor)},
             opset_version=17,
         )
-        self.assertEqual(actual, [_testing.ts(INT64, [2, 3])])
+        self.assertEqual(actual, [ts(INT64, [2, 3])])
 
     def test_dynamic_shape(self):
         """When shape input is not const, output shape is unknown."""
@@ -46,7 +50,7 @@ class ConstantOfShapeTest(unittest.TestCase):
             shape=ir.Shape([3]),
             type=ir.TensorType(INT64),
         )
-        actual = _testing.run_shape_inference_with_values(
+        actual = run_shape_inference_with_values(
             "",
             "ConstantOfShape",
             [shape_val],
@@ -57,25 +61,25 @@ class ConstantOfShapeTest(unittest.TestCase):
 
     def test_scalar_output(self):
         """From ONNX test_constantofshape_without_input_shape_scalar: shape=[] → scalar."""
-        shape_val = _testing.const_value([], name="shape")
-        actual = _testing.run_shape_inference_with_values(
+        shape_val = const_value([], name="shape")
+        actual = run_shape_inference_with_values(
             "",
             "ConstantOfShape",
             [shape_val],
             opset_version=17,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [])])
+        self.assertEqual(actual, [ts(FLOAT, [])])
 
     def test_zero_size_tensor(self):
         """From ONNX test_constantofshape_with_shape_zero: shape=[0] → (0,)."""
-        shape_val = _testing.const_value([0], name="shape")
-        actual = _testing.run_shape_inference_with_values(
+        shape_val = const_value([0], name="shape")
+        actual = run_shape_inference_with_values(
             "",
             "ConstantOfShape",
             [shape_val],
             opset_version=17,
         )
-        self.assertEqual(actual, [_testing.ts(FLOAT, [0])])
+        self.assertEqual(actual, [ts(FLOAT, [0])])
 
 
 if __name__ == "__main__":
