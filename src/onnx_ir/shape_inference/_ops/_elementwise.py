@@ -76,6 +76,14 @@ def _infer_logical(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     infer_binary_elementwise(ctx, node, output_dtype_override=ir.DataType.BOOL)
 
 
+# --- String ops ---
+
+
+@_reg("", "StringConcat", since_version=20)
+def _infer_string_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    infer_binary_elementwise(ctx, node, output_dtype_override=ir.DataType.STRING)
+
+
 # --- Variadic elementwise ops (output dtype = first input dtype) ---
 
 

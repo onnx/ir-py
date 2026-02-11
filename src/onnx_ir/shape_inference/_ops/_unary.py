@@ -16,6 +16,9 @@ from onnx_ir.shape_inference import _context, _registry
 _reg = _registry.registry.register
 
 
+@_reg("", "ReverseSequence", since_version=10)
+@_reg("", "MeanVarianceNormalization", since_version=9)
+@_reg("", "LpNormalization", since_version=1)
 @_reg("", "Mish", since_version=22)
 @_reg("", "Shrink", since_version=9)
 @_reg("", "Swish", since_version=22)
@@ -94,6 +97,7 @@ def infer_cumsum(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
 
 
+@_reg("", "RegexFullMatch", since_version=20)
 @_reg("", "Not", since_version=1)
 @_reg("", "IsNaN", since_version=9)
 @_reg("", "IsInf", since_version=10)

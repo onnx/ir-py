@@ -6,10 +6,13 @@ from __future__ import annotations
 
 __all__ = [
     "infer_batch_normalization",
+    "infer_dequantize_linear",
+    "infer_dynamic_quantize_linear",
     "infer_group_normalization",
     "infer_instance_normalization",
     "infer_layer_normalization",
     "infer_lrn",
+    "infer_quantize_linear",
     "infer_rms_normalization",
 ]
 
@@ -115,3 +118,37 @@ def infer_lrn(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, x.dtype)
+
+
+@_reg("", "DequantizeLinear", since_version=21)
+def infer_dequantize_linear(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for DequantizeLinear operator."""
+    (x,) = _context.check_inputs(node, "x")
+    output_dtype = ir.DataType.FLOAT
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], x.shape, output_dtype)
+
+
+@_reg("", "QuantizeLinear", since_version=21)
+def infer_quantize_linear(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for QuantizeLinear operator."""
+    (x,) = _context.check_inputs(node, "x")
+    output_dtype = ir.DataType.UINT8
+    if len(node.inputs) > 2 and node.inputs[2] is not None:
+        zp_dtype = node.inputs[2].dtype
+        if zp_dtype is not None:
+            output_dtype = zp_dtype
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], x.shape, output_dtype)
+
+
+@_reg("", "DynamicQuantizeLinear", since_version=11)
+def infer_dynamic_quantize_linear(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for DynamicQuantizeLinear operator."""
+    (x,) = _context.check_inputs(node, "x")
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], x.shape, ir.DataType.UINT8)
+    if len(node.outputs) > 1:
+        ctx.set_shape_and_dtype(node.outputs[1], ir.Shape([]), ir.DataType.FLOAT)
+    if len(node.outputs) > 2:
+        ctx.set_shape_and_dtype(node.outputs[2], ir.Shape([]), ir.DataType.UINT8)
