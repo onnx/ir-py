@@ -17,7 +17,7 @@ class ErrorRecordingTest(unittest.TestCase):
         return ir.Node("", op_type, inputs=[], num_outputs=1, name=name)
 
     def test_record_error_stores_error(self):
-        ctx = _context.ShapeInferenceContext(policy="refine")
+        ctx = _context.ShapeInferenceContext(policy="skip")
         node = self._make_node()
         ctx.record_error(node, "something is wrong")
         self.assertEqual(len(ctx.errors), 1)
@@ -37,15 +37,26 @@ class ErrorRecordingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ctx.record_error(node, "bad input")
 
-    def test_record_error_non_strict_does_not_raise(self):
-        for policy in ("refine", "override", "skip"):
-            ctx = _context.ShapeInferenceContext(policy=policy)
-            node = self._make_node()
-            ctx.record_error(node, "warning")
-            self.assertEqual(len(ctx.errors), 1)
+    def test_record_error_override_raises(self):
+        ctx = _context.ShapeInferenceContext(policy="override")
+        node = self._make_node()
+        with self.assertRaises(_context.ShapeInferenceError):
+            ctx.record_error(node, "bad input")
 
-    def test_multiple_errors(self):
+    def test_record_error_refine_raises(self):
         ctx = _context.ShapeInferenceContext(policy="refine")
+        node = self._make_node()
+        with self.assertRaises(_context.ShapeInferenceError):
+            ctx.record_error(node, "bad input")
+
+    def test_record_error_skip_does_not_raise(self):
+        ctx = _context.ShapeInferenceContext(policy="skip")
+        node = self._make_node()
+        ctx.record_error(node, "warning")
+        self.assertEqual(len(ctx.errors), 1)
+
+    def test_multiple_errors_skip(self):
+        ctx = _context.ShapeInferenceContext(policy="skip")
         ctx.record_error(self._make_node(name="a"), "err1")
         ctx.record_error(self._make_node(name="b"), "err2")
         self.assertEqual(len(ctx.errors), 2)

@@ -9,6 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -116,43 +117,43 @@ class ConcatTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [3, 4, 5])])
 
     def test_rank_mismatch_records_error(self):
-        actual = run_shape_inference(
-            "",
-            "Concat",
-            [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 3, 4])],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Concat",
+                [ts(FLOAT, [2, 3]), ts(FLOAT, [2, 3, 4])],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+                opset_version=17,
+            )
 
     def test_axis_out_of_range_records_error(self):
-        actual = run_shape_inference(
-            "",
-            "Concat",
-            [ts(FLOAT, [2, 3])],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 5)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Concat",
+                [ts(FLOAT, [2, 3])],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 5)},
+                opset_version=17,
+            )
 
     def test_no_inputs_records_error(self):
-        actual = run_shape_inference(
-            "",
-            "Concat",
-            [],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Concat",
+                [],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+                opset_version=17,
+            )
 
     def test_missing_axis_records_error(self):
-        actual = run_shape_inference(
-            "",
-            "Concat",
-            [ts(FLOAT, [2, 3])],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Concat",
+                [ts(FLOAT, [2, 3])],
+                opset_version=17,
+            )
 
     def test_none_input_returns_early(self):
         """A None input in the middle means we can't compute output shape."""

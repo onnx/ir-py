@@ -9,6 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -166,8 +167,8 @@ class FlattenTest(unittest.TestCase):
         self.assertEqual(result.shape.rank(), 2)
 
     def test_shape_no_inputs(self):
-        actual = run_shape_inference("", "Shape", [], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Shape", [], opset_version=17)
 
     def test_shape_none_input(self):
         actual = run_shape_inference_with_values(
@@ -179,8 +180,8 @@ class FlattenTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
     def test_size_no_inputs(self):
-        actual = run_shape_inference("", "Size", [], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Size", [], opset_version=17)
 
     def test_size_none_input(self):
         actual = run_shape_inference_with_values(
@@ -192,8 +193,8 @@ class FlattenTest(unittest.TestCase):
         self.assertEqual(actual[0].shape, ir.Shape([]))
 
     def test_flatten_no_inputs(self):
-        actual = run_shape_inference("", "Flatten", [], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Flatten", [], opset_version=17)
 
     def test_flatten_none_input(self):
         actual = run_shape_inference_with_values(

@@ -9,6 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference,
@@ -105,8 +106,8 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_slice_no_inputs(self):
-        actual = run_shape_inference("", "Slice", [ts(FLOAT, [5])], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Slice", [ts(FLOAT, [5])], opset_version=17)
 
     def test_slice_none_data(self):
         starts = const_value([0])

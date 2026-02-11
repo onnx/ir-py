@@ -7,6 +7,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -237,13 +238,13 @@ class SequenceErrorPathsTest(unittest.TestCase):
     """Tests for error/early-return paths in sequence ops."""
 
     def test_construct_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SequenceConstruct",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SequenceConstruct",
+                [],
+                opset_version=17,
+            )
 
     def test_construct_none_input(self):
         actual = run_shape_inference_with_values(
@@ -255,13 +256,13 @@ class SequenceErrorPathsTest(unittest.TestCase):
         self.assertIsNone(actual[0].type)
 
     def test_at_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SequenceAt",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SequenceAt",
+                [],
+                opset_version=17,
+            )
 
     def test_at_none_seq(self):
         idx = ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([]))
@@ -274,22 +275,22 @@ class SequenceErrorPathsTest(unittest.TestCase):
         self.assertIsNone(actual[0].type)
 
     def test_length_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SequenceLength",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SequenceLength",
+                [],
+                opset_version=17,
+            )
 
     def test_insert_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SequenceInsert",
-            [ts(FLOAT, [3])],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SequenceInsert",
+                [ts(FLOAT, [3])],
+                opset_version=17,
+            )
 
     def test_insert_none_seq(self):
         tensor = ir.Value(name="t", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
@@ -302,13 +303,13 @@ class SequenceErrorPathsTest(unittest.TestCase):
         self.assertIsNone(actual[0].type)
 
     def test_erase_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SequenceErase",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SequenceErase",
+                [],
+                opset_version=17,
+            )
 
     def test_erase_none_seq(self):
         actual = run_shape_inference_with_values(
@@ -320,13 +321,13 @@ class SequenceErrorPathsTest(unittest.TestCase):
         self.assertIsNone(actual[0].type)
 
     def test_split_to_sequence_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "SplitToSequence",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "SplitToSequence",
+                [],
+                opset_version=17,
+            )
 
     def test_split_to_sequence_none_data(self):
         actual = run_shape_inference_with_values(
@@ -338,14 +339,14 @@ class SequenceErrorPathsTest(unittest.TestCase):
         self.assertIsNone(actual[0].type)
 
     def test_concat_from_sequence_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "ConcatFromSequence",
-            [],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].type)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "ConcatFromSequence",
+                [],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+                opset_version=17,
+            )
 
     def test_concat_from_sequence_none_seq(self):
         actual = run_shape_inference_with_values(

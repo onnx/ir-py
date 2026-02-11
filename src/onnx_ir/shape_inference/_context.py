@@ -215,17 +215,15 @@ class ShapeInferenceContext:
     def record_error(self, node: ir.Node, message: str) -> None:
         """Record a shape inference error for a node.
 
-        In strict mode the error is raised immediately as a
-        :class:`ShapeInferenceError` (which is a :class:`ValueError`).
-        Otherwise it is appended to an internal list that can be inspected via
-        :attr:`errors` after the pass completes.
+        The error is raised immediately unless the merge policy is ``"skip"``,
+        in which case it is only logged and appended to :attr:`errors`.
 
         Args:
             node: The node that caused the error.
             message: Human-readable description of the problem.
 
         Raises:
-            ShapeInferenceError: If the merge policy is ``"strict"``.
+            ShapeInferenceError: If the merge policy is not ``"skip"``.
         """
         error = ShapeInferenceError(
             node_name=node.name,
@@ -234,9 +232,10 @@ class ShapeInferenceContext:
             message=message,
         )
         self._errors.append(error)
-        if self.policy == "strict":
-            raise error
-        logger.warning("Shape inference error: %s", error)
+        if self.policy == "skip":
+            logger.warning("Shape inference error: %s", error)
+            return
+        raise error
 
     @property
     def errors(self) -> Sequence[ShapeInferenceError]:

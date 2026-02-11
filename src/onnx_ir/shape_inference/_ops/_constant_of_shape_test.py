@@ -9,6 +9,7 @@ import unittest
 import numpy as np
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference_with_values,
@@ -82,13 +83,13 @@ class ConstantOfShapeTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [0])])
 
     def test_constant_of_shape_no_inputs(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "ConstantOfShape",
-            [],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference_with_values(
+                "",
+                "ConstantOfShape",
+                [],
+                opset_version=17,
+            )
 
     def test_constant_of_shape_none_input(self):
         actual = run_shape_inference_with_values(

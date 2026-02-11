@@ -9,6 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -50,24 +51,23 @@ class CastTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "Cast",
-            [],
-            {"to": ir.Attr("to", ir.AttributeType.INT, FLOAT)},
-            opset_version=17,
-        )
-        # No output set when error is recorded
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Cast",
+                [],
+                {"to": ir.Attr("to", ir.AttributeType.INT, FLOAT)},
+                opset_version=17,
+            )
 
     def test_cast_missing_to(self):
-        actual = run_shape_inference(
-            "",
-            "Cast",
-            [ts(FLOAT, [3])],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "Cast",
+                [ts(FLOAT, [3])],
+                opset_version=17,
+            )
 
     def test_cast_none_input(self):
         """Cast with a None (missing optional) input."""
@@ -111,14 +111,13 @@ class CastLikeTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_like_no_inputs(self):
-        actual = run_shape_inference(
-            "",
-            "CastLike",
-            [ts(FLOAT, [3])],
-            opset_version=17,
-        )
-        # Only 1 input when 2 expected → error recorded, no output
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference(
+                "",
+                "CastLike",
+                [ts(FLOAT, [3])],
+                opset_version=17,
+            )
 
     def test_cast_like_none_target(self):
         """CastLike with None target input."""

@@ -9,6 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
+from onnx_ir.shape_inference import ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference,
@@ -175,8 +176,8 @@ class UnsqueezeTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [1, 3, 4, 5, 1])])
 
     def test_squeeze_no_inputs(self):
-        actual = run_shape_inference("", "Squeeze", [], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Squeeze", [], opset_version=17)
 
     def test_squeeze_none_input(self):
         actual = run_shape_inference_with_values(
@@ -188,8 +189,8 @@ class UnsqueezeTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
     def test_unsqueeze_no_inputs(self):
-        actual = run_shape_inference("", "Unsqueeze", [], opset_version=17)
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(ShapeInferenceError):
+            run_shape_inference("", "Unsqueeze", [], opset_version=17)
 
     def test_unsqueeze_none_input(self):
         actual = run_shape_inference_with_values(
