@@ -86,7 +86,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         kernel_shape: list[int | None] = list(kernel_shape_attr.as_ints())
     elif w_shape.rank() > 2:
         kernel_shape = [
-            w_shape[i + 2] if isinstance(w_shape[i + 2], int) else None
+            w_shape[i + 2] if isinstance(w_shape[i + 2], int) else None  # type: ignore[misc]
             for i in range(n_spatial)
         ]
     else:

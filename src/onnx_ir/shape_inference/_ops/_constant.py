@@ -31,9 +31,7 @@ def infer_constant(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     value_attr = node.attributes.get("value")
     if value_attr is not None:
         tensor = value_attr.as_tensor()
-        shape = ir.Shape(list(tensor.shape))
-        dtype = ir.DataType(tensor.dtype)
-        ctx.set_shape_and_dtype(output, shape, dtype)
+        ctx.set_shape_and_dtype(output, tensor.shape, tensor.dtype)  # type: ignore[arg-type]
         return
 
     # Handle scalar constant attributes

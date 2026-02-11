@@ -52,7 +52,7 @@ def infer_sequence_construct(ctx: _context.ShapeInferenceContext, node: ir.Node)
     if first is None:
         return
 
-    elem_type = first.type if first.type is not None else ir.TensorType(first.dtype)
+    elem_type = first.type if first.type is not None else ir.TensorType(first.dtype)  # type: ignore[arg-type]
     if elem_type is None:
         return
 
@@ -169,7 +169,7 @@ def infer_split_to_sequence(ctx: _context.ShapeInferenceContext, node: ir.Node) 
     if data is None:
         return
 
-    elem_type = data.type if data.type is not None else ir.TensorType(data.dtype)
+    elem_type = data.type if data.type is not None else ir.TensorType(data.dtype)  # type: ignore[arg-type]
     if elem_type is None:
         return
 
