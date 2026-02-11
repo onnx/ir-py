@@ -8,13 +8,8 @@ __all__ = [
     "infer_unary",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 _reg = _registry.registry.register
 
@@ -62,13 +57,7 @@ def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Output shape and dtype are identical to the first input.
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    input_val = node.inputs[0]
-    if input_val is None:
-        return
+    (input_val,) = _context.check_inputs(node, "X")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
@@ -79,13 +68,7 @@ def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 @_reg("", "IsInf", since_version=10)
 def infer_logical_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape for a logical unary operator (output dtype = BOOL)."""
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    input_val = node.inputs[0]
-    if input_val is None:
-        return
+    (input_val,) = _context.check_inputs(node, "X")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, ir.DataType.BOOL)

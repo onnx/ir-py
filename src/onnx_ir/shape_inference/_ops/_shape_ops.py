@@ -11,13 +11,9 @@ __all__ = [
 ]
 
 import math
-from typing import TYPE_CHECKING
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Shape", since_version=1)
@@ -28,13 +24,7 @@ def infer_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Shape.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "data")
 
     output_shape: ir.Shape | None = None
     if data.shape is not None:
@@ -66,9 +56,7 @@ def infer_size(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Size.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
+    _context.check_inputs(node, "data")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape([]), ir.DataType.INT64)
@@ -82,13 +70,7 @@ def infer_flatten(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Flatten.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "data")
 
     input_shape = data.shape
     input_dtype = data.dtype

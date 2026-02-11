@@ -8,13 +8,8 @@ __all__ = [
     "infer_constant_of_shape",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "ConstantOfShape", since_version=9)
@@ -23,13 +18,7 @@ def infer_constant_of_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) 
 
     Spec: https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    shape_input = node.inputs[0]
-    if shape_input is None:
-        return
+    (shape_input,) = _context.check_inputs(node, "input")
 
     # Determine output dtype from the value attribute (default: float32 zero)
     value_attr = node.attributes.get("value")

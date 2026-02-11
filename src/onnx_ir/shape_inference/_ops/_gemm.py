@@ -8,13 +8,8 @@ __all__ = [
     "infer_gemm",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Gemm", since_version=7)
@@ -26,22 +21,22 @@ def infer_gemm(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Gemm.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected at least 2 inputs, got {len(node.inputs)}")
-        return
-
-    input_a = node.inputs[0]
-    input_b = node.inputs[1]
-    if input_a is None or input_b is None:
-        return
+    (input_a, input_b) = _context.check_inputs(node, "A", "B")
 
     shape_a = input_a.shape
     shape_b = input_b.shape
     output_dtype = input_a.dtype or input_b.dtype
 
-    if shape_a is None or shape_b is None or shape_a.rank() != 2 or shape_b.rank() != 2:
+    if shape_a is None or shape_b is None:
         if len(node.outputs) > 0:
             ctx.set_shape_and_dtype(node.outputs[0], None, output_dtype)
+        return
+
+    if shape_a.rank() != 2:
+        ctx.record_error(node, f"Gemm input A must be rank 2, got {shape_a.rank()}")
+        return
+    if shape_b.rank() != 2:
+        ctx.record_error(node, f"Gemm input B must be rank 2, got {shape_b.rank()}")
         return
 
     trans_a_attr = node.attributes.get("transA")

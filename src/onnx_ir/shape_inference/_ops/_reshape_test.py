@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference_with_values,
@@ -113,7 +113,7 @@ class ReshapeTest(unittest.TestCase):
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
 
     def test_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Reshape",

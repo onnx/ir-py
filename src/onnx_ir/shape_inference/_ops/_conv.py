@@ -9,13 +9,9 @@ __all__ = [
 ]
 
 import math
-from typing import TYPE_CHECKING
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 def _compute_conv_output_dim(
@@ -55,14 +51,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Conv.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected at least 2 inputs, got {len(node.inputs)}")
-        return
-
-    x = node.inputs[0]
-    w = node.inputs[1]
-    if x is None or w is None:
-        return
+    (x, w) = _context.check_inputs(node, "X", "W")
 
     x_shape = x.shape
     w_shape = w.shape

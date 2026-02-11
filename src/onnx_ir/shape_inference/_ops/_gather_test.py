@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -80,7 +80,7 @@ class GatherTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 
     def test_gather_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference(
                 "",
                 "Gather",
@@ -90,14 +90,14 @@ class GatherTest(unittest.TestCase):
 
     def test_gather_none_data(self):
         indices = ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([3]))
-        actual = run_shape_inference_with_values(
-            "",
-            "Gather",
-            [None, indices],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Gather",
+                [None, indices],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+                opset_version=17,
+            )
 
     def test_gather_missing_shapes(self):
         actual = run_shape_inference(

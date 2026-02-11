@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -92,30 +92,30 @@ class UnaryTest(unittest.TestCase):
         self.assertEqual(actual, [ts(BOOL, [2, 3])])
 
     def test_unary_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Abs", [], opset_version=17)
 
     def test_unary_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "Relu",
-            [None],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Relu",
+                [None],
+                opset_version=17,
+            )
 
     def test_logical_unary_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Not", [], opset_version=17)
 
     def test_logical_unary_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "IsNaN",
-            [None],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "IsNaN",
+                [None],
+                opset_version=17,
+            )
 
 
 if __name__ == "__main__":

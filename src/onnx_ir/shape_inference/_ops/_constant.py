@@ -8,13 +8,8 @@ __all__ = [
     "infer_constant",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Constant", since_version=1)

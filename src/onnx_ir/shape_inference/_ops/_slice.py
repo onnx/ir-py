@@ -8,13 +8,8 @@ __all__ = [
     "infer_slice",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 def _read_const_ints(value: ir.Value | None) -> list[int] | None:
@@ -33,13 +28,7 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Slice.html
     """
-    if len(node.inputs) < 3:
-        ctx.record_error(node, f"Expected at least 3 inputs, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data, _, _) = _context.check_inputs(node, "data", "starts", "ends")
 
     input_shape = data.shape
     input_dtype = data.dtype

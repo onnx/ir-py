@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference,
@@ -130,18 +130,18 @@ class SplitTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
     def test_split_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Split", [], opset_version=17)
 
     def test_split_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "Split",
-            [None],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Split",
+                [None],
+                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
+                opset_version=17,
+            )
 
     def test_split_missing_shape(self):
         actual = run_shape_inference(

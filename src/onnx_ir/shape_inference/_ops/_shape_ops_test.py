@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -167,43 +167,43 @@ class FlattenTest(unittest.TestCase):
         self.assertEqual(result.shape.rank(), 2)
 
     def test_shape_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Shape", [], opset_version=17)
 
     def test_shape_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "Shape",
-            [None],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Shape",
+                [None],
+                opset_version=17,
+            )
 
     def test_size_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Size", [], opset_version=17)
 
     def test_size_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "Size",
-            [None],
-            opset_version=17,
-        )
-        self.assertEqual(actual[0].shape, ir.Shape([]))
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Size",
+                [None],
+                opset_version=17,
+            )
 
     def test_flatten_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Flatten", [], opset_version=17)
 
     def test_flatten_none_input(self):
-        actual = run_shape_inference_with_values(
-            "",
-            "Flatten",
-            [None],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Flatten",
+                [None],
+                opset_version=17,
+            )
 
     def test_flatten_missing_shape(self):
         """Flatten with unknown input shape → dtype only."""

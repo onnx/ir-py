@@ -15,13 +15,8 @@ __all__ = [
     "infer_split_to_sequence",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 _reg = _registry.registry.register
 
@@ -43,14 +38,7 @@ def infer_sequence_construct(ctx: _context.ShapeInferenceContext, node: ir.Node)
 
     Spec: https://onnx.ai/onnx/operators/onnx__SequenceConstruct.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    # All inputs must be the same tensor type; use the first to determine elem type
-    first = node.inputs[0]
-    if first is None:
-        return
+    (first,) = _context.check_inputs(node, "inputs[0]")
 
     elem_type = first.type if first.type is not None else ir.TensorType(first.dtype)  # type: ignore[arg-type]
     if elem_type is None:
@@ -84,13 +72,7 @@ def infer_sequence_at(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
 
     Spec: https://onnx.ai/onnx/operators/onnx__SequenceAt.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
-        return
-
-    seq = node.inputs[0]
-    if seq is None:
-        return
+    (seq, _position) = _context.check_inputs(node, "input_sequence", "position")
 
     elem_type = _get_sequence_elem_type(seq)
     if elem_type is not None and len(node.outputs) > 0:
@@ -105,9 +87,7 @@ def infer_sequence_length(ctx: _context.ShapeInferenceContext, node: ir.Node) ->
 
     Spec: https://onnx.ai/onnx/operators/onnx__SequenceLength.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
+    _context.check_inputs(node, "input_sequence")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape([]), ir.DataType.INT64)
@@ -121,13 +101,7 @@ def infer_sequence_insert(ctx: _context.ShapeInferenceContext, node: ir.Node) ->
 
     Spec: https://onnx.ai/onnx/operators/onnx__SequenceInsert.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected at least 2 inputs, got {len(node.inputs)}")
-        return
-
-    seq = node.inputs[0]
-    if seq is None:
-        return
+    (seq, _tensor) = _context.check_inputs(node, "input_sequence", "tensor")
 
     if seq.type is not None and len(node.outputs) > 0:
         ctx.set_type(node.outputs[0], seq.type)
@@ -141,13 +115,7 @@ def infer_sequence_erase(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
 
     Spec: https://onnx.ai/onnx/operators/onnx__SequenceErase.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    seq = node.inputs[0]
-    if seq is None:
-        return
+    (seq,) = _context.check_inputs(node, "input_sequence")
 
     if seq.type is not None and len(node.outputs) > 0:
         ctx.set_type(node.outputs[0], seq.type)
@@ -161,13 +129,7 @@ def infer_split_to_sequence(ctx: _context.ShapeInferenceContext, node: ir.Node) 
 
     Spec: https://onnx.ai/onnx/operators/onnx__SplitToSequence.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "input")
 
     elem_type = data.type if data.type is not None else ir.TensorType(data.dtype)  # type: ignore[arg-type]
     if elem_type is None:
@@ -185,13 +147,7 @@ def infer_concat_from_sequence(ctx: _context.ShapeInferenceContext, node: ir.Nod
 
     Spec: https://onnx.ai/onnx/operators/onnx__ConcatFromSequence.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    seq = node.inputs[0]
-    if seq is None:
-        return
+    (seq,) = _context.check_inputs(node, "input_sequence")
 
     elem_type = _get_sequence_elem_type(seq)
     if elem_type is not None and len(node.outputs) > 0:

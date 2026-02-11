@@ -9,13 +9,8 @@ __all__ = [
     "infer_unsqueeze",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 def _read_axes_from_input_or_attr(node: ir.Node) -> list[int] | None:
@@ -37,13 +32,7 @@ def infer_squeeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Squeeze.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "data")
 
     input_shape = data.shape
     input_dtype = data.dtype
@@ -72,13 +61,7 @@ def infer_unsqueeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Unsqueeze.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "data")
 
     input_shape = data.shape
     input_dtype = data.dtype

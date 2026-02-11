@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 __all__ = [
+    "InvalidOpUsageError",
     "ShapeInferenceContext",
     "ShapeInferenceError",
     "ShapeMergePolicy",
@@ -52,6 +53,79 @@ class ShapeInferenceError(ValueError):
         op_id = f"{self.domain}::{self.op_type}" if self.domain else self.op_type
         node_desc = f" (node {self.node_name!r})" if self.node_name else ""
         return f"{op_id}{node_desc}: {self.message}"
+
+
+class InvalidOpUsageError(ValueError):
+    """Raised when an operator node has invalid structure.
+
+    This indicates the model is malformed: wrong number of inputs, missing
+    required inputs, or missing required attributes.
+    """
+
+    def __init__(self, node: ir.Node, message: str) -> None:
+        self.node = node
+        self.message = message
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        op_id = (
+            f"{self.node.domain}::{self.node.op_type}"
+            if self.node.domain
+            else self.node.op_type
+        )
+        node_desc = f" (node {self.node.name!r})" if self.node.name else ""
+        return f"{op_id}{node_desc}: {self.message}"
+
+
+def check_inputs(node: ir.Node, *names: str) -> tuple[ir.Value, ...]:
+    """Validate that required positional inputs exist and are not None.
+
+    Args:
+        node: The node to validate.
+        *names: Names of required inputs, in positional order.
+
+    Returns:
+        A tuple of :class:`ir.Value` for each required input.
+
+    Raises:
+        InvalidOpUsageError: If the node has fewer inputs than required or
+            any required input is ``None``.
+    """
+    min_count = len(names)
+    if len(node.inputs) < min_count:
+        raise InvalidOpUsageError(
+            node,
+            f"Expected at least {min_count} input(s), got {len(node.inputs)}",
+        )
+    values: list[ir.Value] = []
+    for i, name in enumerate(names):
+        v = node.inputs[i]
+        if v is None:
+            raise InvalidOpUsageError(
+                node,
+                f"Required input '{name}' (#{i}) is None",
+            )
+        values.append(v)
+    return tuple(values)
+
+
+def require_attr(node: ir.Node, name: str) -> ir.Attr:
+    """Get a required attribute, raising :class:`InvalidOpUsageError` if missing.
+
+    Args:
+        node: The node to read from.
+        name: Attribute name.
+
+    Returns:
+        The attribute.
+
+    Raises:
+        InvalidOpUsageError: If the attribute does not exist.
+    """
+    attr = node.attributes.get(name)
+    if attr is None:
+        raise InvalidOpUsageError(node, f"Missing required attribute '{name}'")
+    return attr
 
 
 ShapeMergePolicy = Literal["skip", "override", "refine", "strict"]

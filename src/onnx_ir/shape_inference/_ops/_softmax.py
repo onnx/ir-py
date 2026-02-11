@@ -8,13 +8,8 @@ __all__ = [
     "infer_softmax",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 _reg = _registry.registry.register
 
@@ -31,13 +26,7 @@ def infer_softmax(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Softmax.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "input")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], data.shape, data.dtype)

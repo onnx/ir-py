@@ -8,13 +8,8 @@ __all__ = [
     "infer_split",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Split", since_version=2)
@@ -23,13 +18,7 @@ def infer_split(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Split.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "input")
 
     input_shape = data.shape
     input_dtype = data.dtype

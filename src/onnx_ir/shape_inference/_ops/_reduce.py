@@ -9,13 +9,8 @@ __all__ = [
 ]
 
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 _reg = _registry.registry.register
 
@@ -66,13 +61,7 @@ def infer_reduce(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     Handles ``axes`` (from attribute or input), ``keepdims``, and
     ``noop_with_empty_axes``.
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
+    (data,) = _context.check_inputs(node, "data")
 
     input_shape = data.shape
     input_dtype = data.dtype

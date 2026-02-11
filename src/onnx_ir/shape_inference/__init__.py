@@ -42,6 +42,7 @@ __all__ = [
     # Main API
     "infer_symbolic_shapes",
     # Context and policy
+    "InvalidOpUsageError",
     "ShapeInferenceContext",
     "ShapeInferenceError",
     "ShapeMergePolicy",
@@ -50,6 +51,8 @@ __all__ = [
     "registry",
     # Utilities
     "broadcast_shapes",
+    "check_inputs",
+    "require_attr",
 ]
 
 from typing import TYPE_CHECKING
@@ -58,9 +61,12 @@ from typing import TYPE_CHECKING
 from onnx_ir.shape_inference import _ops  # noqa: F401
 from onnx_ir.shape_inference._broadcast import broadcast_shapes
 from onnx_ir.shape_inference._context import (
+    InvalidOpUsageError,
     ShapeInferenceContext,
     ShapeInferenceError,
     ShapeMergePolicy,
+    check_inputs,
+    require_attr,
 )
 from onnx_ir.shape_inference._registry import OpShapeInferenceRegistry, registry
 

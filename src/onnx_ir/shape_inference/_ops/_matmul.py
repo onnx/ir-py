@@ -8,13 +8,8 @@ __all__ = [
     "infer_matmul",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _broadcast, _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _broadcast, _context, _registry
 
 
 @_registry.registry.register("", "MatMul", since_version=1)
@@ -28,14 +23,7 @@ def infer_matmul(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__MatMul.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
-        return
-
-    input_a = node.inputs[0]
-    input_b = node.inputs[1]
-    if input_a is None or input_b is None:
-        return
+    (input_a, input_b) = _context.check_inputs(node, "A", "B")
 
     shape_a = input_a.shape
     shape_b = input_b.shape

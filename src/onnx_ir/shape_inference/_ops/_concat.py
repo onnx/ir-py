@@ -8,13 +8,8 @@ __all__ = [
     "infer_concat",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Concat", since_version=4)
@@ -23,14 +18,8 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Concat.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected at least 1 input, got {len(node.inputs)}")
-        return
-
-    axis_attr = node.attributes.get("axis")
-    if axis_attr is None:
-        ctx.record_error(node, "Missing required attribute 'axis'")
-        return
+    _context.check_inputs(node, "inputs[0]")
+    axis_attr = _context.require_attr(node, "axis")
     axis = axis_attr.as_int()
 
     # Collect shapes and dtype
@@ -39,7 +28,7 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     for inp in node.inputs:
         if inp is None:
-            return
+            raise _context.InvalidOpUsageError(node, "Required input is None")
         if output_dtype is None:
             output_dtype = inp.dtype
         if inp.shape is None:

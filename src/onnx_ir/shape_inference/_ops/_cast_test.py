@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -51,7 +51,7 @@ class CastTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference(
                 "",
                 "Cast",
@@ -61,7 +61,7 @@ class CastTest(unittest.TestCase):
             )
 
     def test_cast_missing_to(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference(
                 "",
                 "Cast",
@@ -71,14 +71,14 @@ class CastTest(unittest.TestCase):
 
     def test_cast_none_input(self):
         """Cast with a None (missing optional) input."""
-        actual = run_shape_inference_with_values(
-            "",
-            "Cast",
-            [None],
-            {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Cast",
+                [None],
+                {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
+                opset_version=17,
+            )
 
 
 class CastLikeTest(unittest.TestCase):
@@ -111,7 +111,7 @@ class CastLikeTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_like_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference(
                 "",
                 "CastLike",
@@ -121,14 +121,14 @@ class CastLikeTest(unittest.TestCase):
 
     def test_cast_like_none_target(self):
         """CastLike with None target input."""
-        data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
-        actual = run_shape_inference_with_values(
-            "",
-            "CastLike",
-            [data, None],
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
+            run_shape_inference_with_values(
+                "",
+                "CastLike",
+                [data, None],
+                opset_version=17,
+            )
 
 
 if __name__ == "__main__":

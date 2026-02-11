@@ -10,13 +10,9 @@ __all__ = [
 
 
 import math
-from typing import TYPE_CHECKING
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Reshape", since_version=5)
@@ -25,14 +21,7 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Reshape.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    shape_input = node.inputs[1]
-    if data is None or shape_input is None:
-        return
+    (data, shape_input) = _context.check_inputs(node, "data", "shape")
 
     input_dtype = data.dtype
     input_shape = data.shape

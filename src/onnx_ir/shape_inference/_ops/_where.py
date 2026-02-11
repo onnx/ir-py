@@ -8,13 +8,8 @@ __all__ = [
     "infer_where",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _broadcast, _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _broadcast, _context, _registry
 
 
 @_registry.registry.register("", "Where", since_version=9)
@@ -26,15 +21,7 @@ def infer_where(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Where.html
     """
-    if len(node.inputs) < 3:
-        ctx.record_error(node, f"Expected 3 inputs, got {len(node.inputs)}")
-        return
-
-    condition = node.inputs[0]
-    x = node.inputs[1]
-    y = node.inputs[2]
-    if condition is None or x is None or y is None:
-        return
+    (condition, x, y) = _context.check_inputs(node, "condition", "X", "Y")
 
     output_dtype = x.dtype or y.dtype
 

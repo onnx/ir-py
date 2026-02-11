@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import ShapeInferenceError
+from onnx_ir.shape_inference import InvalidOpUsageError, ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -266,19 +266,19 @@ class ConvTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [1, 16, 26, 26])])
 
     def test_conv_no_inputs(self):
-        with self.assertRaises(ShapeInferenceError):
+        with self.assertRaises(InvalidOpUsageError):
             run_shape_inference("", "Conv", [], opset_version=17)
 
     def test_conv_none_input(self):
         w = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([16, 3, 3, 3]))
-        actual = run_shape_inference_with_values(
-            "",
-            "Conv",
-            [None, w],
-            {"kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3])},
-            opset_version=17,
-        )
-        self.assertIsNone(actual[0].shape)
+        with self.assertRaises(InvalidOpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "Conv",
+                [None, w],
+                {"kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3])},
+                opset_version=17,
+            )
 
     def test_conv_missing_input_spatial(self):
         """Conv with unknown spatial dims but known batch/channels."""

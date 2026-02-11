@@ -9,13 +9,8 @@ __all__ = [
     "infer_cast_like",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Cast", since_version=6)
@@ -26,18 +21,8 @@ def infer_cast(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Cast.html
     """
-    if len(node.inputs) < 1:
-        ctx.record_error(node, f"Expected 1 input, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    if data is None:
-        return
-
-    to_attr = node.attributes.get("to")
-    if to_attr is None:
-        ctx.record_error(node, "Missing required attribute 'to'")
-        return
+    (data,) = _context.check_inputs(node, "input")
+    to_attr = _context.require_attr(node, "to")
 
     output_dtype = ir.DataType(to_attr.as_int())
 
@@ -53,14 +38,7 @@ def infer_cast_like(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__CastLike.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    target = node.inputs[1]
-    if data is None or target is None:
-        return
+    (data, target) = _context.check_inputs(node, "input", "target_type")
 
     output_dtype = target.dtype
     if len(node.outputs) > 0:

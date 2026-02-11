@@ -9,13 +9,8 @@ __all__ = [
 ]
 
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _broadcast, _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _broadcast, _context, _registry
 
 _reg = _registry.registry.register
 
@@ -32,15 +27,7 @@ def infer_binary_elementwise(
     Output dtype is ``output_dtype_override`` when given, otherwise the dtype of
     the first input that has one.
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected at least 2 inputs, got {len(node.inputs)}")
-        return
-
-    input_a = node.inputs[0]
-    input_b = node.inputs[1]
-
-    if input_a is None or input_b is None:
-        return
+    (input_a, input_b) = _context.check_inputs(node, "A", "B")
 
     output_shape = _broadcast.broadcast_shapes(input_a.shape, input_b.shape)
     output_dtype = output_dtype_override or input_a.dtype or input_b.dtype

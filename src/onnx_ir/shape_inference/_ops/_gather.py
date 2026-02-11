@@ -8,13 +8,8 @@ __all__ = [
     "infer_gather",
 ]
 
-from typing import TYPE_CHECKING
-
 import onnx_ir as ir
-from onnx_ir.shape_inference import _registry
-
-if TYPE_CHECKING:
-    from onnx_ir.shape_inference import _context
+from onnx_ir.shape_inference import _context, _registry
 
 
 @_registry.registry.register("", "Gather", since_version=1)
@@ -25,14 +20,7 @@ def infer_gather(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Gather.html
     """
-    if len(node.inputs) < 2:
-        ctx.record_error(node, f"Expected 2 inputs, got {len(node.inputs)}")
-        return
-
-    data = node.inputs[0]
-    indices = node.inputs[1]
-    if data is None or indices is None:
-        return
+    (data, indices) = _context.check_inputs(node, "data", "indices")
 
     data_shape = data.shape
     indices_shape = indices.shape
