@@ -68,7 +68,9 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     strides = list(strides_attr.as_ints()) if strides_attr is not None else [1] * n_spatial
 
     dilations_attr = node.attributes.get("dilations")
-    dilations = list(dilations_attr.as_ints()) if dilations_attr is not None else [1] * n_spatial
+    dilations = (
+        list(dilations_attr.as_ints()) if dilations_attr is not None else [1] * n_spatial
+    )
 
     pads_attr = node.attributes.get("pads")
     if pads_attr is not None:
@@ -77,7 +79,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         pads = [0] * (2 * n_spatial)
 
     group_attr = node.attributes.get("group")
-    _group = group_attr.as_int() if group_attr is not None else 1  # noqa: F841
+    _group = group_attr.as_int() if group_attr is not None else 1
 
     # Batch dim and output channels
     batch_dim = x_shape[0]

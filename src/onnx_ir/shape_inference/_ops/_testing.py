@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
+
 import onnx_ir as ir
-from onnx_ir.shape_inference._context import ShapeInferenceContext
+from onnx_ir.shape_inference import _context, _registry
 
 
 def ts(
@@ -38,6 +40,30 @@ def ts(
     return ir.TypeAndShape(type_, shape_)
 
 
+def const_value(
+    data: Sequence[int] | np.ndarray,
+    name: str = "const",
+    dtype: np.dtype | type = np.int64,
+) -> ir.Value:
+    """Create an :class:`ir.Value` backed by a constant tensor.
+
+    Useful for ops that read constant inputs (Reshape shape, Slice starts, etc.).
+
+    Args:
+        data: The constant data.
+        name: Value name.
+        dtype: NumPy dtype for the backing array.
+
+    Returns:
+        A :class:`ir.Value` with ``const_value``, ``shape`` and ``type`` set.
+    """
+    arr = np.array(data, dtype=dtype)
+    tensor = ir.Tensor(arr, name=name)
+    v = ir.Value(name=name, const_value=tensor, type=ir.TensorType(ir.DataType.INT64))
+    v.shape = ir.Shape(list(arr.shape))
+    return v
+
+
 def run_shape_inference(
     domain: str,
     op_type: str,
@@ -65,8 +91,6 @@ def run_shape_inference(
         A list of :class:`ir.TypeAndShape`, one per output, representing the
         inferred type and shape.
     """
-    from onnx_ir.shape_inference._registry import registry
-
     # Build Value objects from TypeAndShape specs
     input_values: list[ir.Value] = []
     for i, spec in enumerate(inputs):
@@ -84,9 +108,45 @@ def run_shape_inference(
     )
 
     opset_imports = {domain: opset_version} if domain else {"": opset_version}
-    ctx = ShapeInferenceContext(opset_imports, policy="override")
+    ctx = _context.ShapeInferenceContext(opset_imports, policy="override")
 
-    func = registry.get(domain, op_type, version=opset_version)
+    func = _registry.registry.get(domain, op_type, version=opset_version)
+    if func is None:
+        raise ValueError(
+            f"No shape inference registered for {domain}::{op_type} version {opset_version}"
+        )
+    func(ctx, node)
+
+    return [ir.TypeAndShape(v.type, v.shape) for v in output_values]
+
+
+def run_shape_inference_with_values(
+    domain: str,
+    op_type: str,
+    input_values: Sequence[ir.Value],
+    attributes: dict[str, ir.Attr] | None = None,
+    *,
+    opset_version: int,
+    num_outputs: int = 1,
+) -> list[ir.TypeAndShape]:
+    """Like :func:`run_shape_inference` but accepts pre-built :class:`ir.Value` objects.
+
+    Use this when inputs need ``const_value`` set (e.g. for Reshape, Slice, Expand).
+    """
+    output_values = [ir.Value(name=f"output_{i}") for i in range(num_outputs)]
+
+    node = ir.Node(
+        domain,
+        op_type,
+        inputs=list(input_values),
+        outputs=output_values,
+        attributes=attributes or {},
+    )
+
+    opset_imports = {domain: opset_version} if domain else {"": opset_version}
+    ctx = _context.ShapeInferenceContext(opset_imports, policy="override")
+
+    func = _registry.registry.get(domain, op_type, version=opset_version)
     if func is None:
         raise ValueError(
             f"No shape inference registered for {domain}::{op_type} version {opset_version}"

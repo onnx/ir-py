@@ -81,9 +81,7 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     # Try to compute the inferred dimension
     if inferred_idx is not None and input_shape is not None and input_shape.is_static():
-        total_input = math.prod(
-            d if isinstance(d, int) else 0 for d in input_shape.dims
-        )
+        total_input = math.prod(d if isinstance(d, int) else 0 for d in input_shape.dims)
         known_output = 1
         all_known = True
         for i, d in enumerate(output_dims):

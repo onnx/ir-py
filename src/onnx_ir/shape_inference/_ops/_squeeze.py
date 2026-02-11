@@ -55,9 +55,7 @@ def infer_squeeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
         if axes is not None:
             normalized = {(a + rank if a < 0 else a) for a in axes}
-            new_dims = [
-                input_shape[i] for i in range(rank) if i not in normalized
-            ]
+            new_dims = [input_shape[i] for i in range(rank) if i not in normalized]
             output_shape = ir.Shape(new_dims)
         else:
             # No axes specified: remove all dims that are statically 1

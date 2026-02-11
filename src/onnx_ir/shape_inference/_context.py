@@ -21,6 +21,7 @@ import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
 
+
 @dataclasses.dataclass(frozen=True)
 class ShapeInferenceError:
     """A recorded error from shape inference.

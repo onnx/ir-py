@@ -12,8 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import _broadcast
-from onnx_ir.shape_inference import _registry
+from onnx_ir.shape_inference import _broadcast, _registry
 
 if TYPE_CHECKING:
     from onnx_ir.shape_inference import _context

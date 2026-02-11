@@ -18,9 +18,7 @@ if TYPE_CHECKING:
 
 
 @_registry.registry.register("", "ConstantOfShape", since_version=9)
-def infer_constant_of_shape(
-    ctx: _context.ShapeInferenceContext, node: ir.Node
-) -> None:
+def infer_constant_of_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for ConstantOfShape operator.
 
     Spec: https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html

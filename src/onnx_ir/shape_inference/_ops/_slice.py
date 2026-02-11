@@ -96,7 +96,9 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                 clamped_start = max(-1, min(start if start >= 0 else start + dim, dim - 1))
                 clamped_end = max(-1, min(end if end >= 0 else end + dim, dim - 1))
 
-            slice_len = max(0, (clamped_end - clamped_start + (step - (1 if step > 0 else -1))) // step)
+            slice_len = max(
+                0, (clamped_end - clamped_start + (step - (1 if step > 0 else -1))) // step
+            )
             output_dims[axis] = slice_len
         else:
             # Symbolic dim: can't determine exact size
