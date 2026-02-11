@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference,
@@ -106,13 +106,13 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_slice_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Slice", [ts(FLOAT, [5])], opset_version=17)
 
     def test_slice_none_data(self):
         starts = const_value([0])
         ends = const_value([3])
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Slice",

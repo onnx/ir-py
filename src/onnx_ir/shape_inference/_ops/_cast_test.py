@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -51,7 +51,7 @@ class CastTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "Cast",
@@ -61,7 +61,7 @@ class CastTest(unittest.TestCase):
             )
 
     def test_cast_missing_to(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "Cast",
@@ -71,7 +71,7 @@ class CastTest(unittest.TestCase):
 
     def test_cast_none_input(self):
         """Cast with a None (missing optional) input."""
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Cast",
@@ -111,7 +111,7 @@ class CastLikeTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, INT64)
 
     def test_cast_like_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "CastLike",
@@ -121,7 +121,7 @@ class CastLikeTest(unittest.TestCase):
 
     def test_cast_like_none_target(self):
         """CastLike with None target input."""
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             data = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
             run_shape_inference_with_values(
                 "",

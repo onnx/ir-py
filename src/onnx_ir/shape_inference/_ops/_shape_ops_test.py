@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -167,11 +167,11 @@ class FlattenTest(unittest.TestCase):
         self.assertEqual(result.shape.rank(), 2)
 
     def test_shape_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Shape", [], opset_version=17)
 
     def test_shape_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Shape",
@@ -180,11 +180,11 @@ class FlattenTest(unittest.TestCase):
             )
 
     def test_size_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Size", [], opset_version=17)
 
     def test_size_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Size",
@@ -193,11 +193,11 @@ class FlattenTest(unittest.TestCase):
             )
 
     def test_flatten_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Flatten", [], opset_version=17)
 
     def test_flatten_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Flatten",

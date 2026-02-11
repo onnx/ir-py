@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError, ShapeInferenceError
+from onnx_ir.shape_inference import OpUsageError, ShapeInferenceError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -74,12 +74,12 @@ class GemmTest(unittest.TestCase):
         self.assertIsNone(actual[0].shape)
 
     def test_gemm_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Gemm", [], opset_version=17)
 
     def test_gemm_none_input(self):
         v = ir.Value(name="a", type=ir.TensorType(FLOAT), shape=ir.Shape([3, 4]))
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Gemm",

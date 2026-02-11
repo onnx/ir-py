@@ -28,7 +28,7 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     for inp in node.inputs:
         if inp is None:
-            raise _context.InvalidOpUsageError(node, "Required input is None")
+            raise _context.OpUsageError(node, "Required input is None")
         if output_dtype is None:
             output_dtype = inp.dtype
         if inp.shape is None:

@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference_with_values,
@@ -63,7 +63,7 @@ class ExpandTest(unittest.TestCase):
         self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_expand_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Expand",
@@ -73,7 +73,7 @@ class ExpandTest(unittest.TestCase):
 
     def test_expand_none_input(self):
         shape_val = const_value([3, 4])
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Expand",

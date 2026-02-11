@@ -9,7 +9,7 @@ import unittest
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -99,12 +99,12 @@ class BinaryElementwiseTest(unittest.TestCase):
         self.assertEqual(actual, [ts(INT64, [3, 4])])
 
     def test_add_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference("", "Add", [], opset_version=17)
 
     def test_add_none_input(self):
         v = ir.Value(name="a", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Add",

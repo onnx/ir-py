@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     const_value,
     run_shape_inference_with_values,
@@ -83,7 +83,7 @@ class ConstantOfShapeTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [0])])
 
     def test_constant_of_shape_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "ConstantOfShape",
@@ -92,7 +92,7 @@ class ConstantOfShapeTest(unittest.TestCase):
             )
 
     def test_constant_of_shape_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "ConstantOfShape",

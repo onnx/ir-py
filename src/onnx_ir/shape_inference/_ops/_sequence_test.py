@@ -7,7 +7,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -238,7 +238,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
     """Tests for error/early-return paths in sequence ops."""
 
     def test_construct_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SequenceConstruct",
@@ -247,7 +247,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_construct_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "SequenceConstruct",
@@ -256,7 +256,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_at_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SequenceAt",
@@ -265,7 +265,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_at_none_seq(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             idx = ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([]))
             run_shape_inference_with_values(
                 "",
@@ -275,7 +275,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_length_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SequenceLength",
@@ -284,7 +284,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_insert_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SequenceInsert",
@@ -293,7 +293,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_insert_none_seq(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             tensor = ir.Value(name="t", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
             run_shape_inference_with_values(
                 "",
@@ -303,7 +303,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_erase_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SequenceErase",
@@ -312,7 +312,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_erase_none_seq(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "SequenceErase",
@@ -321,7 +321,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_split_to_sequence_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "SplitToSequence",
@@ -330,7 +330,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_split_to_sequence_none_data(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "SplitToSequence",
@@ -339,7 +339,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_concat_from_sequence_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "ConcatFromSequence",
@@ -349,7 +349,7 @@ class SequenceErrorPathsTest(unittest.TestCase):
             )
 
     def test_concat_from_sequence_none_seq(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "ConcatFromSequence",

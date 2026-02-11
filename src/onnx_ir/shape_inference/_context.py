@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 __all__ = [
-    "InvalidOpUsageError",
+    "OpUsageError",
     "ShapeInferenceContext",
     "ShapeInferenceError",
     "ShapeMergePolicy",
@@ -55,7 +55,7 @@ class ShapeInferenceError(ValueError):
         return f"{op_id}{node_desc}: {self.message}"
 
 
-class InvalidOpUsageError(ValueError):
+class OpUsageError(ValueError):
     """Raised when an operator node has invalid structure.
 
     This indicates the model is malformed: wrong number of inputs, missing
@@ -88,12 +88,12 @@ def check_inputs(node: ir.Node, *names: str) -> tuple[ir.Value, ...]:
         A tuple of :class:`ir.Value` for each required input.
 
     Raises:
-        InvalidOpUsageError: If the node has fewer inputs than required or
+        OpUsageError: If the node has fewer inputs than required or
             any required input is ``None``.
     """
     min_count = len(names)
     if len(node.inputs) < min_count:
-        raise InvalidOpUsageError(
+        raise OpUsageError(
             node,
             f"Expected at least {min_count} input(s), got {len(node.inputs)}",
         )
@@ -101,7 +101,7 @@ def check_inputs(node: ir.Node, *names: str) -> tuple[ir.Value, ...]:
     for i, name in enumerate(names):
         v = node.inputs[i]
         if v is None:
-            raise InvalidOpUsageError(
+            raise OpUsageError(
                 node,
                 f"Required input '{name}' (#{i}) is None",
             )
@@ -110,7 +110,7 @@ def check_inputs(node: ir.Node, *names: str) -> tuple[ir.Value, ...]:
 
 
 def require_attr(node: ir.Node, name: str) -> ir.Attr:
-    """Get a required attribute, raising :class:`InvalidOpUsageError` if missing.
+    """Get a required attribute, raising :class:`OpUsageError` if missing.
 
     Args:
         node: The node to read from.
@@ -120,11 +120,11 @@ def require_attr(node: ir.Node, name: str) -> ir.Attr:
         The attribute.
 
     Raises:
-        InvalidOpUsageError: If the attribute does not exist.
+        OpUsageError: If the attribute does not exist.
     """
     attr = node.attributes.get(name)
     if attr is None:
-        raise InvalidOpUsageError(node, f"Missing required attribute '{name}'")
+        raise OpUsageError(node, f"Missing required attribute '{name}'")
     return attr
 
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import InvalidOpUsageError
+from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
     run_shape_inference,
     run_shape_inference_with_values,
@@ -64,7 +64,7 @@ class DropoutTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [2, 3, 4])])
 
     def test_dropout_no_inputs(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference(
                 "",
                 "Dropout",
@@ -74,7 +74,7 @@ class DropoutTest(unittest.TestCase):
             )
 
     def test_dropout_none_input(self):
-        with self.assertRaises(InvalidOpUsageError):
+        with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
                 "",
                 "Dropout",
