@@ -15,8 +15,6 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
-import sympy
-
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
@@ -172,8 +170,7 @@ def _dims_conflict(
 class ShapeInferenceContext:
     """Context for shape and type inference operations.
 
-    Tracks dimension bindings, constraints, and provides utilities for
-    shape inference functions.
+    Tracks constraints, and provides utilities for shape inference functions.
 
     Attributes:
         opset_imports: Mapping from domain to opset version.
@@ -195,8 +192,6 @@ class ShapeInferenceContext:
         self.opset_imports: Mapping[str, int] = opset_imports or {"": 1}
         self.policy = policy
 
-        # Dimension variable bindings (symbol name -> concrete value or expression)
-        self._bindings: dict[str, int | sympy.Expr] = {}
         # Recorded errors from shape inference
         self._errors: list[ShapeInferenceError] = []
         # Counter for generating unique symbolic dimension names
@@ -258,33 +253,6 @@ class ShapeInferenceContext:
         if changed:
             value.shape = ir.Shape(new_dims)
         return changed
-
-    def bind(self, symbol: str, value: int | sympy.Expr) -> None:
-        """Bind a symbol to a concrete value or expression.
-
-        Args:
-            symbol: The symbol name.
-            value: The concrete value or expression to bind.
-        """
-        if symbol in self._bindings:
-            existing = self._bindings[symbol]
-            if existing != value:
-                logger.warning(
-                    "Symbol %s already bound to %s, rebinding to %s",
-                    symbol,
-                    existing,
-                    value,
-                )
-        self._bindings[symbol] = value
-
-    def get_binding(self, symbol: str) -> int | sympy.Expr | None:
-        """Get the binding for a symbol."""
-        return self._bindings.get(symbol)
-
-    @property
-    def bindings(self) -> Mapping[str, int | sympy.Expr]:
-        """Get all current bindings."""
-        return self._bindings
 
     def record_error(self, node: ir.Node, message: str) -> None:
         """Record a shape inference error for a node.
