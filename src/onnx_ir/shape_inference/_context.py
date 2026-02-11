@@ -288,6 +288,52 @@ class ShapeInferenceContext:
         # "refine" policy - only set if not already set (existing is not None here)
         return False
 
+    def set_type(self, value: ir.Value, type_: ir.TypeProtocol) -> bool:
+        """Set the full type of a value according to the merge policy.
+
+        Use this for non-tensor types like :class:`ir.SequenceType` and
+        :class:`ir.OptionalType`, where :meth:`set_shape_and_dtype` is not
+        appropriate.
+
+        Args:
+            value: The value to update.
+            type_: The inferred type.
+
+        Returns:
+            True if the type was updated, False otherwise.
+
+        Raises:
+            ValueError: If policy is ``"strict"`` and types conflict.
+        """
+        existing = value.type
+
+        if existing is None:
+            value.type = type_
+            return True
+
+        if self.policy == "skip":
+            return False
+
+        if self.policy == "override":
+            value.type = type_
+            return True
+
+        if self.policy == "strict":
+            if type(existing) is not type(type_):
+                raise ValueError(
+                    f"Type kind mismatch for {value.name}: "
+                    f"existing {type(existing).__name__} vs inferred {type(type_).__name__}"
+                )
+            if existing != type_:
+                raise ValueError(
+                    f"Type conflict for {value.name}: "
+                    f"existing {existing!r} vs inferred {type_!r}"
+                )
+            return False
+
+        # "refine" policy — only set if not already present
+        return False
+
     def set_shape_and_dtype(
         self,
         value: ir.Value,
