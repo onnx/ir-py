@@ -1406,6 +1406,26 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             return SymbolicDim(sympy.sympify(self._expr // other._expr))
         return NotImplemented
 
+    def __truediv__(self, other: int | SymbolicDim) -> SymbolicDim:
+        """Divide this dimension by an integer or another SymbolicDim (rational)."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        if isinstance(other, int):
+            return SymbolicDim(sympy.sympify(sympy.Rational(1, other) * self._expr))
+        if isinstance(other, SymbolicDim):
+            if other._value is None:
+                return SymbolicDim(None)
+            return SymbolicDim(sympy.sympify(self._expr / other._expr))
+        return NotImplemented
+
+    def __rtruediv__(self, other: int) -> SymbolicDim:
+        """Support int / SymbolicDim."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        if isinstance(other, int):
+            return SymbolicDim(sympy.sympify(other / self._expr))
+        return NotImplemented
+
     def __mod__(self, other: int | SymbolicDim) -> SymbolicDim:
         """Compute modulo of this dimension by an integer or another SymbolicDim."""
         if self._expr is None:
@@ -1417,6 +1437,30 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
                 return SymbolicDim(None)
             return SymbolicDim(sympy.sympify(self._expr % other._expr))
         return NotImplemented
+
+    def __ceil__(self) -> SymbolicDim:
+        """Support math.ceil(dim). Returns a SymbolicDim with ceiling expression."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        return SymbolicDim(sympy.ceiling(self._expr))
+
+    def __floor__(self) -> SymbolicDim:
+        """Support math.floor(dim). Returns a SymbolicDim with floor expression."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        return SymbolicDim(sympy.floor(self._expr))
+
+    def __trunc__(self) -> SymbolicDim:
+        """Support math.trunc(dim). Returns a SymbolicDim truncated toward zero."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        return SymbolicDim(sympy.sign(self._expr) * sympy.floor(sympy.Abs(self._expr)))
+
+    def __neg__(self) -> SymbolicDim:
+        """Negate this dimension."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        return SymbolicDim(sympy.sympify(-self._expr))
 
     def simplify(self) -> SymbolicDim:
         """Return a new SymbolicDim with the expression simplified.
