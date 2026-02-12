@@ -136,9 +136,14 @@ def _process_graph(
                     if out.shape != old_shape or out.type != old_type:
                         modified = True
 
+            except (_context.OpUsageError, _context.ShapeInferenceError):
+                raise
             except Exception as e:
-                raise RuntimeError(
-                    f"Shape inference failed for {domain or 'ai.onnx'}::{op_type}"
+                raise _context.ShapeInferenceError(
+                    node_name=node.name,
+                    op_type=op_type,
+                    domain=domain,
+                    message=f"Shape inference failed for {domain}::{op_type}",
                 ) from e
         elif warn_on_missing:
             key = (domain, op_type)

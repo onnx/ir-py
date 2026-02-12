@@ -128,7 +128,7 @@ class IfShapeInferenceTest(unittest.TestCase):
         self.assertIsInstance(out.shape[1], ir.SymbolicDim)
 
     def test_different_ranks_raises(self):
-        """Rank mismatch between branches raises OpUsageError."""
+        """Rank mismatch between branches raises."""
         with self.assertRaises(OpUsageError):
             self._run_if(ir.Shape([2, 3]), ir.Shape([2, 3, 4]))
 

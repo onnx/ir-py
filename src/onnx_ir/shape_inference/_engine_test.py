@@ -7,7 +7,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
-from onnx_ir.shape_inference import _engine
+from onnx_ir.shape_inference import _context, _engine
 
 
 class InferSymbolicShapesTest(unittest.TestCase):
@@ -245,32 +245,25 @@ class FailingOpTest(unittest.TestCase):
     def _make_model(self, graph: ir.Graph) -> ir.Model:
         return ir.Model(graph, ir_version=10)
 
-    def test_engine_continues_after_op_failure(self):
-        """If one node fails, subsequent nodes are still processed."""
-        # First node: Gemm with wrong rank (will fail)
+    def test_engine_raises_on_op_failure(self):
+        """If one node fails, the engine raises with context."""
+        # Gemm with wrong rank (will fail)
         a = ir.Value(
             name="a", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2, 3, 4])
         )
         b = ir.Value(name="b", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([3, 5]))
         gemm_node = ir.Node("", "Gemm", inputs=[a, b], num_outputs=1)
 
-        # Second node: Relu on a known-good input
-        x = ir.Value(name="x", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([10]))
-        relu_node = ir.Node("", "Relu", inputs=[x], num_outputs=1)
-
         graph = ir.Graph(
-            [a, b, x],
-            [*gemm_node.outputs, *relu_node.outputs],
-            nodes=[gemm_node, relu_node],
+            [a, b],
+            gemm_node.outputs,
+            nodes=[gemm_node],
             opset_imports={"": 21},
         )
         model = self._make_model(graph)
 
-        _engine.infer_symbolic_shapes(model)
-
-        # Relu should still have been inferred despite Gemm failing
-        self.assertEqual(relu_node.outputs[0].shape, ir.Shape([10]))
-        self.assertEqual(relu_node.outputs[0].dtype, ir.DataType.FLOAT)
+        with self.assertRaises((_context.OpUsageError, _context.ShapeInferenceError)):
+            _engine.infer_symbolic_shapes(model)
 
 
 if __name__ == "__main__":
