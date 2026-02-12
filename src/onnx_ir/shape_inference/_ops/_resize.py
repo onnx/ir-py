@@ -6,6 +6,7 @@ from __future__ import annotations
 
 __all__ = [
     "infer_resize",
+    "infer_upsample",
 ]
 
 import math
@@ -14,7 +15,7 @@ import onnx_ir as ir
 from onnx_ir.shape_inference import _context, _registry
 
 
-@_registry.registry.register("", "Resize", since_version=19)
+@_registry.registry.register("", "Resize", since_version=10)
 def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Resize operator.
 
@@ -56,6 +57,46 @@ def infer_resize(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                 return
 
     # Fallback: same rank with symbolic dims
+    if x_shape is not None:
+        output_dims_sym: list[int | ir.SymbolicDim] = [
+            ctx.new_symbolic_dim() for _ in range(x_shape.rank())
+        ]
+        if len(node.outputs) > 0:
+            ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims_sym), output_dtype)
+    else:
+        if len(node.outputs) > 0:
+            ctx.set_shape_and_dtype(node.outputs[0], None, output_dtype)
+
+
+@_registry.registry.register("", "Upsample", since_version=1)
+def infer_upsample(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for deprecated Upsample operator.
+
+    Upsample(X, scales) -> Y where Y[i] = floor(X[i] * scales[i]).
+    """
+    (x,) = _context.check_inputs(node, "X")
+
+    output_dtype = x.dtype
+    x_shape = x.shape
+
+    if x_shape is not None and len(node.inputs) > 1 and node.inputs[1] is not None:
+        scales_const = ir.convenience.get_const_tensor(node.inputs[1])
+        if scales_const is not None:
+            scales = [float(s) for s in scales_const.numpy().flatten()]
+            if len(scales) == x_shape.rank():
+                output_dims: list[int | ir.SymbolicDim] = []
+                for i in range(x_shape.rank()):
+                    d = x_shape[i]
+                    if isinstance(d, int):
+                        output_dims.append(math.floor(d * scales[i]))
+                    else:
+                        output_dims.append(ctx.new_symbolic_dim())
+                if len(node.outputs) > 0:
+                    ctx.set_shape_and_dtype(
+                        node.outputs[0], ir.Shape(output_dims), output_dtype
+                    )
+                return
+
     if x_shape is not None:
         output_dims_sym: list[int | ir.SymbolicDim] = [
             ctx.new_symbolic_dim() for _ in range(x_shape.rank())

@@ -28,10 +28,22 @@ def _compute_pool_output_shape(
     pads: list[int],
     dilations: list[int],
     ceil_mode: int,
+    auto_pad: str = "NOTSET",
 ) -> list[int | ir.SymbolicDim]:
     """Compute spatial output dimensions for pooling ops."""
     n_spatial = len(kernel_shape)
     spatial_dims: list[int | ir.SymbolicDim] = []
+
+    if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
+        for i in range(n_spatial):
+            in_dim = x_shape[i + 2]
+            s = strides[i]
+            if isinstance(in_dim, int):
+                spatial_dims.append(math.ceil(in_dim / s))
+            else:
+                spatial_dims.append(ctx.new_symbolic_dim())
+        return spatial_dims
+
     for i in range(n_spatial):
         in_dim = x_shape[i + 2]
         k = kernel_shape[i]
@@ -43,6 +55,10 @@ def _compute_pool_output_shape(
         numerator: int | ir.SymbolicDim = in_dim + pad_begin + pad_end - effective_kernel
         if ceil_mode:
             out_dim: int | ir.SymbolicDim = math.ceil(numerator / s) + 1  # type: ignore[operator]
+            # If last pooling window starts in the padding, reduce output by 1
+            if isinstance(out_dim, int) and isinstance(in_dim, int):
+                if (out_dim - 1) * s - pad_begin >= in_dim:
+                    out_dim -= 1
         else:
             out_dim = numerator // s + 1
         spatial_dims.append(out_dim)
@@ -70,10 +86,6 @@ def infer_average_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
-    if auto_pad not in ("NOTSET", ""):
-        raise _context.OpUsageError(
-            node, f"auto_pad='{auto_pad}' is deprecated and not supported"
-        )
 
     strides_attr = node.attributes.get("strides")
     strides = list(strides_attr.as_ints()) if strides_attr is not None else [1] * n_spatial
@@ -84,10 +96,13 @@ def infer_average_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
     ceil_mode_attr = node.attributes.get("ceil_mode")
     ceil_mode = int(ceil_mode_attr.as_int()) if ceil_mode_attr is not None else 0
 
-    dilations = [1] * n_spatial
+    dilations_attr = node.attributes.get("dilations")
+    dilations = (
+        list(dilations_attr.as_ints()) if dilations_attr is not None else [1] * n_spatial
+    )
 
     spatial_dims = _compute_pool_output_shape(
-        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode
+        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode, auto_pad
     )
 
     output_dims: list[int | ir.SymbolicDim] = [x_shape[0], x_shape[1], *spatial_dims]
@@ -117,10 +132,6 @@ def infer_max_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
-    if auto_pad not in ("NOTSET", ""):
-        raise _context.OpUsageError(
-            node, f"auto_pad='{auto_pad}' is deprecated and not supported"
-        )
 
     strides_attr = node.attributes.get("strides")
     strides = list(strides_attr.as_ints()) if strides_attr is not None else [1] * n_spatial
@@ -137,7 +148,7 @@ def infer_max_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     )
 
     spatial_dims = _compute_pool_output_shape(
-        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode
+        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode, auto_pad
     )
 
     output_dims: list[int | ir.SymbolicDim] = [x_shape[0], x_shape[1], *spatial_dims]
@@ -168,10 +179,6 @@ def infer_lp_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
-    if auto_pad not in ("NOTSET", ""):
-        raise _context.OpUsageError(
-            node, f"auto_pad='{auto_pad}' is deprecated and not supported"
-        )
 
     strides_attr = node.attributes.get("strides")
     strides = list(strides_attr.as_ints()) if strides_attr is not None else [1] * n_spatial
@@ -182,10 +189,13 @@ def infer_lp_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     ceil_mode_attr = node.attributes.get("ceil_mode")
     ceil_mode = int(ceil_mode_attr.as_int()) if ceil_mode_attr is not None else 0
 
-    dilations = [1] * n_spatial
+    dilations_attr = node.attributes.get("dilations")
+    dilations = (
+        list(dilations_attr.as_ints()) if dilations_attr is not None else [1] * n_spatial
+    )
 
     spatial_dims = _compute_pool_output_shape(
-        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode
+        ctx, node, x_shape, kernel_shape, strides, pads, dilations, ceil_mode, auto_pad
     )
 
     output_dims: list[int | ir.SymbolicDim] = [x_shape[0], x_shape[1], *spatial_dims]

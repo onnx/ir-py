@@ -22,7 +22,7 @@ from onnx_ir.shape_inference import _context, _registry
 _reg = _registry.registry.register
 
 
-@_reg("", "BatchNormalization", since_version=15)
+@_reg("", "BatchNormalization", since_version=1)
 def infer_batch_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for BatchNormalization operator."""
     (x, scale, _b, _input_mean, _input_var) = _context.check_inputs(
@@ -49,7 +49,7 @@ def infer_layer_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, x.dtype)
 
-    # Mean and InvStdDev outputs
+    # Mean and InvStdDev outputs: shape is input[:axis] with trailing 1s
     if len(node.outputs) > 1 or len(node.outputs) > 2:
         axis_attr = node.attributes.get("axis")
         axis = axis_attr.as_int() if axis_attr is not None else -1
@@ -63,7 +63,11 @@ def infer_layer_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node
             rank = x.shape.rank()
             if axis < 0:
                 axis += rank
-            reduced_shape = ir.Shape(list(x.shape.dims[:axis]))
+            # Shape is input[:axis] with trailing 1s for the reduced dimensions
+            reduced_dims: list[int | ir.SymbolicDim] = list(x.shape.dims[:axis]) + [1] * (
+                rank - axis
+            )
+            reduced_shape = ir.Shape(reduced_dims)
 
         if len(node.outputs) > 1:
             ctx.set_shape_and_dtype(node.outputs[1], reduced_shape, stash_dtype)
@@ -80,7 +84,7 @@ def infer_group_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, x.dtype)
 
 
-@_reg("", "RMSNormalization", since_version=24)
+@_reg("", "RMSNormalization", since_version=23)
 def infer_rms_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for RMSNormalization operator."""
     (x,) = _context.check_inputs(node, "X")
@@ -97,12 +101,15 @@ def infer_rms_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node) 
             rank = x.shape.rank()
             if axis < 0:
                 axis += rank
-            reduced_shape = ir.Shape(list(x.shape.dims[:axis]))
+            reduced_dims: list[int | ir.SymbolicDim] = list(x.shape.dims[:axis]) + [1] * (
+                rank - axis
+            )
+            reduced_shape = ir.Shape(reduced_dims)
 
         ctx.set_shape_and_dtype(node.outputs[1], reduced_shape, x.dtype)
 
 
-@_reg("", "InstanceNormalization", since_version=6)
+@_reg("", "InstanceNormalization", since_version=1)
 def infer_instance_normalization(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for InstanceNormalization operator."""
     (x,) = _context.check_inputs(node, "input")
@@ -111,7 +118,7 @@ def infer_instance_normalization(ctx: _context.ShapeInferenceContext, node: ir.N
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, x.dtype)
 
 
-@_reg("", "LRN", since_version=13)
+@_reg("", "LRN", since_version=1)
 def infer_lrn(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for LRN operator."""
     (x,) = _context.check_inputs(node, "X")
@@ -120,21 +127,30 @@ def infer_lrn(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, x.dtype)
 
 
-@_reg("", "DequantizeLinear", since_version=21)
+@_reg("", "DequantizeLinear", since_version=10)
 def infer_dequantize_linear(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for DequantizeLinear operator."""
     (x,) = _context.check_inputs(node, "x")
+    # Output dtype matches the scale's dtype (input[1])
     output_dtype = ir.DataType.FLOAT
+    if len(node.inputs) > 1 and node.inputs[1] is not None:
+        scale_dtype = node.inputs[1].dtype
+        if scale_dtype is not None:
+            output_dtype = scale_dtype
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], x.shape, output_dtype)
 
 
-@_reg("", "QuantizeLinear", since_version=21)
+@_reg("", "QuantizeLinear", since_version=10)
 def infer_quantize_linear(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for QuantizeLinear operator."""
     (x,) = _context.check_inputs(node, "x")
     output_dtype = ir.DataType.UINT8
-    if len(node.inputs) > 2 and node.inputs[2] is not None:
+    # Check output_dtype attribute first (opset 21+)
+    output_dtype_attr = node.attributes.get("output_dtype")
+    if output_dtype_attr is not None:
+        output_dtype = ir.DataType(output_dtype_attr.as_int())
+    elif len(node.inputs) > 2 and node.inputs[2] is not None:
         zp_dtype = node.inputs[2].dtype
         if zp_dtype is not None:
             output_dtype = zp_dtype

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 __all__ = [
+    "infer_scatter",
     "infer_scatter_elements",
     "infer_scatter_nd",
     "infer_tensor_scatter",
@@ -12,6 +13,15 @@ __all__ = [
 
 import onnx_ir as ir
 from onnx_ir.shape_inference import _context, _registry
+
+
+@_registry.registry.register("", "Scatter", since_version=9)
+def infer_scatter(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for deprecated Scatter operator (same as ScatterElements)."""
+    (data,) = _context.check_inputs(node, "data")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], data.shape, data.dtype)
 
 
 @_registry.registry.register("", "ScatterElements", since_version=18)

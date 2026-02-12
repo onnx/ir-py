@@ -26,8 +26,6 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
-    if auto_pad not in ("NOTSET", ""):
-        raise _context.OpUsageError(node, "auto_pad is not supported, use explicit padding")
 
     if x_shape is None or w_shape is None:
         if len(node.outputs) > 0:
@@ -54,6 +52,21 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
     if output_shape_attr is not None:
         spatial_dims: list[int | ir.SymbolicDim] = list(output_shape_attr.as_ints())
         output_dims: list[int | ir.SymbolicDim] = [batch_dim, out_channels, *spatial_dims]
+        if len(node.outputs) > 0:
+            ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims), output_dtype)
+        return
+
+    strides_attr = node.attributes.get("strides")
+    strides = list(strides_attr.as_ints()) if strides_attr is not None else [1] * n_spatial
+
+    # For SAME_UPPER/SAME_LOWER, output = input * stride
+    if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
+        spatial_out: list[int | ir.SymbolicDim] = []
+        for i in range(n_spatial):
+            in_dim = x_shape[i + 2]
+            s = strides[i]
+            spatial_out.append(in_dim * s)
+        output_dims = [batch_dim, out_channels, *spatial_out]
         if len(node.outputs) > 0:
             ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims), output_dtype)
         return
