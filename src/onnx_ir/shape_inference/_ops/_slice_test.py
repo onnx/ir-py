@@ -70,6 +70,21 @@ class SliceTest(unittest.TestCase):
         actual = self._run(ts(FLOAT, [3, 2]), [1, 0], [2, 2])
         self.assertEqual(actual, [ts(FLOAT, [1, 2])])
 
+    def test_symbolic_dim_const_start_end(self):
+        """Slicing on a symbolic dim with non-negative const start/end computes size."""
+        actual = self._run(ts(FLOAT, ["N", 10]), [1], [5], [0], [1])
+        self.assertEqual(actual, [ts(FLOAT, [4, 10])])
+
+    def test_symbolic_dim_const_start_end_step_2(self):
+        """Slicing on a symbolic dim with step=2."""
+        actual = self._run(ts(FLOAT, ["N", 10]), [0], [6], [0], [2])
+        self.assertEqual(actual, [ts(FLOAT, [3, 10])])
+
+    def test_symbolic_dim_negative_start_becomes_unknown(self):
+        """Negative start depends on actual dim size, so result is unknown."""
+        actual = self._run(ts(FLOAT, ["N", 10]), [-2], [5], [0], [1])
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", 10])])
+
     def test_symbolic_dim_preserved_on_non_sliced_axis(self):
         """Symbolic dim on non-sliced axis is preserved; sliced axis is concrete."""
         actual = self._run(ts(FLOAT, ["a", 2]), [0], [1], [1], [1])

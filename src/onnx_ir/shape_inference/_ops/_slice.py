@@ -90,8 +90,16 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             )
             output_dims[axis] = slice_len
         else:
-            # Symbolic dim: can't determine exact size
-            output_dims[axis] = ctx.new_symbolic_dim()
+            # Symbolic dim: if start/end are non-negative and not sentinel
+            # values, we can compute the slice length directly since it
+            # doesn't depend on the actual dimension size, assuming input has at least that many elements.
+            # This is a practical assumption.
+            sentinels = {2**63 - 1, -(2**63), 2**31 - 1, -(2**31)}
+            if start >= 0 and end >= 0 and start not in sentinels and end not in sentinels:
+                slice_len = max(0, -(-max(0, end - start) // abs(step)))
+                output_dims[axis] = slice_len
+            else:
+                output_dims[axis] = ctx.new_symbolic_dim()
 
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:
