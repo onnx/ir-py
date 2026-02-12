@@ -83,8 +83,8 @@ class TopKTest(unittest.TestCase):
         )
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[0], ir.SymbolicDim("N"))
+        self.assertEqual(actual[0].shape[1], ir.SymbolicDim("M"))
 
 
 if __name__ == "__main__":

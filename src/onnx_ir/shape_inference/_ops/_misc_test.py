@@ -33,6 +33,13 @@ class EyeLikeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(ir.DataType.DOUBLE, [3, 4])])
 
+    def test_symbolic_dims(self):
+        actual = run_shape_inference(
+            "", "EyeLike", [ts(FLOAT, ["N", "M"])], opset_version=21
+        )
+        self.assertEqual(actual[0].shape, ir.Shape(["N", "M"]))
+        self.assertEqual(actual[0].type.dtype, FLOAT)
+
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):
             run_shape_inference_with_values("", "EyeLike", [None], opset_version=21)

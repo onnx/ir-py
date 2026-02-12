@@ -217,7 +217,7 @@ class ConvTest(unittest.TestCase):
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 4)
-        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
+        self.assertEqual(result.shape[0], ir.SymbolicDim("N"))
         self.assertEqual(result.shape[1], 16)
 
     def test_partial_missing_input_shape(self):

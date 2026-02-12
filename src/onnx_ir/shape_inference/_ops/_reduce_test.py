@@ -166,8 +166,8 @@ class ReduceTest(unittest.TestCase):
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 2)
-        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
-        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
+        self.assertEqual(result.shape, ir.Shape(["N", "H"]))
+        self.assertEqual(result.type.dtype, FLOAT)
 
     def test_reduce_opset18_axes_input(self):
         """Opset 18+: axes come from input[1]."""

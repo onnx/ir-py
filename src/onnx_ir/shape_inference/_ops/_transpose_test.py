@@ -85,22 +85,6 @@ class InferTransposeTest(unittest.TestCase):
         actual = run_shape_inference("", "Transpose", inputs, attributes, opset_version=17)
         self.assertEqual(actual, expected_outputs)
 
-    def test_symbolic_perm(self):
-        """Transpose ["N", "C", "H"] with perm [2,1,0] → ["H", "C", "N"], all SymbolicDim."""
-        actual = run_shape_inference(
-            "",
-            "Transpose",
-            [ts(FLOAT, ["N", "C", "H"])],
-            {"perm": ir.Attr("perm", ir.AttributeType.INTS, [2, 1, 0])},
-            opset_version=17,
-        )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 3)
-        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
-        self.assertIsInstance(result.shape[1], ir.SymbolicDim)
-        self.assertIsInstance(result.shape[2], ir.SymbolicDim)
-
     def test_transpose_no_inputs(self):
         with self.assertRaises(OpUsageError):
             run_shape_inference("", "Transpose", [], opset_version=17)

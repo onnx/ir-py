@@ -61,8 +61,10 @@ class PadTest(unittest.TestCase):
         )
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 2)
+        # N + 2 padding is still symbolic since N is symbolic
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
         self.assertEqual(actual[0].shape[1], 4)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):

@@ -128,6 +128,7 @@ class GatherElementsTest(unittest.TestCase):
             ("default_axis", [3, 4], [3, 2], None, [3, 2]),
             ("axis_1", [3, 4], [3, 2], 1, [3, 2]),
             ("axis_0", [5, 4, 3], [2, 4, 3], 0, [2, 4, 3]),
+            ("symbolic", ["N", "C"], ["N", "K"], 1, ["N", "K"]),
         ]
     )
     def test_gather_elements(self, _name, data_shape, indices_shape, axis, expected_shape):
@@ -162,11 +163,10 @@ class GatherNDTest(unittest.TestCase):
             [ts(FLOAT, ["N", "M", 3]), ts(INT64, ["K", 1])],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[2], 3)
+        result = actual[0]
+        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape.rank(), 3)
+        self.assertEqual(result.shape, ir.Shape(["K", "M", 3]))
 
 
 if __name__ == "__main__":
