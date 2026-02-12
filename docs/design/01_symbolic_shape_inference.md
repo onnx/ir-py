@@ -156,13 +156,45 @@ class ShapeInferenceContext:
 - **`set_type`**: For non-tensor types like `SequenceType` and `OptionalType`.
   Follows the same merge policy as `set_shape` and `set_dtype`.
 
+#### Symbolic Dimension Arithmetic
+
+When an operator's output dimension is a known function of input symbolic dims
+and constant parameters (kernel size, stride, padding, blocksize, etc.),
+operators should **use SymbolicDim arithmetic** to preserve the relationship:
+
+```python
+# GOOD – output spatial dim is an expression of input dim
+effective_kernel = dilation * (kernel - 1) + 1
+out_dim = (in_dim + pad_begin + pad_end - effective_kernel) // stride + 1
+
+# BAD – loses the relationship between input and output
+out_dim = ctx.new_symbolic_dim()
+```
+
+SymbolicDim supports `+`, `-`, `*`, `//`, `%` with integers and other
+SymbolicDims, producing new SymbolicDim objects with SymPy expressions:
+
+```python
+H = ir.SymbolicDim("H")
+H + 2       # SymbolicDim("H + 2")     — Pad
+H * 3       # SymbolicDim("3*H")       — Tile
+H // 4      # SymbolicDim("floor(H/4)")— DepthToSpace
+(H - 3 + 2) // 1 + 1  # SymbolicDim("H")  — Conv with same padding
+```
+
 #### Unique Dimension Naming
 
-When the exact size of a dimension is unknown, operators must **not** use
-`ir.SymbolicDim(None)`.  Instead they call `ctx.new_symbolic_dim()` which
+When the exact size of a dimension is **truly data-dependent** or unknowable
+at graph construction time, operators use `ctx.new_symbolic_dim()` which
 returns a `SymbolicDim` with a unique auto-generated name (e.g. `_d0`,
-`_d1`, …).  This ensures every unknown dimension has a distinct identity, so
-downstream inference can establish relationships between inputs and outputs.
+`_d1`, …).  This ensures every unknown dimension has a distinct identity.
+
+Use `ctx.new_symbolic_dim()` only for:
+
+- Data-dependent ops (NonZero, Compress, Unique, StringSplit)
+- Runtime-only values (TopK k, OneHot depth, Range length)
+- Control flow (If/Loop trip counts)
+- Unknown kernel sizes (weight shape not available)
 
 ```python
 # BAD  – all unknowns are anonymous and indistinguishable

@@ -17,6 +17,18 @@ Comprehensive guide for creating transformation passes in ONNX IR. This skill co
 
 Use this skill when developing new graph transformation passes or modifying existing ones.
 
+### [Shape Inference Ops](./shape-inference-ops.md)
+
+Guide for implementing and testing shape inference operators. This skill covers:
+
+- Op implementation patterns (registration, preconditions, graceful degradation)
+- The `ts()` test helper for concise type+shape assertions
+- Auto-generated symbolic dim naming (`_d0`, `_d1`, …) and counter reset behavior
+- Parameterized test patterns and assertion style
+- Which ops propagate named dims vs create new `_d` dims
+
+Use this skill when adding new shape inference operators or writing/modifying their tests.
+
 ## Using These Skills
 
 These skills are designed to be used by AI agents to improve code quality and consistency when working with the ONNX IR codebase. Each skill document contains:
