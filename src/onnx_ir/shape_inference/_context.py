@@ -510,8 +510,22 @@ class ShapeInferenceContext:
         if sym_val is not None:
             return sym_val  # type: ignore[return-value]
 
-        # Fall back to constant tensor
+        # Fall back to constant tensor (only for 0d/1d integer types used in
+        # shape computation — higher-rank tensors are data, not shape values)
         const = ir.convenience.get_const_tensor(value)
-        if const is not None:
+        if (
+            const is not None
+            and len(const.shape) <= 1
+            and value.dtype in (
+                ir.DataType.INT64,
+                ir.DataType.INT32,
+                ir.DataType.INT16,
+                ir.DataType.INT8,
+                ir.DataType.UINT64,
+                ir.DataType.UINT32,
+                ir.DataType.UINT16,
+                ir.DataType.UINT8,
+            )
+        ):
             return [int(x) for x in const.numpy().flatten()]
         return None
