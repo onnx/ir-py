@@ -30,33 +30,39 @@ def _make_ctx() -> _context.ShapeInferenceContext:
 # _merge_shapes helper
 # ---------------------------------------------------------------------------
 class MergeShapesTest(unittest.TestCase):
+    def _dummy_node(self) -> ir.Node:
+        return ir.Node("", "If", inputs=[], num_outputs=1)
+
     def test_same_shapes(self):
-        s = _merge_shapes(_make_ctx(), ir.Shape([2, 3]), ir.Shape([2, 3]))
+        s = _merge_shapes(
+            _make_ctx(), self._dummy_node(), ir.Shape([2, 3]), ir.Shape([2, 3]), 0
+        )
         self.assertEqual(s, ir.Shape([2, 3]))
 
-    def test_different_dims_become_symbolic(self):
-        s = _merge_shapes(_make_ctx(), ir.Shape([2, 3]), ir.Shape([2, 5]))
-        self.assertIsNotNone(s)
+    def test_different_concrete_dims_become_symbolic(self):
+        s = _merge_shapes(
+            _make_ctx(), self._dummy_node(), ir.Shape([2, 3]), ir.Shape([2, 5]), 0
+        )
         self.assertEqual(s.rank(), 2)
         self.assertEqual(s[0], 2)
-        # Dimension 1 differs → unknown
         self.assertIsInstance(s[1], ir.SymbolicDim)
 
-    def test_different_ranks_return_none(self):
-        s = _merge_shapes(_make_ctx(), ir.Shape([2, 3]), ir.Shape([2, 3, 4]))
-        self.assertIsNone(s)
-
-    def test_none_input_returns_none(self):
-        ctx = _make_ctx()
-        self.assertIsNone(_merge_shapes(ctx, None, ir.Shape([2])))
-        self.assertIsNone(_merge_shapes(ctx, ir.Shape([2]), None))
+    def test_different_ranks_raises(self):
+        with self.assertRaises(OpUsageError):
+            _merge_shapes(
+                _make_ctx(), self._dummy_node(), ir.Shape([2, 3]), ir.Shape([2, 3, 4]), 0
+            )
 
     def test_symbolic_same_name(self):
-        s = _merge_shapes(_make_ctx(), ir.Shape(["N", 3]), ir.Shape(["N", 3]))
+        s = _merge_shapes(
+            _make_ctx(), self._dummy_node(), ir.Shape(["N", 3]), ir.Shape(["N", 3]), 0
+        )
         self.assertEqual(s, ir.Shape(["N", 3]))
 
     def test_symbolic_different_names(self):
-        s = _merge_shapes(_make_ctx(), ir.Shape(["N", 3]), ir.Shape(["M", 3]))
+        s = _merge_shapes(
+            _make_ctx(), self._dummy_node(), ir.Shape(["N", 3]), ir.Shape(["M", 3]), 0
+        )
         self.assertIsNotNone(s)
         self.assertIsInstance(s[0], ir.SymbolicDim)
         self.assertEqual(s[1], 3)
@@ -113,17 +119,18 @@ class IfShapeInferenceTest(unittest.TestCase):
         self.assertEqual(out.shape, ir.Shape([2, 3]))
         self.assertEqual(out.dtype, ir.DataType.FLOAT)
 
-    def test_different_dims_merged(self):
+    def test_different_concrete_dims_become_symbolic(self):
+        """Concrete dim mismatch between branches produces symbolic dim."""
         out = self._run_if(ir.Shape([2, 3]), ir.Shape([2, 5]))
         self.assertIsNotNone(out.shape)
         self.assertEqual(out.shape.rank(), 2)
         self.assertEqual(out.shape[0], 2)
         self.assertIsInstance(out.shape[1], ir.SymbolicDim)
 
-    def test_different_ranks_gives_none_shape(self):
-        out = self._run_if(ir.Shape([2, 3]), ir.Shape([2, 3, 4]))
-        self.assertIsNone(out.shape)
-        self.assertEqual(out.dtype, ir.DataType.FLOAT)
+    def test_different_ranks_raises(self):
+        """Rank mismatch between branches raises OpUsageError."""
+        with self.assertRaises(OpUsageError):
+            self._run_if(ir.Shape([2, 3]), ir.Shape([2, 3, 4]))
 
     def test_one_branch_none_shape(self):
         out = self._run_if(ir.Shape([2, 3]), None)
@@ -479,9 +486,8 @@ class LoopShapeInferenceTest(unittest.TestCase):
             opset_imports={"": 21},
         )
         model = _make_model(graph)
-        # Engine catches OpUsageError; output remains None
-        infer_symbolic_shapes(model)
-        self.assertIsNone(loop_node.outputs[0].shape)
+        with self.assertRaises(OpUsageError):
+            infer_symbolic_shapes(model)
 
     def test_body_output_none_shape_scan(self):
         """Scan output when body output has no shape → scan output is None."""

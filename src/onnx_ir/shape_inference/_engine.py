@@ -137,12 +137,9 @@ def _process_graph(
                         modified = True
 
             except Exception as e:
-                logger.warning(
-                    "Shape inference failed for %s::%s: %s",
-                    domain or "ai.onnx",
-                    op_type,
-                    e,
-                )
+                raise RuntimeError(
+                    f"Shape inference failed for {domain or 'ai.onnx'}::{op_type}"
+                ) from e
         elif warn_on_missing:
             key = (domain, op_type)
             if key not in warned_ops:

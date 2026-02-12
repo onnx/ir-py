@@ -81,10 +81,14 @@ def infer_identity(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     input_type = input_val.type
     if input_type is not None and not isinstance(input_type, ir.TensorType):
-        # Propagate full type for sequence/optional types
         ctx.set_type(node.outputs[0], input_type)
     else:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+    # Propagate symbolic value (e.g. shape tensors passed through Identity)
+    sym_val = ctx.get_symbolic_value(input_val)
+    if sym_val is not None:
+        ctx.set_symbolic_value(node.outputs[0], sym_val)
 
 
 _UNARY_VALUE_OPS: dict[str, Callable[[object], object]] = {

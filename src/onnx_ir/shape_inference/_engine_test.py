@@ -182,6 +182,20 @@ class SubgraphProcessingTest(unittest.TestCase):
             name="then_branch",
         )
 
+        else_x = ir.Value(
+            name="else_x",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape([ir.SymbolicDim(None), 3]),
+        )
+        else_relu = ir.Node("", "Relu", inputs=[else_x], num_outputs=1)
+        else_branch = ir.Graph(
+            [else_x],
+            else_relu.outputs,
+            nodes=[else_relu],
+            opset_imports={"": 21},
+            name="else_branch",
+        )
+
         cond = ir.Value(name="cond", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape([]))
         if_node = ir.Node(
             "",
@@ -189,6 +203,7 @@ class SubgraphProcessingTest(unittest.TestCase):
             inputs=[cond],
             attributes=[
                 ir.Attr("then_branch", ir.AttributeType.GRAPH, then_branch),
+                ir.Attr("else_branch", ir.AttributeType.GRAPH, else_branch),
             ],
             num_outputs=1,
         )

@@ -16,22 +16,27 @@ from onnx_ir.shape_inference import _context, _registry
 
 def _merge_shapes(
     ctx: _context.ShapeInferenceContext,
-    shape1: ir.Shape | None,
-    shape2: ir.Shape | None,
-) -> ir.Shape | None:
+    node: ir.Node,
+    shape1: ir.Shape,
+    shape2: ir.Shape,
+    output_idx: int,
+) -> ir.Shape:
     """Merge two shapes from If branches into a compatible output shape.
 
     For each dimension pair:
     - If both are equal (concrete or symbolic), keep that value.
-    - Otherwise, create a new unique symbolic dim.
+    - Otherwise (different concrete, different symbolic, mixed), create a new
+      symbolic dim.
 
-    Returns None if either shape is None or ranks differ.
+    Raises:
+        OpUsageError: If ranks differ.
     """
-    if shape1 is None or shape2 is None:
-        return None
-
     if shape1.rank() != shape2.rank():
-        return None
+        raise _context.OpUsageError(
+            node,
+            f"If output {output_idx}: rank mismatch between branches: "
+            f"then={shape1.rank()}, else={shape2.rank()}",
+        )
 
     result_dims: list[int | ir.SymbolicDim] = []
     for d1, d2 in zip(shape1.dims, shape2.dims):
@@ -45,7 +50,6 @@ def _merge_shapes(
         ):
             result_dims.append(d1)
         else:
-            # Dimensions differ or are anonymous; assign a fresh name
             result_dims.append(ctx.new_symbolic_dim())
     return ir.Shape(result_dims)
 
@@ -88,26 +92,35 @@ def infer_if(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         then_type = then_out.type if then_out is not None else None
         else_type = else_out.type if else_out is not None else None
 
-        if then_type is not None and not isinstance(then_type, ir.TensorType):
-            ctx.set_type(output, then_type)
-            continue
-        if else_type is not None and not isinstance(else_type, ir.TensorType):
-            ctx.set_type(output, else_type)
+        if (then_type is not None and not isinstance(then_type, ir.TensorType)) or (
+            else_type is not None and not isinstance(else_type, ir.TensorType)
+        ):
+            if then_type is not None and else_type is not None and then_type != else_type:
+                raise _context.OpUsageError(
+                    node,
+                    f"If output {i}: type mismatch between branches: "
+                    f"then={then_type}, else={else_type}",
+                )
+            ctx.set_type(output, then_type if then_type is not None else else_type)  # type: ignore[arg-type]
             continue
 
         # Determine dtype: prefer then-branch, fall back to else-branch
-        dtype = None
-        if then_out is not None:
-            dtype = then_out.dtype
-        if dtype is None and else_out is not None:
-            dtype = else_out.dtype
+        then_dtype = then_out.dtype if then_out is not None else None
+        else_dtype = else_out.dtype if else_out is not None else None
+        if then_dtype is not None and else_dtype is not None and then_dtype != else_dtype:
+            raise _context.OpUsageError(
+                node,
+                f"If output {i}: dtype mismatch between branches: "
+                f"then={then_dtype}, else={else_dtype}",
+            )
+        dtype = then_dtype if then_dtype is not None else else_dtype
 
         # Merge shapes from both branches
         then_shape = then_out.shape if then_out is not None else None
         else_shape = else_out.shape if else_out is not None else None
 
         if then_shape is not None and else_shape is not None:
-            merged = _merge_shapes(ctx, then_shape, else_shape)
+            merged: ir.Shape | None = _merge_shapes(ctx, node, then_shape, else_shape, i)
         elif then_shape is not None:
             merged = then_shape
         elif else_shape is not None:
