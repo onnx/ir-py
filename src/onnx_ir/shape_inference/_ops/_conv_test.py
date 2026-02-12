@@ -392,6 +392,9 @@ class ConvIntegerTest(unittest.TestCase):
         )
         result = actual[0]
         self.assertEqual(result.shape.rank(), 4)
+        self.assertEqual(result.shape[0], 1)
+        self.assertEqual(result.shape[1], 1)
+        # Spatial dims are derived from symbolic H/W, so they're new symbolic dims
         self.assertIsInstance(result.shape[2], ir.SymbolicDim)
         self.assertIsInstance(result.shape[3], ir.SymbolicDim)
 

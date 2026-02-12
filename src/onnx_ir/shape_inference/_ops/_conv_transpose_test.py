@@ -139,7 +139,7 @@ class ConvTransposeTest(unittest.TestCase):
         )
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[0], ir.SymbolicDim("N"))
 
     def test_symbolic_input_concrete_kernel(self):
         actual = run_shape_inference(
@@ -150,7 +150,7 @@ class ConvTransposeTest(unittest.TestCase):
         )
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[0].shape[0], ir.SymbolicDim("N"))
         self.assertEqual(actual[0].shape[1], 1)
 
 

@@ -152,9 +152,7 @@ class UnsqueezeTest(unittest.TestCase):
 
     def test_unsqueeze_opset13_symbolic(self):
         """Opset 13+: Unsqueeze ["N", "C"] with axes [0, 3] → [1, "N", "C", 1]."""
-        data = ir.Value(
-            name="data", shape=ir.Shape(["N", "C"]), type=ir.TensorType(FLOAT)
-        )
+        data = ir.Value(name="data", shape=ir.Shape(["N", "C"]), type=ir.TensorType(FLOAT))
         axes = const_value([0, 3], "axes")
         actual = run_shape_inference_with_values(
             "",
