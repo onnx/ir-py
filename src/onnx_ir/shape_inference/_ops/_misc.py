@@ -99,9 +99,7 @@ def infer_sequence_map(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
     The body is run once per element. The engine infers body output types
     before calling this function.
     """
-    body_attr = node.attributes.get("body")
-    if body_attr is None:
-        return
+    body_attr = _context.require_attr(node, "body")
     body_graph = body_attr.as_graph()
     if body_graph is None:
         return

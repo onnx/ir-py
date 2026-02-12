@@ -30,21 +30,8 @@ def _infer_rnn(
     layout_attr = node.attributes.get("layout")
     layout = layout_attr.as_int() if layout_attr is not None else 0
 
-    # Try to get hidden_size from attribute
-    hidden_size_attr = node.attributes.get("hidden_size")
-    hidden_size: int | ir.SymbolicDim | None = None
-    if hidden_size_attr is not None:
-        hidden_size = hidden_size_attr.as_int()
-    else:
-        # Try to infer from W input (input 1): [num_directions, hidden_size * num_gates, input_size]
-        if len(node.inputs) > 1 and node.inputs[1] is not None:
-            w = node.inputs[1]
-            if w.shape is not None and w.shape.rank() >= 2:
-                w_dim1 = w.shape.dims[1]
-                hidden_size = w_dim1 // num_gates
-
-    if hidden_size is None:
-        hidden_size = ctx.new_symbolic_dim()
+    # hidden_size is required per the ONNX spec
+    hidden_size = _context.require_attr(node, "hidden_size").as_int()
 
     output_dtype = x.dtype
 

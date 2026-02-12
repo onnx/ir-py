@@ -217,15 +217,12 @@ def infer_scan(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Scan.html
     """
-    body_attr = node.attributes.get("body")
-    if body_attr is None:
-        return
+    body_attr = _context.require_attr(node, "body")
     body_graph = body_attr.as_graph()
     if body_graph is None:
         return
 
-    num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
-    num_scan_inputs = num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
+    num_scan_inputs = _context.require_attr(node, "num_scan_inputs").as_int()
     num_state = len(node.inputs) - num_scan_inputs
 
     # scan_output_axes: one per scan output, default [0, 0, ...]
@@ -291,15 +288,12 @@ def infer_scan_v8(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     Spec: https://onnx.ai/onnx/operators/onnx__Scan.html (opset 8)
     """
-    body_attr = node.attributes.get("body")
-    if body_attr is None:
-        return
+    body_attr = _context.require_attr(node, "body")
     body_graph = body_attr.as_graph()
     if body_graph is None:
         return
 
-    num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
-    num_scan_inputs = num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
+    num_scan_inputs = _context.require_attr(node, "num_scan_inputs").as_int()
     # v8: input[0] is sequence_lens (optional), rest are state + scan
     num_state = len(node.inputs) - 1 - num_scan_inputs
 

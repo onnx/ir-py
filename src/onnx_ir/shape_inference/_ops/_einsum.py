@@ -24,10 +24,7 @@ def infer_einsum(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     output_dtype = node.inputs[0].dtype
 
-    equation_attr = node.attributes.get("equation")
-    if equation_attr is None:
-        raise _context.OpUsageError(node, "Missing required attribute 'equation'")
-    equation = equation_attr.as_string().replace(" ", "")
+    equation = _context.require_attr(node, "equation").as_string().replace(" ", "")
 
     # Check all inputs have shapes
     for inp in node.inputs:

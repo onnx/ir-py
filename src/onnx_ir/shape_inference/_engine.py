@@ -70,6 +70,37 @@ def _infer_symbolic_shapes(
     return _process_graph(ctx, model.graph, warn_on_missing=warn_on_missing)
 
 
+def _propagate_types_to_subgraph_inputs(
+    ctx: _context.ShapeInferenceContext, node: ir.Node
+) -> None:
+    """Propagate types from node inputs to subgraph inputs before subgraph processing.
+
+    Loop body inputs ``[iteration_num, condition, v_0, ..., v_N]`` get their
+    types from the corresponding node inputs ``[max_trip_count, cond,
+    v_init_0, ..., v_init_N]``, so that the body graph can be inferred with
+    correct type information.
+    """
+    if (node.domain or "") != "":
+        return
+
+    if node.op_type == "Loop":
+        body_attr = node.attributes.get("body")
+        if body_attr is None:
+            return
+        body_graph = body_attr.as_graph()
+        if body_graph is None:
+            return
+        # Body inputs: [iteration_num, condition, ...loop_carried]
+        # Node inputs: [max_trip_count, cond, ...loop_carried_init]
+        for j in range(2, min(len(node.inputs), len(body_graph.inputs))):
+            init_val = node.inputs[j]
+            body_inp = body_graph.inputs[j]
+            if init_val is not None and body_inp.dtype is None and init_val.dtype is not None:
+                ctx.set_dtype(body_inp, init_val.dtype)
+            if init_val is not None and body_inp.shape is None and init_val.shape is not None:
+                ctx.set_shape(body_inp, init_val.shape)
+
+
 def _process_graph(
     ctx: _context.ShapeInferenceContext,
     graph: ir.Graph,
@@ -97,7 +128,9 @@ def _process_graph(
 
     # Traverse nodes in topological order
     for node in graph:
-        # Recursively process any subgraphs first (e.g. If/Loop bodies)
+        _propagate_types_to_subgraph_inputs(ctx, node)
+
+        # Recursively process any subgraphs (e.g. If/Loop bodies)
         for attr in node.attributes.values():
             if (
                 attr is not None

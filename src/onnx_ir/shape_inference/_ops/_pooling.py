@@ -79,10 +79,7 @@ def infer_average_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
 
     n_spatial = x_shape.rank() - 2
 
-    kernel_shape_attr = node.attributes.get("kernel_shape")
-    if kernel_shape_attr is None:
-        raise _context.OpUsageError(node, "kernel_shape attribute is required")
-    kernel_shape = list(kernel_shape_attr.as_ints())
+    kernel_shape = list(_context.require_attr(node, "kernel_shape").as_ints())
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"
@@ -125,10 +122,7 @@ def infer_max_pool(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     n_spatial = x_shape.rank() - 2
 
-    kernel_shape_attr = node.attributes.get("kernel_shape")
-    if kernel_shape_attr is None:
-        raise _context.OpUsageError(node, "kernel_shape attribute is required")
-    kernel_shape = list(kernel_shape_attr.as_ints())
+    kernel_shape = list(_context.require_attr(node, "kernel_shape").as_ints())
 
     auto_pad_attr = node.attributes.get("auto_pad")
     auto_pad = auto_pad_attr.as_string() if auto_pad_attr is not None else "NOTSET"

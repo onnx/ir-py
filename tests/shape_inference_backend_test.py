@@ -49,9 +49,6 @@ _SKIP_EXPANDED_MODELS: set[str] = {
     "test_affine_grid_2d_expanded",
     "test_affine_grid_3d_align_corners_expanded",
     "test_affine_grid_3d_expanded",
-    # Range expanded: Loop body doesn't propagate dtype to scan output
-    "test_range_float_type_positive_delta_expanded",
-    "test_range_int32_type_negative_delta_expanded",
 }
 
 _ALL_SKIPS = _SKIP_EXPANDED_MODELS
