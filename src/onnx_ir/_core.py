@@ -1453,8 +1453,11 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
     def __trunc__(self) -> SymbolicDim:
         """Support math.trunc(dim). Returns a SymbolicDim truncated toward zero.
         
-        ONNX dimensions are non-negative integers, so truncation toward zero
-        is a no-op on symbolic dimensions. Preserve the original expression.
+        In ONNX, tensor dimensions are constrained to be non-negative integers.
+        Since symbolic dimensions represent such values, truncation toward zero
+        is equivalent to the identity function (the value is already >= 0, so
+        trunc(x) = floor(abs(x)) = floor(x) = x). This implementation preserves
+        the original expression unchanged.
         """
         if self._expr is None:
             return SymbolicDim(None)
