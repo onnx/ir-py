@@ -123,34 +123,25 @@ class GatherTest(unittest.TestCase):
 
 
 class GatherElementsTest(unittest.TestCase):
-    def test_gather_elements_basic(self):
+    @parameterized.parameterized.expand(
+        [
+            ("default_axis", [3, 4], [3, 2], None, [3, 2]),
+            ("axis_1", [3, 4], [3, 2], 1, [3, 2]),
+            ("axis_0", [5, 4, 3], [2, 4, 3], 0, [2, 4, 3]),
+        ]
+    )
+    def test_gather_elements(self, _name, data_shape, indices_shape, axis, expected_shape):
+        attrs = {}
+        if axis is not None:
+            attrs["axis"] = ir.Attr("axis", ir.AttributeType.INT, axis)
         actual = run_shape_inference(
             "",
             "GatherElements",
-            [ts(FLOAT, [3, 4]), ts(INT64, [3, 2])],
+            [ts(FLOAT, data_shape), ts(INT64, indices_shape)],
+            attrs or None,
             opset_version=17,
         )
-        self.assertEqual(actual, [ts(FLOAT, [3, 2])])
-
-    def test_gather_elements_with_axis(self):
-        actual = run_shape_inference(
-            "",
-            "GatherElements",
-            [ts(FLOAT, [3, 4]), ts(INT64, [3, 2])],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
-            opset_version=17,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [3, 2])])
-
-    def test_gather_elements_axis_0(self):
-        actual = run_shape_inference(
-            "",
-            "GatherElements",
-            [ts(FLOAT, [5, 4, 3]), ts(INT64, [2, 4, 3])],
-            {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-            opset_version=17,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [2, 4, 3])])
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
 
 class GatherNDTest(unittest.TestCase):

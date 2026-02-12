@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import unittest
 
+import parameterized
+
 import onnx_ir as ir
 from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
@@ -272,123 +274,47 @@ class SequenceAtSymbolicDimsTest(unittest.TestCase):
 class SequenceErrorPathsTest(unittest.TestCase):
     """Tests for error/early-return paths in sequence ops."""
 
-    def test_construct_no_inputs(self):
+    @parameterized.parameterized.expand(
+        [
+            ("construct", "SequenceConstruct", []),
+            ("at", "SequenceAt", []),
+            ("length", "SequenceLength", []),
+            ("insert", "SequenceInsert", [ts(FLOAT, [3])]),
+            ("erase", "SequenceErase", []),
+            ("split_to_sequence", "SplitToSequence", []),
+            ("concat_from_sequence", "ConcatFromSequence", []),
+        ]
+    )
+    def test_no_inputs(self, _name, op_type, inputs):
+        attrs = {}
+        if op_type == "ConcatFromSequence":
+            attrs = {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)}
         with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "SequenceConstruct",
-                [],
-                opset_version=17,
-            )
+            run_shape_inference("", op_type, inputs, attrs or None, opset_version=17)
 
-    def test_construct_none_input(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference_with_values(
-                "",
-                "SequenceConstruct",
-                [None],
-                opset_version=17,
-            )
-
-    def test_at_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
+    @parameterized.parameterized.expand(
+        [
+            ("construct", "SequenceConstruct", [None]),
+            (
+                "at",
                 "SequenceAt",
-                [],
-                opset_version=17,
-            )
-
-    def test_at_none_seq(self):
-        with self.assertRaises(OpUsageError):
-            idx = ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([]))
-            run_shape_inference_with_values(
-                "",
-                "SequenceAt",
-                [None, idx],
-                opset_version=17,
-            )
-
-    def test_length_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "SequenceLength",
-                [],
-                opset_version=17,
-            )
-
-    def test_insert_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
+                [None, ir.Value(name="idx", type=ir.TensorType(INT64), shape=ir.Shape([]))],
+            ),
+            (
+                "insert",
                 "SequenceInsert",
-                [ts(FLOAT, [3])],
-                opset_version=17,
-            )
-
-    def test_insert_none_seq(self):
-        with self.assertRaises(OpUsageError):
-            tensor = ir.Value(name="t", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))
-            run_shape_inference_with_values(
-                "",
-                "SequenceInsert",
-                [None, tensor],
-                opset_version=17,
-            )
-
-    def test_erase_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "SequenceErase",
-                [],
-                opset_version=17,
-            )
-
-    def test_erase_none_seq(self):
+                [None, ir.Value(name="t", type=ir.TensorType(FLOAT), shape=ir.Shape([3]))],
+            ),
+            ("erase", "SequenceErase", [None]),
+            ("split_to_sequence", "SplitToSequence", [None]),
+            ("concat_from_sequence", "ConcatFromSequence", [None]),
+        ]
+    )
+    def test_none_input(self, _name, op_type, inputs):
+        attrs = {}
+        if op_type == "ConcatFromSequence":
+            attrs = {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)}
         with self.assertRaises(OpUsageError):
             run_shape_inference_with_values(
-                "",
-                "SequenceErase",
-                [None],
-                opset_version=17,
-            )
-
-    def test_split_to_sequence_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "SplitToSequence",
-                [],
-                opset_version=17,
-            )
-
-    def test_split_to_sequence_none_data(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference_with_values(
-                "",
-                "SplitToSequence",
-                [None],
-                opset_version=17,
-            )
-
-    def test_concat_from_sequence_no_inputs(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "ConcatFromSequence",
-                [],
-                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-                opset_version=17,
-            )
-
-    def test_concat_from_sequence_none_seq(self):
-        with self.assertRaises(OpUsageError):
-            run_shape_inference_with_values(
-                "",
-                "ConcatFromSequence",
-                [None],
-                {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
-                opset_version=17,
+                "", op_type, inputs, attrs or None, opset_version=17
             )

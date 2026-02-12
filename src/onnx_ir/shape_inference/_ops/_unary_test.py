@@ -87,23 +87,18 @@ class UnaryTest(unittest.TestCase):
         self.assertIsInstance(result.shape[0], ir.SymbolicDim)
         self.assertIsInstance(result.shape[1], ir.SymbolicDim)
 
-    def test_not_output_bool(self):
+    @parameterized.parameterized.expand(
+        [
+            ("not", "Not", BOOL, [3, 4], BOOL),
+            ("isnan", "IsNaN", FLOAT, [2, 3], BOOL),
+            ("isinf", "IsInf", FLOAT, [4, 5], BOOL),
+        ]
+    )
+    def test_bool_output(self, _name, op_type, input_dtype, input_shape, output_dtype):
         actual = run_shape_inference(
-            "",
-            "Not",
-            [ts(BOOL, [3, 4])],
-            opset_version=17,
+            "", op_type, [ts(input_dtype, input_shape)], opset_version=17
         )
-        self.assertEqual(actual, [ts(BOOL, [3, 4])])
-
-    def test_isnan_output_bool(self):
-        actual = run_shape_inference(
-            "",
-            "IsNaN",
-            [ts(FLOAT, [2, 3])],
-            opset_version=17,
-        )
-        self.assertEqual(actual, [ts(BOOL, [2, 3])])
+        self.assertEqual(actual, [ts(output_dtype, input_shape)])
 
     def test_unary_no_inputs(self):
         with self.assertRaises(OpUsageError):

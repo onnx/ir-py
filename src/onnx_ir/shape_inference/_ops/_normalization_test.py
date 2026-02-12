@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import unittest
 
+import parameterized
+
 import onnx_ir as ir
 from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
@@ -169,24 +171,16 @@ class RMSNormalizationTest(unittest.TestCase):
         self.assertEqual(actual[1], ts(FLOAT, [2, 3]))
 
 
-class InstanceNormalizationTest(unittest.TestCase):
-    def test_basic(self):
+class SimplePassthroughNormTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("instance_normalization", "InstanceNormalization", 6),
+            ("lrn", "LRN", 13),
+        ]
+    )
+    def test_basic(self, _name, op_type, opset_version):
         actual = run_shape_inference(
-            "",
-            "InstanceNormalization",
-            [ts(FLOAT, [2, 3, 4, 5])],
-            opset_version=6,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [2, 3, 4, 5])])
-
-
-class LRNTest(unittest.TestCase):
-    def test_basic(self):
-        actual = run_shape_inference(
-            "",
-            "LRN",
-            [ts(FLOAT, [2, 3, 4, 5])],
-            opset_version=13,
+            "", op_type, [ts(FLOAT, [2, 3, 4, 5])], opset_version=opset_version
         )
         self.assertEqual(actual, [ts(FLOAT, [2, 3, 4, 5])])
 

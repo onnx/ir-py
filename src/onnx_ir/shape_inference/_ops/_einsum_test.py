@@ -57,6 +57,7 @@ class EinsumTest(unittest.TestCase):
         inputs = [ts(FLOAT, s) for s in input_shapes]
         actual = self._einsum(equation, inputs)
         self.assertEqual(list(actual[0].shape), expected_shape)
+        self.assertEqual(actual[0].type.dtype, FLOAT)
 
     @parameterized.parameterized.expand(
         [
@@ -82,6 +83,7 @@ class EinsumTest(unittest.TestCase):
         inputs = [ts(FLOAT, s) for s in input_shapes]
         actual = self._einsum(equation, inputs)
         self.assertEqual(actual[0].shape, ir.Shape(expected_shape))
+        self.assertEqual(actual[0].type.dtype, FLOAT)
 
     def test_unknown_input_shape_graceful(self):
         attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, "ij->ij")}
