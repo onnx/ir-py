@@ -263,9 +263,6 @@ _SKIP_INCOMPLETE_SUPPORT: set[str] = {
     "test_center_crop_pad_crop_axes_chw",
     # Resize: keep_aspect_ratio_policy edge cases
     "test_resize_downsample_sizes_nearest_not_smaller",
-    # Scan: subgraph type propagation not implemented
-    "test_scan9_sum",
-    "test_scan_sum",
     # Sequence ops: sequence type inference not implemented
     "test_sequence_insert_at_back",
     "test_sequence_insert_at_front",

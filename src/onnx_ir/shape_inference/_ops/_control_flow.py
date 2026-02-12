@@ -176,37 +176,146 @@ def infer_loop(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             ctx.set_shape_and_dtype(output, scan_shape, dtype)
 
 
-@_registry.registry.register("", "Scan", since_version=11)
+@_registry.registry.register("", "Scan", since_version=9)
 def infer_scan(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for Scan operator.
+    """Infer shape and dtype for Scan operator (opset >= 9).
 
-    State outputs keep body output shapes. Scan outputs get a symbolic scan dim prepended.
+    Scan iterates over one axis of each scan input and feeds slices into
+    a body subgraph.
+
+    State outputs keep body output shapes.  Scan outputs get a sequence-
+    length dimension inserted at the axis specified by scan_output_axes
+    (default axis 0).
+
+    Spec: https://onnx.ai/onnx/operators/onnx__Scan.html
     """
     body_attr = node.attributes.get("body")
-    if body_attr is not None:
-        body_graph = body_attr.as_graph()
-        if body_graph is not None:
-            num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
-            num_scan_inputs = (
-                num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
-            )
-            # Number of state variables = total inputs - scan inputs
-            num_state = len(node.inputs) - num_scan_inputs
-            for i, output in enumerate(node.outputs):
-                if i < len(body_graph.outputs):
-                    body_out = body_graph.outputs[i]
-                    if i < num_state:
-                        # State output: same shape as body state output
-                        ctx.set_shape_and_dtype(output, body_out.shape, body_out.dtype)
-                    else:
-                        # Scan output: body scan output shape + scan dim prepended
-                        if body_out.shape is not None:
-                            scan_len = ctx.new_symbolic_dim()
-                            out_shape = ir.Shape([scan_len, *body_out.shape])
-                        else:
-                            out_shape = None
-                        ctx.set_shape_and_dtype(output, out_shape, body_out.dtype)
-            return
+    if body_attr is None:
+        return
+    body_graph = body_attr.as_graph()
+    if body_graph is None:
+        return
 
-    for output in node.outputs:
-        ctx.set_shape_and_dtype(output, None, None)
+    num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
+    num_scan_inputs = num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
+    num_state = len(node.inputs) - num_scan_inputs
+
+    # scan_output_axes: one per scan output, default [0, 0, ...]
+    num_scan_outputs = len(node.outputs) - num_state
+    output_axes_attr = node.attributes.get("scan_output_axes")
+    if output_axes_attr is not None:
+        output_axes = list(output_axes_attr.as_ints())
+    else:
+        output_axes = [0] * num_scan_outputs
+
+    # Try to extract the sequence length from scan inputs
+    scan_input_axes_attr = node.attributes.get("scan_input_axes")
+    if scan_input_axes_attr is not None:
+        input_axes = list(scan_input_axes_attr.as_ints())
+    else:
+        input_axes = [0] * num_scan_inputs
+
+    scan_len_dim: int | ir.SymbolicDim | None = None
+    for idx in range(num_scan_inputs):
+        inp = node.inputs[num_state + idx]
+        if inp is not None and inp.shape is not None:
+            axis = input_axes[idx] if idx < len(input_axes) else 0
+            rank = inp.shape.rank()
+            if rank is not None and rank > 0:
+                if axis < 0:
+                    axis += rank
+                if 0 <= axis < rank:
+                    scan_len_dim = inp.shape[axis]
+                    break
+
+    if scan_len_dim is None:
+        scan_len_dim = ctx.new_symbolic_dim()
+
+    for i, output in enumerate(node.outputs):
+        if i >= len(body_graph.outputs):
+            continue
+        body_out = body_graph.outputs[i]
+        if i < num_state:
+            # State output: same shape as body state output
+            ctx.set_shape_and_dtype(output, body_out.shape, body_out.dtype)
+        else:
+            # Scan output: insert sequence-length dim at the output axis
+            scan_out_idx = i - num_state
+            axis = output_axes[scan_out_idx] if scan_out_idx < len(output_axes) else 0
+            if body_out.shape is not None:
+                body_dims = list(body_out.shape.dims)
+                output_rank = len(body_dims) + 1
+                if axis < 0:
+                    axis += output_rank
+                body_dims.insert(axis, scan_len_dim)
+                out_shape = ir.Shape(body_dims)
+            else:
+                out_shape = None
+            ctx.set_shape_and_dtype(output, out_shape, body_out.dtype)
+
+
+@_registry.registry.register("", "Scan", since_version=8)
+def infer_scan_v8(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Scan operator (opset 8).
+
+    Scan v8 has an extra ``sequence_lens`` input at position 0 and includes
+    a batch dimension.
+
+    Spec: https://onnx.ai/onnx/operators/onnx__Scan.html (opset 8)
+    """
+    body_attr = node.attributes.get("body")
+    if body_attr is None:
+        return
+    body_graph = body_attr.as_graph()
+    if body_graph is None:
+        return
+
+    num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
+    num_scan_inputs = num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
+    # v8: input[0] is sequence_lens (optional), rest are state + scan
+    num_state = len(node.inputs) - 1 - num_scan_inputs
+
+    # Extract batch dimension from a state input (input[1])
+    batch_dim: int | ir.SymbolicDim | None = None
+    if num_state > 0 and node.inputs[1] is not None:
+        inp: ir.Value | None = node.inputs[1]
+        if (
+            inp is not None
+            and inp.shape is not None
+            and inp.shape.rank() is not None
+            and inp.shape.rank() > 0
+        ):
+            batch_dim = inp.shape[0]
+    if batch_dim is None:
+        batch_dim = ctx.new_symbolic_dim()
+
+    # Extract scan length from first scan input (has shape [batch, seq_len, ...])
+    scan_len_dim: int | ir.SymbolicDim | None = None
+    for idx in range(num_scan_inputs):
+        scan_inp: ir.Value | None = node.inputs[1 + num_state + idx]
+        if scan_inp is not None and scan_inp.shape is not None:
+            rank = scan_inp.shape.rank()
+            if rank is not None and rank >= 2:
+                scan_len_dim = scan_inp.shape[1]  # axis 1 after batch
+                break
+    if scan_len_dim is None:
+        scan_len_dim = ctx.new_symbolic_dim()
+
+    for i, output in enumerate(node.outputs):
+        if i >= len(body_graph.outputs):
+            continue
+        body_out = body_graph.outputs[i]
+        if i < num_state:
+            # State output: [batch] + body output shape
+            if body_out.shape is not None:
+                out_shape = ir.Shape([batch_dim, *body_out.shape.dims])
+            else:
+                out_shape = None
+            ctx.set_shape_and_dtype(output, out_shape, body_out.dtype)
+        else:
+            # Scan output: [batch, scan_len] + body output shape
+            if body_out.shape is not None:
+                out_shape = ir.Shape([batch_dim, scan_len_dim, *body_out.shape.dims])
+            else:
+                out_shape = None
+            ctx.set_shape_and_dtype(output, out_shape, body_out.dtype)
