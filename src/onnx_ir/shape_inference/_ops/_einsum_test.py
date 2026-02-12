@@ -56,8 +56,7 @@ class EinsumTest(unittest.TestCase):
     def test_einsum(self, _name, equation, input_shapes, expected_shape):
         inputs = [ts(FLOAT, s) for s in input_shapes]
         actual = self._einsum(equation, inputs)
-        self.assertEqual(list(actual[0].shape), expected_shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     @parameterized.parameterized.expand(
         [
@@ -82,8 +81,7 @@ class EinsumTest(unittest.TestCase):
     def test_symbolic_dims(self, _name, equation, input_shapes, expected_shape):
         inputs = [ts(FLOAT, s) for s in input_shapes]
         actual = self._einsum(equation, inputs)
-        self.assertEqual(actual[0].shape, ir.Shape(expected_shape))
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_unknown_input_shape_graceful(self):
         attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, "ij->ij")}

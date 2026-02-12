@@ -48,11 +48,7 @@ class CastTest(unittest.TestCase):
             {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
             opset_version=17,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
-        self.assertEqual(result.shape, ir.Shape(["N", "C"]))
-        self.assertEqual(result.type.dtype, INT64)
+        self.assertEqual(actual, [ts(INT64, ["N", "C"])])
 
     def test_missing_shape(self):
         actual = run_shape_inference(

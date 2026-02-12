@@ -39,7 +39,7 @@ class ScatterTest(unittest.TestCase):
     )
     def test_symbolic_dims(self, _name, op_type, input_shape):
         actual = run_shape_inference("", op_type, [ts(FLOAT, input_shape)], opset_version=18)
-        self.assertEqual(actual[0].shape, ir.Shape(input_shape))
+        self.assertEqual(actual, [ts(FLOAT, input_shape)])
 
     @parameterized.parameterized.expand(
         [

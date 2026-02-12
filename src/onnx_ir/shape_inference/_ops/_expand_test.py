@@ -50,13 +50,9 @@ class ExpandTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [4, 8])])
 
     def test_symbolic_input(self):
-        """Expand with symbolic input: ["N", 1] → [target], preserves SymbolicDim."""
+        """Expand with symbolic input: ["N", 1] → [3, 4]."""
         actual = self._run(ts(FLOAT, ["N", 1]), [3, 4])
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
-        self.assertEqual(result.shape[0], 3)
-        self.assertEqual(result.shape[1], 4)
+        self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 
     def test_dynamic_shape(self):
         """When shape input is not const, output shape is unknown."""
@@ -68,8 +64,7 @@ class ExpandTest(unittest.TestCase):
             [data, shape_val],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_expand_no_inputs(self):
         with self.assertRaises(OpUsageError):
@@ -102,9 +97,6 @@ class ExpandTest(unittest.TestCase):
             [data, shape_val],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
-
-
+        self.assertEqual(actual, [ts(FLOAT)])
 if __name__ == "__main__":
     unittest.main()

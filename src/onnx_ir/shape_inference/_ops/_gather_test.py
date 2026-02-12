@@ -153,7 +153,6 @@ class GatherNDTest(unittest.TestCase):
             [ts(FLOAT, [5, 4, 3]), ts(INT64, [2, 2])],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual, [ts(FLOAT, [2, 3])])
 
     def test_symbolic_dims(self):
@@ -163,10 +162,7 @@ class GatherNDTest(unittest.TestCase):
             [ts(FLOAT, ["N", "M", 3]), ts(INT64, ["K", 1])],
             opset_version=17,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 3)
-        self.assertEqual(result.shape, ir.Shape(["K", "M", 3]))
+        self.assertEqual(actual, [ts(FLOAT, ["K", "M", 3])])
 
 
 if __name__ == "__main__":

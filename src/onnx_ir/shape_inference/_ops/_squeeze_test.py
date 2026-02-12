@@ -160,8 +160,7 @@ class UnsqueezeTest(unittest.TestCase):
             [data, axes],
             opset_version=13,
         )
-        self.assertEqual(actual[0].shape, ir.Shape([1, "N", "C", 1]))
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, [1, "N", "C", 1])])
 
     def test_unsqueeze_scalar(self):
         """From ONNX test_unsqueeze_scalar: scalar input with axis=-1."""

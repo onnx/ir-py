@@ -70,8 +70,7 @@ class WhereTest(unittest.TestCase):
             [ts(BOOL, ["N", 1]), ts(FLOAT, [1, "M"]), ts(FLOAT, [1, "M"])],
             opset_version=17,
         )
-        self.assertEqual(actual[0].shape, ir.Shape(["N", "M"]))
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "M"])])
 
     def test_missing_shape(self):
         actual = run_shape_inference(

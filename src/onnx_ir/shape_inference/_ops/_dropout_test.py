@@ -41,7 +41,7 @@ class DropoutTest(unittest.TestCase):
         self.assertEqual(actual[1], ts(BOOL, ["batch", 128]))
 
     def test_symbolic_dims(self):
-        """Dropout on ["N", "C"] → same shape, both SymbolicDim."""
+        """Dropout on ["N", "C"] → same shape ["N", "C"]."""
         actual = run_shape_inference(
             "",
             "Dropout",
@@ -49,11 +49,7 @@ class DropoutTest(unittest.TestCase):
             opset_version=13,
             num_outputs=1,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
-        self.assertEqual(result.shape, ir.Shape(["N", "C"]))
-        self.assertEqual(result.type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 
     def test_missing_shape(self):
         actual = run_shape_inference(

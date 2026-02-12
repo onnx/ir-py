@@ -138,7 +138,7 @@ class NLLLossSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=13,
         )
-        self.assertEqual(actual[0].shape, ir.Shape(expected_shape))
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
 
 if __name__ == "__main__":

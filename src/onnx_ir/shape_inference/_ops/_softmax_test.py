@@ -76,8 +76,7 @@ class SoftmaxTest(unittest.TestCase):
             [ts(FLOAT, ["N", "C"])],
             opset_version=17,
         )
-        self.assertEqual(actual[0].shape, ir.Shape(["N", "C"]))
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 
     def test_softmax_no_inputs(self):
         with self.assertRaises(OpUsageError):

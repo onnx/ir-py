@@ -80,12 +80,9 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(result.shape[1], 1)
 
     def test_symbolic_input_const_slice(self):
-        """Slice on ["N", "C"] with const starts/ends on axis 1 → ["N", concrete]."""
+        """Slice on ["N", "C"] with const starts/ends on axis 1 → ["N", 6]."""
         actual = self._run(ts(FLOAT, ["N", 10]), [2], [8], [1], [1])
-        result = actual[0]
-        self.assertEqual(result.shape[0], ir.SymbolicDim("N"))
-        self.assertEqual(result.shape[1], 6)
-        self.assertEqual(result.type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["N", 6])])
 
     def test_missing_input_shape(self):
         data = ir.Value(name="data", type=ir.TensorType(FLOAT))

@@ -81,8 +81,7 @@ class UnaryTest(unittest.TestCase):
             [ts(FLOAT, ["N", "C"])],
             opset_version=20,
         )
-        self.assertEqual(actual[0].shape, ir.Shape(["N", "C"]))
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 
     @parameterized.parameterized.expand(
         [
