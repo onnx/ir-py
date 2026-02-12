@@ -34,18 +34,15 @@ def _compute_pool_output_shape(
     spatial_dims: list[int | ir.SymbolicDim] = []
     for i in range(n_spatial):
         in_dim = x_shape[i + 2]
-        if not isinstance(in_dim, int):
-            spatial_dims.append(ctx.new_symbolic_dim())
-            continue
         k = kernel_shape[i]
         s = strides[i]
         d = dilations[i]
         pad_begin = pads[i]
         pad_end = pads[i + n_spatial]
         effective_kernel = d * (k - 1) + 1
-        numerator = in_dim + pad_begin + pad_end - effective_kernel
+        numerator: int | ir.SymbolicDim = in_dim + pad_begin + pad_end - effective_kernel
         if ceil_mode:
-            out_dim = math.ceil(numerator / s) + 1
+            out_dim: int | ir.SymbolicDim = math.ceil(numerator / s) + 1  # type: ignore[operator]
         else:
             out_dim = numerator // s + 1
         spatial_dims.append(out_dim)

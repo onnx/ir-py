@@ -30,10 +30,7 @@ def infer_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             new_dims: list[int | ir.SymbolicDim] = []
             for i in range(rank):
                 dim = data.shape[i]
-                if isinstance(dim, int):
-                    new_dims.append(dim + pads[i] + pads[i + rank])
-                else:
-                    new_dims.append(ctx.new_symbolic_dim())
+                new_dims.append(dim + pads[i] + pads[i + rank])
             output_shape = ir.Shape(new_dims)
         else:
             output_shape = ir.Shape([ctx.new_symbolic_dim() for _ in range(rank)])

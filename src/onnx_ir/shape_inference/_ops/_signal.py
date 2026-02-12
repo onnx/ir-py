@@ -30,9 +30,8 @@ def infer_dft(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             ctx.set_shape_and_dtype(node.outputs[0], None, output_dtype)
         return
 
-    # Output has same rank as input with symbolic dims
-    rank = input_val.shape.rank()
-    output_dims: list[int | ir.SymbolicDim] = [ctx.new_symbolic_dim() for _ in range(rank)]
+    # Output has same rank and shape as input
+    output_dims: list[int | ir.SymbolicDim] = list(input_val.shape.dims)
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims), output_dtype)
 

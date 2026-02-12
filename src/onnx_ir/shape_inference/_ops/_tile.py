@@ -24,10 +24,7 @@ def infer_tile(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         new_dims: list[int | ir.SymbolicDim] = []
         for i, dim in enumerate(input_val.shape.dims):
             if i < len(repeats_vals):
-                if isinstance(dim, int):
-                    new_dims.append(dim * repeats_vals[i])
-                else:
-                    new_dims.append(ctx.new_symbolic_dim())
+                new_dims.append(dim * repeats_vals[i])
             else:
                 new_dims.append(dim)
         output_shape = ir.Shape(new_dims)

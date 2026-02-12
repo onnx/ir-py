@@ -299,7 +299,7 @@ def infer_deform_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
         s = strides[i]
         d = dilations[i]
 
-        if not isinstance(in_dim, int) or k is None:
+        if k is None:
             spatial_dims.append(ctx.new_symbolic_dim())
             continue
 

@@ -41,8 +41,7 @@ def _infer_rnn(
             w = node.inputs[1]
             if w.shape is not None and w.shape.rank() >= 2:
                 w_dim1 = w.shape.dims[1]
-                if isinstance(w_dim1, int):
-                    hidden_size = w_dim1 // num_gates
+                hidden_size = w_dim1 // num_gates
 
     if hidden_size is None:
         hidden_size = ctx.new_symbolic_dim()

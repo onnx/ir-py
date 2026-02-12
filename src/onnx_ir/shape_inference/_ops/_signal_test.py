@@ -25,7 +25,7 @@ class DFTTest(unittest.TestCase):
             [ts(FLOAT, [1, 10, 2])],
             opset_version=20,
         )
-        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1", "_d2"])])
+        self.assertEqual(actual, [ts(FLOAT, [1, 10, 2])])
 
     def test_missing_shape(self):
         actual = run_shape_inference(
@@ -91,7 +91,7 @@ class DFTSymbolicDimsTest(unittest.TestCase):
             [ts(FLOAT, ["N", "L", 2])],
             opset_version=20,
         )
-        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1", "_d2"])])
+        self.assertEqual(actual, [ts(FLOAT, ["N", "L", 2])])
 
 
 class STFTSymbolicDimsTest(unittest.TestCase):

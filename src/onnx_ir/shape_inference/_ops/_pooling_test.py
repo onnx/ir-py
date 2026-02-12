@@ -187,21 +187,22 @@ class PoolingSymbolicDimsTest(unittest.TestCase):
                 "AveragePool",
                 {"kernel_shape": [3, 3], "strides": [1, 1], "pads": [0, 0, 0, 0]},
                 ["N", "C", "H", "W"],
+                ["N", "C", "H - 2", "W - 2"],
             ),
             (
                 "max_pool",
                 "MaxPool",
                 {"kernel_shape": [2, 2], "strides": [2, 2], "pads": [0, 0, 0, 0]},
                 ["N", 3, "H", "W"],
+                ["N", 3, "floor(H/2)", "floor(W/2)"],
             ),
         ]
     )
-    def test_symbolic_spatial_dims(self, _name, op_type, attr_vals, input_shape):
+    def test_symbolic_spatial_dims(self, _name, op_type, attr_vals, input_shape, expected):
         attrs = {k: ir.Attr(k, ir.AttributeType.INTS, v) for k, v in attr_vals.items()}
         actual = run_shape_inference(
             "", op_type, [ts(FLOAT, input_shape)], attrs, opset_version=21
         )
-        expected = list(input_shape[:2]) + ["_d0", "_d1"]
         self.assertEqual(actual, [ts(FLOAT, expected)])
 
     @parameterized.parameterized.expand(

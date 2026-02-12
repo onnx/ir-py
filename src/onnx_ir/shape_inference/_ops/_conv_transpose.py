@@ -47,10 +47,7 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
     batch_dim = x_shape[0]
     # W shape is [C_in, C_out/group, *kernel_shape]
     out_channels_per_group = w_shape[1]
-    if isinstance(out_channels_per_group, int):
-        out_channels: int | ir.SymbolicDim = out_channels_per_group * group
-    else:
-        out_channels = ctx.new_symbolic_dim()
+    out_channels: int | ir.SymbolicDim = out_channels_per_group * group
 
     # Check for output_shape attribute
     output_shape_attr = node.attributes.get("output_shape")
@@ -100,7 +97,7 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
         s = strides[i]
         d = dilations[i]
 
-        if not isinstance(in_dim, int) or k is None:
+        if k is None:
             spatial_out.append(ctx.new_symbolic_dim())
             continue
 

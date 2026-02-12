@@ -62,14 +62,9 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     for dim_idx in range(rank):
         if dim_idx == axis:
             # Sum along concat axis
-            total: int | ir.SymbolicDim | None = 0
+            total: int | ir.SymbolicDim = 0
             for s in shapes:
-                d = s[dim_idx]
-                if isinstance(total, int) and isinstance(d, int):
-                    total += d
-                else:
-                    total = ctx.new_symbolic_dim()
-                    break
+                total = total + s[dim_idx]
             output_dims.append(total)  # type: ignore[arg-type]
         else:
             output_dims.append(shapes[0][dim_idx])

@@ -17,30 +17,30 @@ from onnx_ir.shape_inference import _context, _registry
 
 
 def _compute_conv_output_dim(
-    in_dim: int,
+    in_dim: int | ir.SymbolicDim,
     kernel: int,
     stride: int,
     dilation: int,
     pad_begin: int,
     pad_end: int,
-) -> int:
+) -> int | ir.SymbolicDim:
     """Compute the output spatial dimension for Conv with explicit padding."""
     effective_kernel = dilation * (kernel - 1) + 1
     return (in_dim + pad_begin + pad_end - effective_kernel) // stride + 1
 
 
 def _compute_auto_pad_output_dim(
-    in_dim: int,
+    in_dim: int | ir.SymbolicDim,
     stride: int,
     auto_pad: str,
-) -> int:
+) -> int | ir.SymbolicDim:
     """Compute the output spatial dimension for Conv with auto_pad.
 
     SAME_UPPER/SAME_LOWER: output_dim = ceil(in_dim / stride)
     VALID: output with no padding (handled by caller).
     """
     if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
-        return math.ceil(in_dim / stride)
+        return math.ceil(in_dim / stride)  # type: ignore[return-value]
     # Should not be called for NOTSET or VALID
     raise ValueError(f"Unexpected auto_pad value: {auto_pad}")
 
@@ -117,7 +117,7 @@ def infer_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         s = strides[i]
         d = dilations[i]
 
-        if not isinstance(in_dim, int) or k is None:
+        if k is None:
             spatial_dims.append(ctx.new_symbolic_dim())
             continue
 
@@ -197,7 +197,7 @@ def _compute_conv_shape(
         s = strides[i]
         d = dilations[i]
 
-        if not isinstance(in_dim, int) or k is None:
+        if k is None:
             spatial_dims.append(ctx.new_symbolic_dim())
             continue
 

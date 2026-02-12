@@ -109,6 +109,37 @@ class SymbolicDimTest(unittest.TestCase):
         result = 2 * dim
         self.assertEqual(result.value, "2*N")
 
+    def test_truediv_with_int(self):
+        dim = ir.SymbolicDim("N")
+        result = dim / 3
+        self.assertEqual(result.value, "N/3")
+
+    def test_rtruediv(self):
+        dim = ir.SymbolicDim("N")
+        result = 6 / dim
+        self.assertEqual(result.value, "6/N")
+
+    def test_ceil(self):
+        import math
+
+        dim = ir.SymbolicDim("N")
+        result = math.ceil(dim / 3)
+        self.assertEqual(result.value, "ceiling(N/3)")
+
+    def test_floor(self):
+        import math
+
+        dim = ir.SymbolicDim("N")
+        result = math.floor(dim / 3)
+        self.assertEqual(result.value, "floor(N/3)")
+
+    def test_trunc(self):
+        import math
+
+        dim = ir.SymbolicDim("N")
+        result = math.trunc(dim)
+        self.assertEqual(result.value, "N")
+
     def test_unsupported_operand_raises_type_error(self):
         dim = ir.SymbolicDim("N")
         with self.assertRaises(TypeError) as ctx:

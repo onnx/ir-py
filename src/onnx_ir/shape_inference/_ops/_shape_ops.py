@@ -11,7 +11,8 @@ __all__ = [
     "infer_size",
 ]
 
-import math
+import functools
+import operator
 
 import onnx_ir as ir
 from onnx_ir.shape_inference import _context, _registry
@@ -85,12 +86,11 @@ def infer_flatten(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         if axis < 0:
             axis += rank
 
-        if input_shape.is_static():
-            left = math.prod(d if isinstance(d, int) else 1 for d in input_shape.dims[:axis])
-            right = math.prod(d if isinstance(d, int) else 1 for d in input_shape.dims[axis:])
-            output_shape = ir.Shape([left, right])
-        else:
-            output_shape = ir.Shape([ctx.new_symbolic_dim(), ctx.new_symbolic_dim()])
+        left: int | ir.SymbolicDim = functools.reduce(operator.mul, input_shape.dims[:axis], 1)
+        right: int | ir.SymbolicDim = functools.reduce(
+            operator.mul, input_shape.dims[axis:], 1
+        )
+        output_shape = ir.Shape([left, right])
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)

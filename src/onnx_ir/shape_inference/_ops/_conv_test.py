@@ -215,7 +215,7 @@ class ConvTest(unittest.TestCase):
             opset_version=17,
         )
         result = actual[0]
-        self.assertEqual(result, ts(FLOAT, ["N", 16, "_d0", "_d1"]))
+        self.assertEqual(result, ts(FLOAT, ["N", 16, "H - 2", "W - 2"]))
 
     def test_partial_missing_input_shape(self):
         """When a spatial dim is unknown, output dim should also be unknown."""
@@ -229,7 +229,7 @@ class ConvTest(unittest.TestCase):
         result = actual[0]
         self.assertEqual(result.shape[0], 30)
         self.assertEqual(result.shape[1], 50)
-        self.assertNotIsInstance(result.shape[2], int)  # Unknown
+        self.assertEqual(result.shape[2], ir.SymbolicDim("_d0 - 1"))
         self.assertEqual(result.shape[3], 6)
         self.assertEqual(result.shape[4], 6)
 
@@ -386,7 +386,7 @@ class ConvIntegerTest(unittest.TestCase):
             [ts(INT8, [1, 1, "H", "W"]), ts(INT8, [1, 1, 3, 3])],
             opset_version=10,
         )
-        self.assertEqual(actual, [ts(INT32, [1, 1, "_d0", "_d1"])])
+        self.assertEqual(actual, [ts(INT32, [1, 1, "H - 2", "W - 2"])])
 
 
 class QLinearConvTest(unittest.TestCase):

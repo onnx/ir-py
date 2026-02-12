@@ -97,7 +97,7 @@ class ConcatTest(unittest.TestCase):
             {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
             opset_version=17,
         )
-        self.assertEqual(actual, [ts(FLOAT, [2, "_d0"])])
+        self.assertEqual(actual, [ts(FLOAT, [2, "a + b"])])
 
     def test_single_input(self):
         """Single input concat is identity."""

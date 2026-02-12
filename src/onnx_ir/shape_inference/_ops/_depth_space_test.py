@@ -35,18 +35,24 @@ class DepthSpaceTest(unittest.TestCase):
 
     @parameterized.parameterized.expand(
         [
-            ("depth_to_space", "DepthToSpace"),
-            ("space_to_depth", "SpaceToDepth"),
+            (
+                "depth_to_space",
+                "DepthToSpace",
+                ["N", "floor(C/4)", "2*H", "2*W"],
+            ),
+            (
+                "space_to_depth",
+                "SpaceToDepth",
+                ["N", "4*C", "floor(H/2)", "floor(W/2)"],
+            ),
         ]
     )
-    def test_symbolic_dims(self, _name, op_type):
+    def test_symbolic_dims(self, _name, op_type, expected):
         attrs = {"blocksize": ir.Attr("blocksize", ir.AttributeType.INT, 2)}
         actual = run_shape_inference(
             "", op_type, [ts(FLOAT, ["N", "C", "H", "W"])], attrs, opset_version=13
         )
-        result = actual[0]
-        self.assertEqual(result.shape[0], ir.SymbolicDim("N"))
-        self.assertEqual(result.shape.rank(), 4)
+        self.assertEqual(actual, [ts(FLOAT, expected)])
 
     @parameterized.parameterized.expand(
         [

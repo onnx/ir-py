@@ -67,7 +67,7 @@ class TileTest(unittest.TestCase):
             [data, repeats],
             opset_version=13,
         )
-        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
+        self.assertEqual(actual, [ts(FLOAT, ["2*N", "3*M"])])
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ class PadTest(unittest.TestCase):
         actual = run_shape_inference_with_values(
             "", "Pad", [data_val, pads_val], opset_version=13
         )
-        self.assertEqual(actual, [ts(FLOAT, ["_d0", 4])])
+        self.assertEqual(actual, [ts(FLOAT, ["N + 2", 4])])
 
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):

@@ -112,6 +112,10 @@ def run_shape_inference(
     opset_imports = {domain: opset_version} if domain else {"": opset_version}
     ctx = _context.ShapeInferenceContext(opset_imports, policy=policy)
 
+    # Name anonymous dims on inputs, matching what the engine does
+    for v in input_values:
+        ctx.name_anonymous_dims(v)
+
     func = _registry.registry.get(domain, op_type, version=opset_version)
     if func is None:
         raise ValueError(
@@ -149,6 +153,11 @@ def run_shape_inference_with_values(
 
     opset_imports = {domain: opset_version} if domain else {"": opset_version}
     ctx = _context.ShapeInferenceContext(opset_imports, policy=policy)
+
+    # Name anonymous dims on inputs, matching what the engine does
+    for v in list(input_values):
+        if v is not None:
+            ctx.name_anonymous_dims(v)
 
     func = _registry.registry.get(domain, op_type, version=opset_version)
     if func is None:
