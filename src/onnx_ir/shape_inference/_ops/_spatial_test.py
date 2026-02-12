@@ -208,11 +208,7 @@ class Col2ImSymbolicDimsTest(unittest.TestCase):
             [input_val, image_shape, block_shape],
             opset_version=18,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[2], 4)
-        self.assertEqual(actual[0].shape[3], 4)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "_d0", 4, 4])])
 
 
 class CenterCropPadTest(unittest.TestCase):
@@ -235,8 +231,7 @@ class CenterCropPadTest(unittest.TestCase):
         actual = run_shape_inference_with_values(
             "", "CenterCropPad", [input_val, shape_val], opset_version=18
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1", "_d2", "_d3"])])
 
     def test_center_crop_pad_missing_input_shape(self):
         input_val = ir.Value(name="input", type=ir.TensorType(FLOAT))
@@ -256,7 +251,6 @@ class MaxUnpoolTest(unittest.TestCase):
             opset_version=11,
         )
         self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
         self.assertEqual(actual[0].shape[0], 1)
         self.assertEqual(actual[0].shape[1], 1)
 
@@ -332,10 +326,7 @@ class MaxRoiPoolSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=1,
         )
-        self.assertEqual(actual[0].shape[2], 2)
-        self.assertEqual(actual[0].shape[3], 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1", 2, 2])])
 
 
 class RoiAlignSymbolicDimsTest(unittest.TestCase):
@@ -355,10 +346,7 @@ class RoiAlignSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=16,
         )
-        self.assertEqual(actual[0].shape[2], 3)
-        self.assertEqual(actual[0].shape[3], 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1", 3, 3])])
 
 
 if __name__ == "__main__":

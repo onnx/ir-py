@@ -103,9 +103,7 @@ class SliceTest(unittest.TestCase):
             [data, starts, ends],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
     def test_slice_no_inputs(self):
         with self.assertRaises(OpUsageError):
@@ -137,9 +135,7 @@ class SliceTest(unittest.TestCase):
             [data, starts, ends],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
 
 if __name__ == "__main__":

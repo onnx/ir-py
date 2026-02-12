@@ -45,11 +45,7 @@ class EyeLikeTest(unittest.TestCase):
 class ImageDecoderTest(unittest.TestCase):
     def test_basic(self):
         actual = run_shape_inference("", "ImageDecoder", [ts(UINT8, [100])], opset_version=20)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[2], 3)
-        self.assertEqual(actual[0].type.dtype, UINT8)
+        self.assertEqual(actual, [ts(UINT8, ["_d0", "_d1", 3])])
 
     def test_grayscale(self):
         attrs = {
@@ -58,7 +54,7 @@ class ImageDecoderTest(unittest.TestCase):
         actual = run_shape_inference(
             "", "ImageDecoder", [ts(UINT8, [100])], attrs, opset_version=20
         )
-        self.assertEqual(actual[0].shape[2], 1)
+        self.assertEqual(actual, [ts(UINT8, ["_d0", "_d1", 1])])
 
 
 class MelWeightMatrixTest(unittest.TestCase):
@@ -69,26 +65,19 @@ class MelWeightMatrixTest(unittest.TestCase):
             [ts(INT64, []), ts(INT64, []), ts(FLOAT, []), ts(FLOAT, []), ts(INT64, [])],
             opset_version=17,
         )
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
 
 class TfIdfVectorizerTest(unittest.TestCase):
     def test_1d_input(self):
         actual = run_shape_inference("", "TfIdfVectorizer", [ts(INT64, [10])], opset_version=9)
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0"])])
 
     def test_2d_input(self):
         actual = run_shape_inference(
             "", "TfIdfVectorizer", [ts(INT64, [4, 10])], opset_version=9
         )
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertEqual(actual[0].shape[0], 4)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, [4, "_d0"])])
 
 
 if __name__ == "__main__":

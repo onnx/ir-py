@@ -201,8 +201,8 @@ class PoolingSymbolicDimsTest(unittest.TestCase):
         actual = run_shape_inference(
             "", op_type, [ts(FLOAT, input_shape)], attrs, opset_version=21
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
+        expected = list(input_shape[:2]) + ["_d0", "_d1"]
+        self.assertEqual(actual, [ts(FLOAT, expected)])
 
     @parameterized.parameterized.expand(
         [

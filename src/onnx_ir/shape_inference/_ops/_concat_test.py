@@ -97,11 +97,7 @@ class ConcatTest(unittest.TestCase):
             {"axis": ir.Attr("axis", ir.AttributeType.INT, 1)},
             opset_version=17,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape[0], 2)
-        # Concat of symbolic dims should be symbolic
-        self.assertNotIsInstance(result.shape[1], int)
+        self.assertEqual(actual, [ts(FLOAT, [2, "_d0"])])
 
     def test_single_input(self):
         """Single input concat is identity."""

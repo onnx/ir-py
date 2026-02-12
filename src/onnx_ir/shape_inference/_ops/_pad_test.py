@@ -27,9 +27,7 @@ class PadTest(unittest.TestCase):
             [ts(FLOAT, [2, 3]), ts(ir.DataType.INT64, [4])],
             opset_version=13,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
     def test_symbolic_input_rank_preserved(self):
         """Pad with symbolic input: ["N", "C"] → rank 2, dims are symbolic."""
@@ -39,9 +37,7 @@ class PadTest(unittest.TestCase):
             [ts(FLOAT, ["N", "C"]), ts(ir.DataType.INT64, [4])],
             opset_version=13,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
     def test_const_pads_concrete_dims(self):
         """Pad with const pads on concrete dims: [3, 4] + pads [1, 0, 1, 0] → [5, 4]."""
@@ -59,12 +55,7 @@ class PadTest(unittest.TestCase):
         actual = run_shape_inference_with_values(
             "", "Pad", [data_val, pads_val], opset_version=13
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        # N + 2 padding is still symbolic since N is symbolic
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[1], 4)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", 4])])
 
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):

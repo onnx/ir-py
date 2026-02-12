@@ -190,10 +190,8 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
             num_outputs=3,
         )
         self.assertEqual(actual[0], ts(FLOAT, ["B", 8, "S", 64]))
-        # present_key follows K shape
-        self.assertEqual(actual[1].shape.rank(), 4)
-        # present_value follows V shape
-        self.assertEqual(actual[2].shape.rank(), 4)
+        self.assertEqual(actual[1], ts(FLOAT, ["B", 8, "Sk", 64]))
+        self.assertEqual(actual[2], ts(FLOAT, ["B", 8, "Sk", 64]))
 
 
 if __name__ == "__main__":

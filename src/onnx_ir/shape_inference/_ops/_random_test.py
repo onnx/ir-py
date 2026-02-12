@@ -79,10 +79,7 @@ class MultinomialTest(unittest.TestCase):
         actual = run_shape_inference(
             "", "Multinomial", [ts(FLOAT, ["N", 10])], attrs, opset_version=21
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[1], 5)
+        self.assertEqual(actual[0].shape, ir.Shape(["N", 5]))
 
 
 if __name__ == "__main__":

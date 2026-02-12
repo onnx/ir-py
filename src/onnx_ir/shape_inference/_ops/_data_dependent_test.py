@@ -21,28 +21,21 @@ INT64 = ir.DataType.INT64
 class NonZeroTest(unittest.TestCase):
     def test_known_rank(self):
         actual = run_shape_inference("", "NonZero", [ts(FLOAT, [3, 4])], opset_version=17)
-        self.assertEqual(actual[0].shape[0], 2)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, INT64)
+        self.assertEqual(actual, [ts(INT64, [2, "_d0"])])
 
     def test_symbolic_input(self):
         actual = run_shape_inference("", "NonZero", [ts(FLOAT, ["N", 3])], opset_version=17)
-        self.assertEqual(actual[0].shape[0], 2)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(INT64, [2, "_d0"])])
 
     def test_unknown_rank(self):
         actual = run_shape_inference("", "NonZero", [ts(FLOAT)], opset_version=17)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(INT64, ["_d0", "_d1"])])
 
 
 class CompressTest(unittest.TestCase):
     def test_basic(self):
         actual = run_shape_inference("", "Compress", [ts(FLOAT, ["N", 3])], opset_version=17)
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0"])])
 
 
 class UniqueTest(unittest.TestCase):
@@ -50,9 +43,7 @@ class UniqueTest(unittest.TestCase):
         actual = run_shape_inference(
             "", "Unique", [ts(FLOAT, [5])], opset_version=17, num_outputs=4
         )
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual[0], ts(FLOAT, ["_d0"]))
         self.assertEqual(actual[1].type.dtype, INT64)
         self.assertEqual(actual[2].type.dtype, INT64)
         self.assertEqual(actual[3].type.dtype, INT64)

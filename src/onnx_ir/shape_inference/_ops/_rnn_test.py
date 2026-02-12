@@ -135,9 +135,7 @@ class RNNMissingShapeTest(unittest.TestCase):
             opset_version=21,
             num_outputs=2,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[3], ir.SymbolicDim)
+        self.assertEqual(actual[0], ts(FLOAT, [10, 1, 2, "_d0"]))
 
 
 class RNNSymbolicDimsTest(unittest.TestCase):
@@ -159,14 +157,7 @@ class RNNSymbolicDimsTest(unittest.TestCase):
             opset_version=21,
             num_outputs=num_outputs,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[1], 1)
-        self.assertEqual(actual[0].shape[3], hidden_size)
-        self.assertIsNotNone(actual[1].shape)
-        self.assertEqual(actual[1].shape.rank(), 3)
+        self.assertEqual(actual[0], ts(FLOAT, ["S", 1, "B", hidden_size]))
 
 
 if __name__ == "__main__":

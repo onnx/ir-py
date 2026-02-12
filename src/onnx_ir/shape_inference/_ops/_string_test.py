@@ -18,12 +18,8 @@ class StringSplitTest(unittest.TestCase):
         actual = run_shape_inference(
             "", "StringSplit", [ts(STRING, [3])], opset_version=22, num_outputs=2
         )
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertEqual(actual[0].shape[0], 3)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].type.dtype, STRING)
-        self.assertEqual(actual[1].shape, ir.Shape([3]))
-        self.assertEqual(actual[1].type.dtype, INT64)
+        self.assertEqual(actual[0], ts(STRING, [3, "_d0"]))
+        self.assertEqual(actual[1], ts(INT64, [3]))
 
     def test_no_shape(self):
         actual = run_shape_inference(

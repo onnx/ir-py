@@ -126,11 +126,7 @@ class SplitTest(unittest.TestCase):
             opset_version=17,
             num_outputs=2,
         )
-        # Shape has same rank with symbolic split axis dim
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[1], 4)
+        self.assertEqual(actual[0], ts(FLOAT, ["_d0", 4]))
 
     def test_split_no_inputs(self):
         with self.assertRaises(OpUsageError):

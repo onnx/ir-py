@@ -26,13 +26,7 @@ class OneHotTest(unittest.TestCase):
             [ts(INT64, [3, 4]), ts(INT64, []), ts(FLOAT, [2])],
             opset_version=21,
         )
-        self.assertIsNotNone(actual[0].shape)
-        # indices [3,4] -> output rank 3, default axis=-1 inserts at end
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertEqual(actual[0].shape[0], 3)
-        self.assertEqual(actual[0].shape[1], 4)
-        # depth dim is symbolic
-        self.assertEqual(actual[0].type, ir.TensorType(FLOAT))
+        self.assertEqual(actual, [ts(FLOAT, [3, 4, "_d0"])])
 
     def test_symbolic_batch(self):
         """OneHot with symbolic batch: ["N", 4] → rank 3, batch is SymbolicDim."""
@@ -42,11 +36,7 @@ class OneHotTest(unittest.TestCase):
             [ts(INT64, ["N", 4]), ts(INT64, []), ts(FLOAT, [2])],
             opset_version=21,
         )
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 3)
-        self.assertIsInstance(result.shape[0], ir.SymbolicDim)
-        self.assertEqual(result.shape[1], 4)
+        self.assertEqual(actual, [ts(FLOAT, ["N", 4, "_d0"])])
 
     def test_none_input_raises(self):
         v_depth = ir.Value(name="depth", type=ir.TensorType(INT64), shape=ir.Shape([]))

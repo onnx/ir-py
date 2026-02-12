@@ -42,8 +42,7 @@ class WindowTest(unittest.TestCase):
     def test_window_dynamic_size(self, _name, op_type):
         size = ir.Value(name="size", type=ir.TensorType(ir.DataType.INT64), shape=ir.Shape([]))
         actual = run_shape_inference_with_values("", op_type, [size], opset_version=21)
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0"])])
 
 
 if __name__ == "__main__":

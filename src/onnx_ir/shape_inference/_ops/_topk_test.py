@@ -32,15 +32,9 @@ class TopKTest(unittest.TestCase):
             num_outputs=2,
         )
         # The axis dim becomes symbolic
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertEqual(actual[0].shape[0], 3)
-        self.assertEqual(actual[0].shape[1], 4)
-        self.assertEqual(actual[0].type, ir.TensorType(FLOAT))
+        self.assertEqual(actual[0], ts(FLOAT, [3, 4, "_d0"]))
         # Second output is INT64 indices
-        self.assertIsNotNone(actual[1].shape)
-        self.assertEqual(actual[1].shape.rank(), 3)
-        self.assertEqual(actual[1].type, ir.TensorType(INT64))
+        self.assertEqual(actual[1], ts(INT64, [3, 4, "_d0"]))
 
     def test_missing_shape(self):
         actual = run_shape_inference(
@@ -81,10 +75,7 @@ class TopKTest(unittest.TestCase):
             opset_version=21,
             num_outputs=2,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertEqual(actual[0].shape[0], ir.SymbolicDim("N"))
-        self.assertEqual(actual[0].shape[1], ir.SymbolicDim("M"))
+        self.assertEqual(actual[0], ts(FLOAT, ["N", "M", "_d0"]))
 
 
 if __name__ == "__main__":

@@ -31,10 +31,7 @@ class RangeTest(unittest.TestCase):
         actual = run_shape_inference(
             "", "Range", [ts(dtype, []), ts(dtype, []), ts(dtype, [])], opset_version=21
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].type, ir.TensorType(dtype))
+        self.assertEqual(actual, [ts(dtype, ["_d0"])])
 
     def test_none_input_raises(self):
         v1 = ir.Value(name="limit", type=ir.TensorType(FLOAT), shape=ir.Shape([]))

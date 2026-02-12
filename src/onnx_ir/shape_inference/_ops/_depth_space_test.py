@@ -45,7 +45,7 @@ class DepthSpaceTest(unittest.TestCase):
             "", op_type, [ts(FLOAT, ["N", "C", "H", "W"])], attrs, opset_version=13
         )
         result = actual[0]
-        self.assertIsNotNone(result.shape)
+        self.assertEqual(result.shape[0], ir.SymbolicDim("N"))
         self.assertEqual(result.shape.rank(), 4)
 
     @parameterized.parameterized.expand(

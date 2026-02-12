@@ -43,8 +43,7 @@ class TileTest(unittest.TestCase):
             opset_version=13,
         )
         # Without const repeats, dtype is preserved but shape is None
-        self.assertIsNotNone(actual[0].type)
-        self.assertIsNone(actual[0].shape)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_none_input_raises(self):
         with self.assertRaises(OpUsageError):
@@ -68,11 +67,7 @@ class TileTest(unittest.TestCase):
             [data, repeats],
             opset_version=13,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        # Symbolic * int produces SymbolicDim
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
 
 if __name__ == "__main__":

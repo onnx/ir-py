@@ -162,9 +162,7 @@ class FlattenTest(unittest.TestCase):
             opset_version=17,
         )
         # Both output dims should be unknown (symbolic input)
-        result = actual[0]
-        self.assertIsNotNone(result.shape)
-        self.assertEqual(result.shape.rank(), 2)
+        self.assertEqual(actual, [ts(FLOAT, ["_d0", "_d1"])])
 
     def test_shape_no_inputs(self):
         with self.assertRaises(OpUsageError):
