@@ -1451,10 +1451,14 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
         return SymbolicDim(sympy.floor(self._expr))
 
     def __trunc__(self) -> SymbolicDim:
-        """Support math.trunc(dim). Returns a SymbolicDim truncated toward zero."""
+        """Support math.trunc(dim). Returns a SymbolicDim truncated toward zero.
+        
+        ONNX dimensions are non-negative integers, so truncation toward zero
+        is a no-op on symbolic dimensions. Preserve the original expression.
+        """
         if self._expr is None:
             return SymbolicDim(None)
-        return SymbolicDim(sympy.sign(self._expr) * sympy.floor(sympy.Abs(self._expr)))
+        return SymbolicDim(self._expr)
 
     def __neg__(self) -> SymbolicDim:
         """Negate this dimension."""

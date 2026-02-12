@@ -115,33 +115,66 @@ class SymbolicDimTest(unittest.TestCase):
         result = dim / 3
         self.assertEqual(result.value, "N/3")
 
+    def test_truediv_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = dim / 3
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
+
     def test_rtruediv(self):
         dim = ir.SymbolicDim("N")
         result = 6 / dim
         self.assertEqual(result.value, "6/N")
 
-    def test_ceil(self):
+    def test_rtruediv_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = 6 / dim
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
+    def test_ceil(self):
         dim = ir.SymbolicDim("N")
         result = math.ceil(dim / 3)
         self.assertEqual(result.value, "ceiling(N/3)")
 
-    def test_floor(self):
+    def test_ceil_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = math.ceil(dim)
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
+    def test_floor(self):
         dim = ir.SymbolicDim("N")
         result = math.floor(dim / 3)
         self.assertEqual(result.value, "floor(N/3)")
 
-    def test_trunc(self):
+    def test_floor_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = math.floor(dim)
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
+    def test_trunc(self):
         dim = ir.SymbolicDim("N")
         result = math.trunc(dim)
         self.assertEqual(result.value, "N")
+
+    def test_trunc_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = math.trunc(dim)
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
     def test_neg(self):
         dim = ir.SymbolicDim("N")
         result = -dim
         self.assertEqual(result.value, "-N")
+
+    def test_neg_with_none_returns_none(self):
+        dim = ir.SymbolicDim(None)
+        result = -dim
+        self.assertIsInstance(result, ir.SymbolicDim)
+        self.assertIsNone(result.value)
 
     def test_unsupported_operand_raises_type_error(self):
         dim = ir.SymbolicDim("N")
