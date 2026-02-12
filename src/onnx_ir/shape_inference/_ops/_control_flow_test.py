@@ -627,5 +627,54 @@ class LoopShapeInferenceTest(unittest.TestCase):
         self.assertEqual(loop_node.outputs[0].dtype, ir.DataType.FLOAT)
 
 
+# ---------------------------------------------------------------------------
+# Scan operator
+# ---------------------------------------------------------------------------
+class ScanTest(unittest.TestCase):
+    def test_basic(self):
+        """Scan with a body graph: 1 state var + 1 scan output."""
+        body_state_in = ir.Value(
+            name="state_in", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2])
+        )
+        body_state_out = ir.Value(
+            name="state_out", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2])
+        )
+        body_scan_out = ir.Value(
+            name="scan_out", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([3])
+        )
+        body_graph = ir.Graph(
+            inputs=[body_state_in],
+            outputs=[body_state_out, body_scan_out],
+            nodes=[],
+            name="scan_body",
+        )
+        attrs = {
+            "body": ir.Attr("body", ir.AttributeType.GRAPH, body_graph),
+            "num_scan_inputs": ir.Attr("num_scan_inputs", ir.AttributeType.INT, 0),
+        }
+        state_val = ir.Value(
+            name="state", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2])
+        )
+        actual = run_shape_inference_with_values(
+            "", "Scan", [state_val], attrs, opset_version=11, num_outputs=2
+        )
+        self.assertEqual(actual[0].shape, ir.Shape([2]))
+        self.assertIsNotNone(actual[1].shape)
+        self.assertEqual(actual[1].shape.rank(), 2)
+        self.assertIsInstance(actual[1].shape[0], ir.SymbolicDim)
+        self.assertEqual(actual[1].shape[1], 3)
+
+    def test_no_body(self):
+        """Scan without body graph → all outputs are None."""
+        state_val = ir.Value(
+            name="state", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2])
+        )
+        actual = run_shape_inference_with_values(
+            "", "Scan", [state_val], opset_version=11, num_outputs=2
+        )
+        self.assertIsNone(actual[0].shape)
+        self.assertIsNone(actual[1].shape)
+
+
 if __name__ == "__main__":
     unittest.main()

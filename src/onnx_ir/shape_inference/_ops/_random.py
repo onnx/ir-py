@@ -6,7 +6,6 @@ from __future__ import annotations
 
 __all__ = [
     "infer_bernoulli",
-    "infer_eye_like",
     "infer_multinomial",
     "infer_random_normal",
     "infer_random_normal_like",
@@ -57,12 +56,6 @@ def _infer_random_from_shape(ctx: _context.ShapeInferenceContext, node: ir.Node)
 
 
 # -- *Like ops ---------------------------------------------------------------
-
-
-@_reg("", "EyeLike", since_version=9)
-def infer_eye_like(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for EyeLike operator."""
-    _infer_like(ctx, node)
 
 
 @_reg("", "RandomNormalLike", since_version=1)

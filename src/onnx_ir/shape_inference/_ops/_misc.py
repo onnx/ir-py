@@ -90,3 +90,22 @@ def infer_sequence_map(ctx: _context.ShapeInferenceContext, node: ir.Node) -> No
 
     Graceful degradation: leave outputs unchanged.
     """
+
+
+@_registry.registry.register("", "EyeLike", since_version=9)
+def infer_eye_like(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for EyeLike operator.
+
+    Output has the same shape as the input. dtype comes from the optional
+    ``dtype`` attribute; when absent the input dtype is used.
+    """
+    (input_val,) = _context.check_inputs(node, "input")
+
+    dtype_attr = node.attributes.get("dtype")
+    if dtype_attr is not None:
+        output_dtype: ir.DataType | None = ir.DataType(dtype_attr.as_int())
+    else:
+        output_dtype = input_val.dtype
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, output_dtype)

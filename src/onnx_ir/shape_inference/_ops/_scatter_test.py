@@ -15,6 +15,7 @@ from onnx_ir.shape_inference._ops._testing import (
 )
 
 FLOAT = ir.DataType.FLOAT
+INT64 = ir.DataType.INT64
 
 
 class ScatterElementsTest(unittest.TestCase):
@@ -26,15 +27,6 @@ class ScatterElementsTest(unittest.TestCase):
             opset_version=18,
         )
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
-
-    def test_symbolic_dims(self):
-        actual = run_shape_inference(
-            "",
-            "ScatterElements",
-            [ts(FLOAT, ["N", "C"])],
-            opset_version=18,
-        )
-        self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 
     def test_symbolic_dims(self):
         """Verify symbolic dims are SymbolicDim instances."""
@@ -71,15 +63,6 @@ class ScatterNDTest(unittest.TestCase):
         self.assertEqual(actual, [ts(FLOAT, [4, 5, 6])])
 
     def test_symbolic_dims(self):
-        actual = run_shape_inference(
-            "",
-            "ScatterND",
-            [ts(FLOAT, ["N", "C", "D"])],
-            opset_version=18,
-        )
-        self.assertEqual(actual, [ts(FLOAT, ["N", "C", "D"])])
-
-    def test_symbolic_dims(self):
         """Verify symbolic dims are SymbolicDim instances."""
         actual = run_shape_inference(
             "",
@@ -102,6 +85,17 @@ class ScatterNDTest(unittest.TestCase):
                 [None],
                 opset_version=18,
             )
+
+
+class TensorScatterTest(unittest.TestCase):
+    def test_basic(self):
+        actual = run_shape_inference(
+            "",
+            "TensorScatter",
+            [ts(FLOAT, [5, 3]), ts(INT64, [2, 1]), ts(FLOAT, [2, 3])],
+            opset_version=24,
+        )
+        self.assertEqual(actual, [ts(FLOAT, [5, 3])])
 
 
 if __name__ == "__main__":
