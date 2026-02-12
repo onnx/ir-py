@@ -125,6 +125,38 @@ class SizeOpPropagationTest(unittest.TestCase):
         self.assertIsNone(sym_val)
 
 
+class IdentityPropagationTest(unittest.TestCase):
+    """Test that Identity forwards symbolic_value."""
+
+    def test_identity_propagates_symbolic_value(self):
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(INT64, [4]))
+        ctx.set_symbolic_value(x, [ir.SymbolicDim("N"), 3, ir.SymbolicDim("H"), ir.SymbolicDim("W")])
+        [out] = _run_node(ctx, "", "Identity", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNotNone(sym_val)
+        self.assertEqual(len(sym_val), 4)
+        self.assertEqual(str(sym_val[0]), "N")
+        self.assertEqual(sym_val[1], 3)
+
+    def test_identity_no_symbolic_value(self):
+        """Identity with no symbolic_value on input → no propagation."""
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT, [3, 4]))
+        [out] = _run_node(ctx, "", "Identity", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNone(sym_val)
+
+    def test_identity_scalar_symbolic_value(self):
+        """Identity forwards scalar symbolic value."""
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(INT64, []))
+        ctx.set_symbolic_value(x, [42])
+        [out] = _run_node(ctx, "", "Identity", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertEqual(sym_val, [42])
+
+
 class SlicePropagationTest(unittest.TestCase):
     """Test that Slice propagates symbolic_value."""
 
