@@ -250,9 +250,7 @@ class MaxUnpoolTest(unittest.TestCase):
             [ts(FLOAT, [1, 1, 2, 2]), ts(INT64, [1, 1, 2, 2])],
             opset_version=11,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape[0], 1)
-        self.assertEqual(actual[0].shape[1], 1)
+        self.assertEqual(actual, [ts(FLOAT, [1, 1, "_d0", "_d1"])])
 
     def test_max_unpool_with_output_shape(self):
         x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 1, 2, 2]))
