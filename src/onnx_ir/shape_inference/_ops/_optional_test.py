@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import unittest
 
-import parameterized
-
 import onnx_ir as ir
 from onnx_ir.shape_inference._ops._testing import run_shape_inference, ts
 
@@ -16,15 +14,14 @@ BOOL = ir.DataType.BOOL
 
 
 class OptionalTest(unittest.TestCase):
-    @parameterized.parameterized.expand(
-        [
-            ("optional", "Optional", 15),
-            ("optional_get_element", "OptionalGetElement", 18),
-        ]
-    )
-    def test_passthrough(self, _name, op_type, opset_version):
+    def test_optional_wraps_input(self):
+        actual = run_shape_inference("", "Optional", [ts(FLOAT, [3, 4])], opset_version=15)
+        self.assertEqual(len(actual), 1)
+        self.assertIsInstance(actual[0].type, ir.OptionalType)
+
+    def test_optional_get_element_passthrough(self):
         actual = run_shape_inference(
-            "", op_type, [ts(FLOAT, [3, 4])], opset_version=opset_version
+            "", "OptionalGetElement", [ts(FLOAT, [3, 4])], opset_version=18
         )
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 

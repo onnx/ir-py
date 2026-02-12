@@ -44,7 +44,6 @@ _reg = _registry.registry.register
 @_reg("", "Gelu", since_version=20)
 @_reg("", "HardSigmoid", since_version=6)
 @_reg("", "HardSwish", since_version=14)
-@_reg("", "Identity", since_version=1)
 @_reg("", "LeakyRelu", since_version=6)
 @_reg("", "Log", since_version=6)
 @_reg("", "Reciprocal", since_version=6)
@@ -69,6 +68,22 @@ def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     (input_val,) = _context.check_inputs(node, "X")
 
     if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+
+@_reg("", "Identity", since_version=1)
+def infer_identity(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer type for Identity, including non-tensor types like SequenceType."""
+    (input_val,) = _context.check_inputs(node, "X")
+
+    if len(node.outputs) == 0:
+        return
+
+    input_type = input_val.type
+    if input_type is not None and not isinstance(input_type, ir.TensorType):
+        # Propagate full type for sequence/optional types
+        ctx.set_type(node.outputs[0], input_type)
+    else:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
 
 

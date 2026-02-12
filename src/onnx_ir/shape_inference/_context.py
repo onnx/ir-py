@@ -516,7 +516,8 @@ class ShapeInferenceContext:
         if (
             const is not None
             and len(const.shape) <= 1
-            and value.dtype in (
+            and value.dtype
+            in (
                 ir.DataType.INT64,
                 ir.DataType.INT32,
                 ir.DataType.INT16,

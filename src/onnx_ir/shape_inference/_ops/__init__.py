@@ -8,6 +8,7 @@ they are registered with the global registry.
 
 # Import to trigger registration
 from onnx_ir.shape_inference._ops import (
+    _ai_onnx_ml,
     _arg,
     _attention,
     _cast,
@@ -51,6 +52,7 @@ from onnx_ir.shape_inference._ops import (
     _string,
     _tile,
     _topk,
+    _training,
     _transpose,
     _unary,
     _where,
@@ -58,6 +60,7 @@ from onnx_ir.shape_inference._ops import (
 )
 
 __all__ = [
+    "_ai_onnx_ml",
     "_arg",
     "_attention",
     "_cast",
@@ -101,6 +104,7 @@ __all__ = [
     "_string",
     "_tile",
     "_topk",
+    "_training",
     "_transpose",
     "_unary",
     "_where",

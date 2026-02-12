@@ -39,36 +39,11 @@ _test_args = [
 # Tests where shape inference produces incorrect results due to data-dependent
 # shapes (e.g. operator inputs like split sizes or axes are graph inputs, not
 # constants). Each entry should be investigated individually.
-_SKIP_DATA_DEPENDENT: set[str] = {
-    # Compress: output size depends on the boolean condition tensor values.
-    "test_compress_0",
-    "test_compress_1",
-    "test_compress_negative_axis",
-    # Unique with axis: output size is data-dependent (number of unique values).
-    "test_unique_sorted_with_axis",
-    "test_unique_sorted_with_axis_3d",
-    "test_unique_sorted_with_negative_axis",
-}
+_SKIP_DATA_DEPENDENT: set[str] = set()
 
 # Tests using ops from domains we haven't implemented (ai.onnx.ml,
 # ai.onnx.preview.training).
-_SKIP_UNSUPPORTED_OPS: set[str] = {
-    "test_adagrad",
-    "test_adagrad_multiple",
-    "test_adam",
-    "test_adam_multiple",
-    "test_ai_onnx_ml_array_feature_extractor",
-    "test_ai_onnx_ml_binarizer",
-    "test_ai_onnx_ml_label_encoder_string_int",
-    "test_ai_onnx_ml_label_encoder_string_int_no_default",
-    "test_ai_onnx_ml_label_encoder_tensor_mapping",
-    "test_ai_onnx_ml_label_encoder_tensor_value_only_mapping",
-    "test_ai_onnx_ml_tree_ensemble_set_membership",
-    "test_ai_onnx_ml_tree_ensemble_single_tree",
-    "test_momentum",
-    "test_momentum_multiple",
-    "test_nesterov_momentum",
-}
+_SKIP_UNSUPPORTED_OPS: set[str] = set()
 
 # Expanded multi-op models where shape info is lost through If/Loop/complex
 # subgraphs or where intermediate Constant/Shape ops don't preserve shapes.
@@ -77,45 +52,6 @@ _SKIP_EXPANDED_MODELS: set[str] = {
     "test_affine_grid_2d_expanded",
     "test_affine_grid_3d_align_corners_expanded",
     "test_affine_grid_3d_expanded",
-    "test_attention_3d_causal_expanded",
-    "test_attention_3d_diff_heads_sizes_causal_expanded",
-    "test_attention_3d_diff_heads_sizes_expanded",
-    "test_attention_3d_diff_heads_sizes_scaled_expanded",
-    "test_attention_3d_diff_heads_sizes_softcap_expanded",
-    "test_attention_3d_expanded",
-    "test_attention_3d_gqa_causal_expanded",
-    "test_attention_3d_gqa_expanded",
-    "test_attention_3d_gqa_scaled_expanded",
-    "test_attention_3d_gqa_softcap_expanded",
-    "test_attention_3d_scaled_expanded",
-    "test_attention_3d_softcap_expanded",
-    "test_attention_3d_transpose_verification_expanded",
-    "test_attention_4d_causal_expanded",
-    "test_attention_4d_diff_heads_sizes_causal_expanded",
-    "test_attention_4d_diff_heads_sizes_expanded",
-    "test_attention_4d_diff_heads_sizes_scaled_expanded",
-    "test_attention_4d_diff_heads_sizes_softcap_expanded",
-    "test_attention_4d_expanded",
-    "test_attention_4d_fp16_expanded",
-    "test_attention_4d_gqa_causal_expanded",
-    "test_attention_4d_gqa_expanded",
-    "test_attention_4d_gqa_scaled_expanded",
-    "test_attention_4d_gqa_softcap_expanded",
-    "test_attention_4d_scaled_expanded",
-    "test_attention_4d_softcap_expanded",
-    "test_attention_4d_with_qk_matmul_expanded",
-    "test_blackmanwindow_expanded",
-    "test_blackmanwindow_symmetric_expanded",
-    "test_center_crop_pad_crop_and_pad_expanded",
-    "test_center_crop_pad_crop_axes_chw_expanded",
-    "test_center_crop_pad_crop_axes_hwc_expanded",
-    "test_center_crop_pad_crop_expanded",
-    "test_center_crop_pad_crop_negative_axes_hwc_expanded",
-    "test_center_crop_pad_pad_expanded",
-    "test_hammingwindow_expanded",
-    "test_hammingwindow_symmetric_expanded",
-    "test_hannwindow_expanded",
-    "test_hannwindow_symmetric_expanded",
     "test_layer_normalization_2d_axis0_expanded",
     "test_layer_normalization_2d_axis0_expanded_ver18",
     "test_layer_normalization_2d_axis1_expanded",
@@ -180,102 +116,12 @@ _SKIP_EXPANDED_MODELS: set[str] = {
 # Tests where the inferred shape is symbolic where the expected is concrete.
 # These are ops with inherently data-dependent output shapes, or ops where
 # constant folding would be needed to resolve the concrete shape.
-_SKIP_SYMBOLIC_SHAPE: set[str] = {
-    # Col2Im: output spatial dims depend on const inputs
-    "test_col2im",
-    "test_col2im_5d",
-    "test_col2im_dilations",
-    "test_col2im_pads",
-    "test_col2im_strides",
-    # Compress: output size is data-dependent
-    "test_compress_default_axis",
-    # ImageDecoder: image dimensions are data-dependent
-    "test_image_decoder_decode_bmp_rgb",
-    "test_image_decoder_decode_jpeg2k_rgb",
-    "test_image_decoder_decode_jpeg_bgr",
-    "test_image_decoder_decode_jpeg_grayscale",
-    "test_image_decoder_decode_jpeg_rgb",
-    "test_image_decoder_decode_png_rgb",
-    "test_image_decoder_decode_pnm_rgb",
-    "test_image_decoder_decode_tiff_rgb",
-    "test_image_decoder_decode_webp_rgb",
-    # Loop: output shape depends on loop iterations
-    "test_loop11",
-    # MaxUnpool: output shape depends on optional output_shape input
-    "test_maxunpool_export_without_output_shape",
-    # MelWeightMatrix: output dims depend on const inputs
-    "test_melweightmatrix",
-    # NonMaxSuppression: output size is data-dependent
-    "test_nonmaxsuppression_center_point_box_format",
-    "test_nonmaxsuppression_flipped_coordinates",
-    "test_nonmaxsuppression_identical_boxes",
-    "test_nonmaxsuppression_iou_threshold_boundary",
-    "test_nonmaxsuppression_limit_output_size",
-    "test_nonmaxsuppression_single_box",
-    "test_nonmaxsuppression_suppress_by_IOU",
-    "test_nonmaxsuppression_suppress_by_IOU_and_scores",
-    "test_nonmaxsuppression_two_batches",
-    "test_nonmaxsuppression_two_classes",
-    # NonZero: output size is data-dependent
-    "test_nonzero_example",
-    # OneHot: depth dimension comes from const input
-    "test_onehot_negative_indices",
-    "test_onehot_with_axis",
-    "test_onehot_with_negative_axis",
-    "test_onehot_without_axis",
-    # Range: output size depends on start/limit/delta values
-    "test_range_float_type_positive_delta",
-    "test_range_int32_type_negative_delta",
-    # STFT: frame count depends on signal length and hop/window sizes
-    "test_stft",
-    "test_stft_with_window",
-    # StringSplit: output dim depends on string content
-    "test_string_split_basic",
-    "test_string_split_consecutive_delimiters",
-    "test_string_split_empty_string_delimiter",
-    "test_string_split_maxsplit",
-    "test_string_split_no_delimiter",
-    # StringNormalizer: output dim may change due to stopwords
-    "test_strnormalizer_export_monday_casesensintive_lower",
-    "test_strnormalizer_export_monday_casesensintive_nochangecase",
-    "test_strnormalizer_export_monday_casesensintive_upper",
-    "test_strnormalizer_export_monday_empty_output",
-    "test_strnormalizer_export_monday_insensintive_upper_twodim",
-    # TfIdfVectorizer: output dim depends on vocabulary
-    "test_tfidfvectorizer_tf_batch_onlybigrams_skip0",
-    "test_tfidfvectorizer_tf_batch_onlybigrams_skip5",
-    "test_tfidfvectorizer_tf_batch_uniandbigrams_skip5",
-    "test_tfidfvectorizer_tf_only_bigrams_skip0",
-    "test_tfidfvectorizer_tf_onlybigrams_levelempty",
-    "test_tfidfvectorizer_tf_onlybigrams_skip5",
-    "test_tfidfvectorizer_tf_uniandbigrams_skip5",
-    # Unique: output size is data-dependent
-    "test_unique_length_1",
-    "test_unique_not_sorted_without_axis",
-    "test_unique_sorted_without_axis",
-}
+_SKIP_SYMBOLIC_SHAPE: set[str] = set()
 
 # Tests where inference fails due to missing support for sequence types,
 # Scan subgraphs, or specific op features (CenterCropPad axes, Resize
 # not_smaller policy).
-_SKIP_INCOMPLETE_SUPPORT: set[str] = {
-    # CenterCropPad: axes attribute not fully handled
-    "test_center_crop_pad_crop_axes_chw",
-    # Resize: keep_aspect_ratio_policy edge cases
-    "test_resize_downsample_sizes_nearest_not_smaller",
-    # Sequence ops: sequence type inference not implemented
-    "test_sequence_insert_at_back",
-    "test_sequence_insert_at_front",
-    "test_sequence_map_add_1_sequence_1_tensor",
-    "test_sequence_map_add_2_sequences",
-    "test_sequence_map_extract_shapes",
-    "test_sequence_map_identity_1_sequence",
-    "test_sequence_map_identity_1_sequence_1_tensor",
-    "test_sequence_map_identity_2_sequences",
-    "test_split_to_sequence_1",
-    "test_split_to_sequence_2",
-    "test_split_to_sequence_nokeepdims",
-}
+_SKIP_INCOMPLETE_SUPPORT: set[str] = set()
 
 _ALL_SKIPS = (
     _SKIP_DATA_DEPENDENT
@@ -365,11 +211,12 @@ def _run_inference_and_compare(
 
     model = ir.serde.deserialize_model(proto)
 
-    expected: dict[str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]] = {}
+    expected: dict[
+        str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]
+    ] = {}
     for out in model.graph.outputs:
         expected[out.name] = (out.dtype, out.shape, out.type)
         out.type = None
-        out.shape = None
 
     from onnx_ir.shape_inference import infer_symbolic_shapes
 
@@ -427,7 +274,9 @@ class ShapeInferenceBackendTest(unittest.TestCase):
         model = ir.serde.deserialize_model(proto)
 
         # Save expected output dtype and shape, then clear them
-        expected: dict[str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]] = {}
+        expected: dict[
+            str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]
+        ] = {}
         for out in model.graph.outputs:
             expected[out.name] = (out.dtype, out.shape, out.type)
             out.type = None
@@ -499,7 +348,7 @@ class SymbolicShapeSkipValidationTest(unittest.TestCase):
     If an entry fails for a non-symbolic reason, the skip list category is wrong.
     """
 
-    @parameterized.parameterized.expand(_symbolic_skip_test_args)
+    @parameterized.parameterized.expand(_symbolic_skip_test_args, skip_on_empty=True)
     def test_skip_is_symbolic_not_other_error(self, _: str, model_path: pathlib.Path) -> None:
         all_ok, has_symbolic, has_other_error = _run_inference_and_compare(self, model_path)
         if all_ok:

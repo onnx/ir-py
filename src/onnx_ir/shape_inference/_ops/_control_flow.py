@@ -84,6 +84,17 @@ def infer_if(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         if then_out is None and else_out is None:
             continue
 
+        # Handle non-tensor types (sequence, optional)
+        then_type = then_out.type if then_out is not None else None
+        else_type = else_out.type if else_out is not None else None
+
+        if then_type is not None and not isinstance(then_type, ir.TensorType):
+            ctx.set_type(output, then_type)
+            continue
+        if else_type is not None and not isinstance(else_type, ir.TensorType):
+            ctx.set_type(output, else_type)
+            continue
+
         # Determine dtype: prefer then-branch, fall back to else-branch
         dtype = None
         if then_out is not None:
@@ -165,7 +176,11 @@ def infer_loop(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
         if i < num_loop_carried:
             # Loop-carried dependency: shape matches body output directly
-            ctx.set_shape_and_dtype(output, body_shape, dtype)
+            body_type = body_out.type
+            if body_type is not None and not isinstance(body_type, ir.TensorType):
+                ctx.set_type(output, body_type)
+            else:
+                ctx.set_shape_and_dtype(output, body_shape, dtype)
         else:
             # Scan output: prepend a trip-count dimension to body output shape
             if body_shape is not None:

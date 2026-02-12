@@ -93,10 +93,28 @@ def infer_tfidf_vectorizer(ctx: _context.ShapeInferenceContext, node: ir.Node) -
 
 @_registry.registry.register("", "SequenceMap", since_version=17)
 def infer_sequence_map(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for SequenceMap operator.
+    """Infer type for SequenceMap operator.
 
-    Graceful degradation: leave outputs unchanged.
+    Output sequences have element types matching the body subgraph outputs.
+    The body is run once per element. The engine infers body output types
+    before calling this function.
     """
+    body_attr = node.attributes.get("body")
+    if body_attr is None:
+        return
+    body_graph = body_attr.as_graph()
+    if body_graph is None:
+        return
+
+    for i, output in enumerate(node.outputs):
+        if i >= len(body_graph.outputs):
+            break
+        body_out = body_graph.outputs[i]
+        body_out_type = body_out.type
+        if body_out_type is not None:
+            ctx.set_type(output, ir.SequenceType(body_out_type))
+        elif body_out.dtype is not None:
+            ctx.set_type(output, ir.SequenceType(ir.TensorType(body_out.dtype)))
 
 
 @_registry.registry.register("", "EyeLike", since_version=9)
