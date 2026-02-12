@@ -20,7 +20,6 @@ __all__ = [
     "RemoveUnusedNodesPass",
     "RemoveUnusedOpsetsPass",
     "ShapeInferencePass",
-    "SymbolicShapeInferencePass",
     "TopologicalSortPass",
 ]
 
@@ -47,9 +46,6 @@ from onnx_ir.passes.common.naming import NameFixPass
 from onnx_ir.passes.common.onnx_checker import CheckerPass
 from onnx_ir.passes.common.output_fix import OutputFixPass
 from onnx_ir.passes.common.shape_inference import ShapeInferencePass
-from onnx_ir.passes.common.symbolic_shape_inference import (
-    SymbolicShapeInferencePass,
-)
 from onnx_ir.passes.common.topological_sort import TopologicalSortPass
 from onnx_ir.passes.common.unused_removal import (
     RemoveUnusedFunctionsPass,
