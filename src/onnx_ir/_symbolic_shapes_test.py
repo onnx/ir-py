@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 
 import sympy
@@ -120,21 +121,18 @@ class SymbolicDimTest(unittest.TestCase):
         self.assertEqual(result.value, "6/N")
 
     def test_ceil(self):
-        import math
 
         dim = ir.SymbolicDim("N")
         result = math.ceil(dim / 3)
         self.assertEqual(result.value, "ceiling(N/3)")
 
     def test_floor(self):
-        import math
 
         dim = ir.SymbolicDim("N")
         result = math.floor(dim / 3)
         self.assertEqual(result.value, "floor(N/3)")
 
     def test_trunc(self):
-        import math
 
         dim = ir.SymbolicDim("N")
         result = math.trunc(dim)
