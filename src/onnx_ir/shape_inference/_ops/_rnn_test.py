@@ -78,36 +78,32 @@ class LSTMLayoutTest(unittest.TestCase):
         self.assertEqual(actual[2], ts(FLOAT, [2, 1, 16]))
 
 
-class RNNHiddenSizeFromWTest(unittest.TestCase):
-    def test_rnn_hidden_size_from_w(self):
-        """Infer hidden_size from W input when attribute is not provided."""
-        # W shape: [num_directions, hidden_size * num_gates, input_size]
-        # For RNN, num_gates=1, so W[1] = hidden_size
+class RNNHiddenSizeRequiredTest(unittest.TestCase):
+    def test_rnn_missing_hidden_size_raises(self):
+        """hidden_size is required per ONNX spec — missing raises OpUsageError."""
         x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8]))
         w_val = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 16, 8]))
-        actual = run_shape_inference_with_values(
-            "",
-            "RNN",
-            [x_val, w_val],
-            opset_version=21,
-            num_outputs=2,
-        )
-        self.assertEqual(actual[0], ts(FLOAT, [10, 1, 2, 16]))
-        self.assertEqual(actual[1], ts(FLOAT, [1, 2, 16]))
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "RNN",
+                [x_val, w_val],
+                opset_version=21,
+                num_outputs=2,
+            )
 
-    def test_lstm_hidden_size_from_w(self):
-        """Infer hidden_size from W for LSTM (num_gates=4)."""
+    def test_lstm_missing_hidden_size_raises(self):
+        """hidden_size is required per ONNX spec — missing raises OpUsageError."""
         x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8]))
-        # W[1] = hidden_size * 4 = 64 → hidden_size = 16
         w_val = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 64, 8]))
-        actual = run_shape_inference_with_values(
-            "",
-            "LSTM",
-            [x_val, w_val],
-            opset_version=21,
-            num_outputs=3,
-        )
-        self.assertEqual(actual[0], ts(FLOAT, [10, 1, 2, 16]))
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "",
+                "LSTM",
+                [x_val, w_val],
+                opset_version=21,
+                num_outputs=3,
+            )
 
 
 class RNNMissingShapeTest(unittest.TestCase):
@@ -126,16 +122,16 @@ class RNNMissingShapeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT), ts(FLOAT)])
 
-    def test_rnn_no_hidden_size_symbolic(self):
-        """When hidden_size is missing and W is not provided, use symbolic dim."""
-        actual = run_shape_inference(
-            "",
-            "RNN",
-            [ts(FLOAT, [10, 2, 8])],
-            opset_version=21,
-            num_outputs=2,
-        )
-        self.assertEqual(actual[0], ts(FLOAT, [10, 1, 2, "_d0"]))
+    def test_rnn_no_hidden_size_raises(self):
+        """When hidden_size is missing, OpUsageError is raised."""
+        with self.assertRaises(OpUsageError):
+            run_shape_inference(
+                "",
+                "RNN",
+                [ts(FLOAT, [10, 2, 8])],
+                opset_version=21,
+                num_outputs=2,
+            )
 
 
 class RNNSymbolicDimsTest(unittest.TestCase):

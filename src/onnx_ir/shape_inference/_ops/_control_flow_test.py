@@ -671,15 +671,14 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(actual[1].shape[1], 3)
 
     def test_no_body(self):
-        """Scan without body graph → all outputs are None."""
+        """Scan without body graph → raises OpUsageError."""
         state_val = ir.Value(
             name="state", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape([2])
         )
-        actual = run_shape_inference_with_values(
-            "", "Scan", [state_val], opset_version=11, num_outputs=2
-        )
-        self.assertIsNone(actual[0].shape)
-        self.assertIsNone(actual[1].shape)
+        with self.assertRaises(OpUsageError):
+            run_shape_inference_with_values(
+                "", "Scan", [state_val], opset_version=11, num_outputs=2
+            )
 
 
 if __name__ == "__main__":
