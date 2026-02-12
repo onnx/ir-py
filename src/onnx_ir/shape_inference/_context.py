@@ -470,3 +470,48 @@ class ShapeInferenceContext:
         if dtype is not None:
             modified = self.set_dtype(value, dtype) or modified
         return modified
+
+    # --- Partial data propagation ---
+
+    def set_symbolic_value(
+        self,
+        value: ir.Value,
+        data: list[int | ir.SymbolicDim],
+    ) -> None:
+        """Store symbolic element values on a value's metadata.
+
+        This is used to track the known contents of 1-D integer tensors
+        (e.g., shape tensors) so that downstream ops like Reshape can read
+        them even when the tensor is not a constant.
+
+        Args:
+            value: The value to annotate.
+            data: A list of known element values (int or SymbolicDim).
+        """
+        value.meta["symbolic_value"] = data
+
+    def get_symbolic_value(
+        self,
+        value: ir.Value,
+    ) -> list[int | ir.SymbolicDim] | None:
+        """Retrieve symbolic element values from a value.
+
+        Checks ``value.meta["symbolic_value"]`` first.  If not set, falls back
+        to reading a constant tensor via ``ir.convenience.get_const_tensor()``
+        so that initializers and Constant outputs participate in propagation.
+
+        Args:
+            value: The value to query.
+
+        Returns:
+            A list of ``int | ir.SymbolicDim``, or ``None`` if unavailable.
+        """
+        sym_val = value.meta.get("symbolic_value")
+        if sym_val is not None:
+            return sym_val  # type: ignore[return-value]
+
+        # Fall back to constant tensor
+        const = ir.convenience.get_const_tensor(value)
+        if const is not None:
+            return [int(x) for x in const.numpy().flatten()]
+        return None

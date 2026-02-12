@@ -10,6 +10,9 @@ __all__ = [
     "infer_unary",
 ]
 
+import math
+from collections.abc import Callable
+
 import onnx_ir as ir
 from onnx_ir.shape_inference import _context, _registry
 
@@ -31,7 +34,6 @@ _reg = _registry.registry.register
 @_reg("", "Atan", since_version=7)
 @_reg("", "Atanh", since_version=9)
 @_reg("", "BitwiseNot", since_version=18)
-@_reg("", "Ceil", since_version=6)
 @_reg("", "Celu", since_version=12)
 @_reg("", "Clip", since_version=6)
 @_reg("", "Cos", since_version=7)
@@ -39,14 +41,12 @@ _reg = _registry.registry.register
 @_reg("", "Elu", since_version=6)
 @_reg("", "Erf", since_version=9)
 @_reg("", "Exp", since_version=6)
-@_reg("", "Floor", since_version=6)
 @_reg("", "Gelu", since_version=20)
 @_reg("", "HardSigmoid", since_version=6)
 @_reg("", "HardSwish", since_version=14)
 @_reg("", "Identity", since_version=1)
 @_reg("", "LeakyRelu", since_version=6)
 @_reg("", "Log", since_version=6)
-@_reg("", "Neg", since_version=6)
 @_reg("", "Reciprocal", since_version=6)
 @_reg("", "Relu", since_version=6)
 @_reg("", "Round", since_version=11)
@@ -70,6 +70,33 @@ def infer_unary(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+
+_UNARY_VALUE_OPS: dict[str, Callable[[object], object]] = {
+    "Floor": math.floor,  # type: ignore[dict-item]
+    "Ceil": math.ceil,  # type: ignore[dict-item]
+    "Neg": lambda x: -x,  # type: ignore[operator]
+}
+
+
+@_reg("", "Floor", since_version=6)
+@_reg("", "Ceil", since_version=6)
+@_reg("", "Neg", since_version=6)
+def _infer_unary_with_value(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape/dtype and propagate symbolic_value for Floor, Ceil, Neg."""
+    (input_val,) = _context.check_inputs(node, "X")
+
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], input_val.shape, input_val.dtype)
+
+        op_func = _UNARY_VALUE_OPS.get(node.op_type)
+        if op_func is not None:
+            sym_val = ctx.get_symbolic_value(input_val)
+            if sym_val is not None:
+                ctx.set_symbolic_value(
+                    node.outputs[0],
+                    [op_func(v) for v in sym_val],  # type: ignore[misc]
+                )
 
 
 @_reg("", "PRelu", since_version=16)

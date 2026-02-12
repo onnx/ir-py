@@ -26,22 +26,28 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     input_dtype = data.dtype
     input_shape = data.shape
 
-    # Try to read the target shape from const_value
+    # Try to read target dims from const_value, then symbolic_value
     shape_const = ir.convenience.get_const_tensor(shape_input)
-    if shape_const is None:
-        # Shape is dynamic — we can try to infer rank from the shape input's shape
-        if shape_input.shape is not None and shape_input.shape.rank() == 1:
-            dim0 = shape_input.shape[0]
-            if isinstance(dim0, int):
-                output_shape = ir.Shape([ctx.new_symbolic_dim() for _ in range(dim0)])
-                if len(node.outputs) > 0:
-                    ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
+    if shape_const is not None:
+        target_dims: list[int | ir.SymbolicDim] = [
+            int(x) for x in shape_const.numpy().flatten()
+        ]
+    else:
+        sym_val = ctx.get_symbolic_value(shape_input)
+        if sym_val is not None:
+            target_dims = list(sym_val)
         else:
-            if len(node.outputs) > 0:
-                ctx.set_shape_and_dtype(node.outputs[0], None, input_dtype)
-        return
-
-    target_dims = [int(x) for x in shape_const.numpy().flatten()]
+            # Shape is fully dynamic — try to infer rank from shape input's shape
+            if shape_input.shape is not None and shape_input.shape.rank() == 1:
+                dim0 = shape_input.shape[0]
+                if isinstance(dim0, int):
+                    output_shape = ir.Shape([ctx.new_symbolic_dim() for _ in range(dim0)])
+                    if len(node.outputs) > 0:
+                        ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
+            else:
+                if len(node.outputs) > 0:
+                    ctx.set_shape_and_dtype(node.outputs[0], None, input_dtype)
+            return
 
     allowzero_attr = node.attributes.get("allowzero")
     allowzero = allowzero_attr.as_int() if allowzero_attr is not None else 0
@@ -51,13 +57,13 @@ def infer_reshape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     inferred_idx: int | None = None
 
     for i, dim_val in enumerate(target_dims):
-        if dim_val == 0 and not allowzero:
+        if isinstance(dim_val, int) and dim_val == 0 and not allowzero:
             # Copy from input shape
             if input_shape is not None and i < input_shape.rank():
                 output_dims.append(input_shape[i])
             else:
                 output_dims.append(ctx.new_symbolic_dim())
-        elif dim_val == -1:
+        elif isinstance(dim_val, int) and dim_val == -1:
             if inferred_idx is not None:
                 ctx.record_error(node, "At most one dimension can be -1 in Reshape")
                 return

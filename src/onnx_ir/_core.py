@@ -1456,6 +1456,12 @@ class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
             return SymbolicDim(None)
         return SymbolicDim(sympy.sign(self._expr) * sympy.floor(sympy.Abs(self._expr)))
 
+    def __neg__(self) -> SymbolicDim:
+        """Negate this dimension."""
+        if self._expr is None:
+            return SymbolicDim(None)
+        return SymbolicDim(sympy.sympify(-self._expr))
+
     def simplify(self) -> SymbolicDim:
         """Return a new SymbolicDim with the expression simplified.
 

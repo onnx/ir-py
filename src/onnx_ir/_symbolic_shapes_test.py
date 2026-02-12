@@ -140,6 +140,11 @@ class SymbolicDimTest(unittest.TestCase):
         result = math.trunc(dim)
         self.assertEqual(result.value, "N")
 
+    def test_neg(self):
+        dim = ir.SymbolicDim("N")
+        result = -dim
+        self.assertEqual(result.value, "-N")
+
     def test_unsupported_operand_raises_type_error(self):
         dim = ir.SymbolicDim("N")
         with self.assertRaises(TypeError) as ctx:

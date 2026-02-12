@@ -104,3 +104,22 @@ def infer_slice(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
+
+        # Propagate symbolic_value for 1-D tensors sliced on axis 0
+        sym_val = ctx.get_symbolic_value(data)
+        if sym_val is not None and rank == 1 and len(axes) == 1 and axes[0] == 0:
+            n = len(sym_val)
+            s, e, st = starts[0], ends[0], steps[0]
+            # Clamp start/end like Python slicing
+            if s < 0:
+                s = max(0, s + n)
+            else:
+                s = min(s, n)
+            sentinels = {2**63 - 1, -(2**63), 2**31 - 1, -(2**31)}
+            if e in sentinels:
+                e = n if st > 0 else -n - 1
+            elif e < 0:
+                e = max(0, e + n)
+            else:
+                e = min(e, n)
+            ctx.set_symbolic_value(node.outputs[0], sym_val[s:e:st])

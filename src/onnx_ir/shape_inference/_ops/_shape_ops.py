@@ -46,6 +46,10 @@ def infer_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
         output_shape = ir.Shape([max(0, end - start)])
 
+        # Store the shape dims as symbolic_value for data propagation
+        if len(node.outputs) > 0:
+            ctx.set_symbolic_value(node.outputs[0], list(data.shape.dims[start:end]))
+
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, ir.DataType.INT64)
 

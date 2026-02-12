@@ -29,6 +29,12 @@ def infer_cast(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], data.shape, output_dtype)
 
+        # Propagate symbolic_value (casting does not change element values
+        # for integer types used in shape computation)
+        sym_val = ctx.get_symbolic_value(data)
+        if sym_val is not None:
+            ctx.set_symbolic_value(node.outputs[0], sym_val)
+
 
 @_registry.registry.register("", "CastLike", since_version=15)
 def infer_cast_like(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:

@@ -72,3 +72,19 @@ def infer_concat(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     output_shape = ir.Shape(output_dims)
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
+
+        # Propagate symbolic_value for 1-D tensors concatenated on axis 0
+        if rank == 1 and axis == 0:
+            combined: list[int | ir.SymbolicDim] = []
+            all_available = True
+            for inp in node.inputs:
+                if inp is None:
+                    all_available = False
+                    break
+                sv = ctx.get_symbolic_value(inp)
+                if sv is None:
+                    all_available = False
+                    break
+                combined.extend(sv)
+            if all_available:
+                ctx.set_symbolic_value(node.outputs[0], combined)

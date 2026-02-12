@@ -54,6 +54,11 @@ def infer_squeeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
 
+        # Propagate symbolic_value (data values are unchanged by squeeze)
+        sym_val = ctx.get_symbolic_value(data)
+        if sym_val is not None:
+            ctx.set_symbolic_value(node.outputs[0], sym_val)
+
 
 @_registry.registry.register("", "Unsqueeze", since_version=1)
 def infer_unsqueeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
@@ -82,3 +87,8 @@ def infer_unsqueeze(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, input_dtype)
+
+        # Propagate symbolic_value (data values are unchanged by unsqueeze)
+        sym_val = ctx.get_symbolic_value(data)
+        if sym_val is not None:
+            ctx.set_symbolic_value(node.outputs[0], sym_val)

@@ -609,9 +609,85 @@ self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
 3. **Model Local Functions**: Inline shape inference for functions defined in `model.functions`, propagating shapes through function call boundaries
 4. **Subgraph Support**: Infer shapes inside subgraphs used by control-flow operators (If, Loop, Scan), propagating outer-scope bindings into the subgraph and back
 5. **Newer Operators**: Add inference for operators introduced in recent opsets, such as `Attention`, `GroupNormalization`, `RotaryEmbedding`, and other transformer-related ops
-6. **ConvTranspose**: Implement shape inference for ConvTranspose operator
-7. **SequenceMap**: Implement body-graph-based inference for SequenceMap
-8. **QLinearConv / ConvInteger**: Quantized convolution operators
+6. **SequenceMap**: Implement body-graph-based inference for SequenceMap
+
+### 8. Partial Data Propagation
+
+Some operators (e.g., `Reshape`) consume **data values** (not just shapes) at
+inference time.  When the data is computed from shapes, we can track the
+symbolic values through intermediate operations to produce more accurate
+results.
+
+#### Motivation
+
+A common ONNX pattern:
+
+```
+x_shape = Shape(x)            # [N, 3, H, W]  ← data is the shape!
+batch   = Slice(x_shape, …)   # [N]
+target  = Concat(batch, [768]) # [N, 768]
+y       = Reshape(data, target)
+```
+
+Without data propagation, `Reshape` sees a non-constant `target` and can only
+infer that `y` has rank 2 with all-symbolic dims.  With propagation, `Reshape`
+knows the target is `[N, 768]` and produces `Shape([N, 768])`.
+
+#### Design
+
+**Storage**: Each `ir.Value` has a `.meta` (`MetadataStore`) dict.  We use the
+key `"symbolic_value"` to store a `list[int | ir.SymbolicDim]` representing the
+known element values of a 1-D integer tensor:
+
+```python
+# After Shape(x) where x.shape = [N, 3, H, W]:
+value.meta["symbolic_value"]  # → [SymbolicDim("N"), 3, SymbolicDim("H"), SymbolicDim("W")]
+```
+
+**Context helpers** on `ShapeInferenceContext`:
+
+```python
+def set_symbolic_value(self, value: ir.Value, data: list[int | ir.SymbolicDim]) -> None:
+    """Store partial data on a value's metadata."""
+
+def get_symbolic_value(self, value: ir.Value) -> list[int | ir.SymbolicDim] | None:
+    """Retrieve partial data from a value, falling back to const_value if available."""
+```
+
+`get_symbolic_value` checks `meta["symbolic_value"]` first, then falls back to
+reading `ir.convenience.get_const_tensor()` so that constant initializers
+participate in propagation without special-casing.
+
+**Propagation through ops:**
+
+| Op | Propagation rule |
+|-----|------------------|
+| **Shape** | Output `symbolic_value` = input's shape dims |
+| **Gather** (axis=0) | Index into the symbolic list |
+| **Slice** | Slice the symbolic list |
+| **Concat** | Concatenate symbolic lists |
+| **Unsqueeze** | Insert dims (1-D → higher not needed; passthrough for rank-1) |
+| **Squeeze** | Remove dims (passthrough for rank-1) |
+| **Add/Sub/Mul/Div** | Element-wise arithmetic when one input is const |
+| **Cast** | Passthrough (casting INT64 → INT64 etc. doesn't change values) |
+| **Reshape** (consumer) | Read `symbolic_value` as target dims instead of requiring const |
+
+**Integration with Reshape**:
+
+When `get_const_tensor()` returns `None`, `Reshape` checks
+`get_symbolic_value(shape_input)`.  If available, the symbolic values become
+the target dims, with full support for `0` (copy from input), `-1` (infer),
+and symbolic dims.
+
+#### Scope
+
+Initial implementation covers the structural ops needed for the
+`Shape → Slice/Gather → Concat → Reshape` pattern, plus element-wise
+arithmetic on 1-D shape tensors.  Future work may extend to:
+
+- ConstantOfShape (propagate shape → symbolic_value)
+- Where (conditional selection of symbolic values)
+- More complex data-dependent patterns
 
 ## Dependencies
 
