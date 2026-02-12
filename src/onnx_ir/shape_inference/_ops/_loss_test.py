@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import unittest
 
+import parameterized
+
 import onnx_ir as ir
 from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
@@ -19,9 +21,16 @@ INT64 = ir.DataType.INT64
 
 
 class NegativeLogLikelihoodLossTest(unittest.TestCase):
-    def test_reduction_mean(self):
+    @parameterized.parameterized.expand(
+        [
+            ("mean", "mean", []),
+            ("sum", "sum", []),
+            ("none", "none", [2]),
+        ]
+    )
+    def test_reduction(self, _name, reduction, expected_shape):
         attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "mean"),
+            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, reduction),
         }
         actual = run_shape_inference(
             "",
@@ -30,33 +39,7 @@ class NegativeLogLikelihoodLossTest(unittest.TestCase):
             attrs,
             opset_version=13,
         )
-        self.assertEqual(actual, [ts(FLOAT, [])])
-
-    def test_reduction_sum(self):
-        attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "sum"),
-        }
-        actual = run_shape_inference(
-            "",
-            "NegativeLogLikelihoodLoss",
-            [ts(FLOAT, [2, 3]), ts(INT64, [2])],
-            attrs,
-            opset_version=13,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [])])
-
-    def test_reduction_none(self):
-        attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "none"),
-        }
-        actual = run_shape_inference(
-            "",
-            "NegativeLogLikelihoodLoss",
-            [ts(FLOAT, [2, 3]), ts(INT64, [2])],
-            attrs,
-            opset_version=13,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [2])])
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_default_reduction_is_mean(self):
         actual = run_shape_inference(
@@ -83,9 +66,15 @@ class NegativeLogLikelihoodLossTest(unittest.TestCase):
 
 
 class SoftmaxCrossEntropyLossTest(unittest.TestCase):
-    def test_reduction_mean(self):
+    @parameterized.parameterized.expand(
+        [
+            ("mean", "mean", []),
+            ("none", "none", [2]),
+        ]
+    )
+    def test_reduction(self, _name, reduction, expected_shape):
         attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "mean"),
+            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, reduction),
         }
         actual = run_shape_inference(
             "",
@@ -94,20 +83,7 @@ class SoftmaxCrossEntropyLossTest(unittest.TestCase):
             attrs,
             opset_version=13,
         )
-        self.assertEqual(actual, [ts(FLOAT, [])])
-
-    def test_reduction_none(self):
-        attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "none"),
-        }
-        actual = run_shape_inference(
-            "",
-            "SoftmaxCrossEntropyLoss",
-            [ts(FLOAT, [2, 3]), ts(INT64, [2])],
-            attrs,
-            opset_version=13,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [2])])
+        self.assertEqual(actual, [ts(FLOAT, expected_shape)])
 
     def test_default_reduction_is_mean(self):
         actual = run_shape_inference(
@@ -145,9 +121,15 @@ class SoftmaxCrossEntropyLossTest(unittest.TestCase):
 
 
 class NLLLossSymbolicDimsTest(unittest.TestCase):
-    def test_symbolic_batch_reduction_none(self):
+    @parameterized.parameterized.expand(
+        [
+            ("none", "none", ["N"]),
+            ("mean", "mean", []),
+        ]
+    )
+    def test_symbolic_batch(self, _name, reduction, expected_shape):
         attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "none"),
+            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, reduction),
         }
         actual = run_shape_inference(
             "",
@@ -156,22 +138,7 @@ class NLLLossSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=13,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 1)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-
-    def test_symbolic_batch_reduction_mean(self):
-        attrs = {
-            "reduction": ir.Attr("reduction", ir.AttributeType.STRING, "mean"),
-        }
-        actual = run_shape_inference(
-            "",
-            "NegativeLogLikelihoodLoss",
-            [ts(FLOAT, ["N", "C"]), ts(INT64, ["N"])],
-            attrs,
-            opset_version=13,
-        )
-        self.assertEqual(actual, [ts(FLOAT, [])])
+        self.assertEqual(actual[0].shape, ir.Shape(expected_shape))
 
 
 if __name__ == "__main__":

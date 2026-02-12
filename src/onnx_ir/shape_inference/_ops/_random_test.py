@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import unittest
 
+import parameterized
+
 import onnx_ir as ir
 from onnx_ir.shape_inference import OpUsageError
 from onnx_ir.shape_inference._ops._testing import (
@@ -17,15 +19,21 @@ from onnx_ir.shape_inference._ops._testing import (
 FLOAT = ir.DataType.FLOAT
 
 
-class RandomNormalTest(unittest.TestCase):
-    def test_basic(self):
+class RandomShapeAttrTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("random_normal", "RandomNormal"),
+            ("random_uniform", "RandomUniform"),
+        ]
+    )
+    def test_basic(self, _name, op_type):
         attrs = {
             "shape": ir.Attr("shape", ir.AttributeType.INTS, [2, 3]),
         }
-        actual = run_shape_inference("", "RandomNormal", [], attrs, opset_version=21)
+        actual = run_shape_inference("", op_type, [], attrs, opset_version=21)
         self.assertEqual(actual, [ts(FLOAT, [2, 3])])
 
-    def test_dtype_attr(self):
+    def test_random_normal_dtype_attr(self):
         attrs = {
             "shape": ir.Attr("shape", ir.AttributeType.INTS, [4, 5]),
             "dtype": ir.Attr("dtype", ir.AttributeType.INT, ir.DataType.DOUBLE.value),
@@ -34,26 +42,15 @@ class RandomNormalTest(unittest.TestCase):
         self.assertEqual(actual, [ts(ir.DataType.DOUBLE, [4, 5])])
 
 
-class RandomUniformTest(unittest.TestCase):
-    def test_basic(self):
-        attrs = {
-            "shape": ir.Attr("shape", ir.AttributeType.INTS, [2, 3]),
-        }
-        actual = run_shape_inference("", "RandomUniform", [], attrs, opset_version=21)
-        self.assertEqual(actual, [ts(FLOAT, [2, 3])])
-
-
-class RandomNormalLikeTest(unittest.TestCase):
-    def test_basic(self):
-        actual = run_shape_inference(
-            "", "RandomNormalLike", [ts(FLOAT, [2, 3])], opset_version=21
-        )
-        self.assertEqual(actual, [ts(FLOAT, [2, 3])])
-
-
-class BernoulliTest(unittest.TestCase):
-    def test_basic(self):
-        actual = run_shape_inference("", "Bernoulli", [ts(FLOAT, [2, 3])], opset_version=21)
+class RandomLikeTest(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("random_normal_like", "RandomNormalLike"),
+            ("bernoulli", "Bernoulli"),
+        ]
+    )
+    def test_basic(self, _name, op_type):
+        actual = run_shape_inference("", op_type, [ts(FLOAT, [2, 3])], opset_version=21)
         self.assertEqual(actual, [ts(FLOAT, [2, 3])])
 
 

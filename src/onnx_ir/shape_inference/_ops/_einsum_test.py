@@ -58,11 +58,30 @@ class EinsumTest(unittest.TestCase):
         actual = self._einsum(equation, inputs)
         self.assertEqual(list(actual[0].shape), expected_shape)
 
-    def test_symbolic_dims(self):
-        actual = self._einsum("ij,jk->ik", [ts(FLOAT, ["M", "K"]), ts(FLOAT, ["K", "N"])])
-        self.assertEqual(actual[0].shape.rank(), 2)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
+    @parameterized.parameterized.expand(
+        [
+            ("matmul", "ij,jk->ik", [["M", "K"], ["K", "N"]], ["M", "N"]),
+            (
+                "batch_matmul",
+                "bij,bjk->bik",
+                [["B", "M", "K"], ["B", "K", "N"]],
+                ["B", "M", "N"],
+            ),
+            ("transpose", "ij->ji", [["M", "N"]], ["N", "M"]),
+            ("outer_product", "i,j->ij", [["M"], ["N"]], ["M", "N"]),
+            ("diagonal", "ii->i", [["N", "N"]], ["N"]),
+            (
+                "ellipsis_batch",
+                "...ij,...jk->...ik",
+                [["B", "M", "K"], ["B", "K", "N"]],
+                ["B", "M", "N"],
+            ),
+        ]
+    )
+    def test_symbolic_dims(self, _name, equation, input_shapes, expected_shape):
+        inputs = [ts(FLOAT, s) for s in input_shapes]
+        actual = self._einsum(equation, inputs)
+        self.assertEqual(actual[0].shape, ir.Shape(expected_shape))
 
     def test_unknown_input_shape_graceful(self):
         attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, "ij->ij")}
