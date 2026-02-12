@@ -109,9 +109,9 @@ class LayerNormalizationTest(unittest.TestCase):
             num_outputs=3,
         )
         self.assertEqual(actual[0], ts(FLOAT, [2, 3, 4]))
-        # Mean and InvStdDev have reduced shape (axis=-1 → [2, 3])
-        self.assertEqual(actual[1], ts(FLOAT, [2, 3]))
-        self.assertEqual(actual[2], ts(FLOAT, [2, 3]))
+        # Mean and InvStdDev have reduced shape with trailing 1s: [2, 3, 1]
+        self.assertEqual(actual[1], ts(FLOAT, [2, 3, 1]))
+        self.assertEqual(actual[2], ts(FLOAT, [2, 3, 1]))
 
     def test_layer_normalization_custom_axis(self):
         actual = run_shape_inference(
@@ -123,9 +123,9 @@ class LayerNormalizationTest(unittest.TestCase):
             num_outputs=3,
         )
         self.assertEqual(actual[0], ts(FLOAT, [2, 3, 4, 5]))
-        # Reduced shape at axis=2 → [2, 3]
-        self.assertEqual(actual[1], ts(FLOAT, [2, 3]))
-        self.assertEqual(actual[2], ts(FLOAT, [2, 3]))
+        # Reduced shape at axis=2 with trailing 1s: [2, 3, 1, 1]
+        self.assertEqual(actual[1], ts(FLOAT, [2, 3, 1, 1]))
+        self.assertEqual(actual[2], ts(FLOAT, [2, 3, 1, 1]))
 
 
 class GroupNormalizationTest(unittest.TestCase):
@@ -168,7 +168,8 @@ class RMSNormalizationTest(unittest.TestCase):
             num_outputs=2,
         )
         self.assertEqual(actual[0], ts(FLOAT, [2, 3, 4]))
-        self.assertEqual(actual[1], ts(FLOAT, [2, 3]))
+        # InvStdDev has trailing 1s: [2, 3, 1]
+        self.assertEqual(actual[1], ts(FLOAT, [2, 3, 1]))
 
 
 class SimplePassthroughNormTest(unittest.TestCase):

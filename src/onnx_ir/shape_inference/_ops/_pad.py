@@ -12,7 +12,7 @@ import onnx_ir as ir
 from onnx_ir.shape_inference import _context, _registry
 
 
-@_registry.registry.register("", "Pad", since_version=13)
+@_registry.registry.register("", "Pad", since_version=1)
 def infer_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Pad operator."""
     (data,) = _context.check_inputs(node, "data")
@@ -27,10 +27,24 @@ def infer_pad(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
         if pads_const is not None:
             pads = [int(x) for x in pads_const.numpy().flatten()]
-            new_dims: list[int | ir.SymbolicDim] = []
-            for i in range(rank):
-                dim = data.shape[i]
-                new_dims.append(dim + pads[i] + pads[i + rank])
+
+            # Read optional axes input (input[3])
+            axes: list[int] | None = None
+            if len(node.inputs) > 3 and node.inputs[3] is not None:
+                axes_const = ir.convenience.get_const_tensor(node.inputs[3])
+                if axes_const is not None:
+                    axes = [int(a) for a in axes_const.numpy().flatten()]
+
+            new_dims: list[int | ir.SymbolicDim] = list(data.shape.dims)
+            if axes is not None:
+                n_axes = len(axes)
+                for i, ax in enumerate(axes):
+                    if ax < 0:
+                        ax += rank
+                    new_dims[ax] = data.shape[ax] + pads[i] + pads[i + n_axes]
+            else:
+                for i in range(rank):
+                    new_dims[i] = data.shape[i] + pads[i] + pads[i + rank]
             output_shape = ir.Shape(new_dims)
         else:
             output_shape = ir.Shape([ctx.new_symbolic_dim() for _ in range(rank)])

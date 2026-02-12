@@ -56,18 +56,20 @@ class ConvTransposeTest(unittest.TestCase):
         )
         self.assertEqual(actual, [ts(FLOAT, [1, 1, 10, 10])])
 
-    def test_auto_pad_raises(self):
+    def test_auto_pad_same_upper(self):
         attrs = {
             "auto_pad": ir.Attr("auto_pad", ir.AttributeType.STRING, "SAME_UPPER"),
+            "strides": ir.Attr("strides", ir.AttributeType.INTS, [2, 2]),
         }
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "",
-                "ConvTranspose",
-                [ts(FLOAT, [1, 1, 3, 3]), ts(FLOAT, [1, 1, 3, 3])],
-                attrs,
-                opset_version=11,
-            )
+        actual = run_shape_inference(
+            "",
+            "ConvTranspose",
+            [ts(FLOAT, [1, 1, 3, 3]), ts(FLOAT, [1, 1, 3, 3])],
+            attrs,
+            opset_version=11,
+        )
+        # SAME: output = input * stride = 3*2 = 6
+        self.assertEqual(actual[0].shape, ir.Shape([1, 1, 6, 6]))
 
     def test_missing_x_shape(self):
         actual = run_shape_inference(

@@ -143,15 +143,16 @@ class LpPoolTest(unittest.TestCase):
         with self.assertRaises(OpUsageError):
             run_shape_inference("", "LpPool", [ts(FLOAT, [1, 1, 5, 5])], opset_version=18)
 
-    def test_lp_pool_auto_pad_raises(self):
+    def test_lp_pool_auto_pad_same_upper(self):
         attrs = {
             "kernel_shape": ir.Attr("kernel_shape", ir.AttributeType.INTS, [3, 3]),
             "auto_pad": ir.Attr("auto_pad", ir.AttributeType.STRING, "SAME_UPPER"),
         }
-        with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "", "LpPool", [ts(FLOAT, [1, 1, 5, 5])], attrs, opset_version=18
-            )
+        actual = run_shape_inference(
+            "", "LpPool", [ts(FLOAT, [1, 1, 5, 5])], attrs, opset_version=18
+        )
+        # SAME: output = ceil(input / stride) = ceil(5/1) = 5
+        self.assertEqual(actual[0].shape, ir.Shape([1, 1, 5, 5]))
 
 
 class GlobalLpPoolTest(unittest.TestCase):

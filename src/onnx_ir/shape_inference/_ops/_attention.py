@@ -75,10 +75,16 @@ def infer_attention(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
         qk_shape: ir.Shape | None = None
         if q.shape is not None:
             rank = q.shape.rank()
-            q_nh_attr = node.attributes.get("q_num_heads")
-            q_nh = q_nh_attr.as_int() if q_nh_attr is not None else None
-
             batch = q.shape[0]
+
+            # Get q_num_heads: from attribute (3D) or Q shape dim 1 (4D)
+            qk_nh_attr = node.attributes.get("q_num_heads")
+            qk_q_nh: int | ir.SymbolicDim | None = None
+            if qk_nh_attr is not None:
+                qk_q_nh = qk_nh_attr.as_int()
+            elif rank == 4:
+                qk_q_nh = q.shape[1]
+
             sq = q.shape[1] if rank == 3 else q.shape[2]
 
             # total_seq_length: past_seq + current_seq (from K)
@@ -90,8 +96,8 @@ def infer_attention(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
                 k_seq = k.shape[k.shape.rank() - 2]
                 total_seq = k_seq
 
-            if q_nh is not None:
-                qk_shape = ir.Shape([batch, q_nh, sq, total_seq])
+            if qk_q_nh is not None:
+                qk_shape = ir.Shape([batch, qk_q_nh, sq, total_seq])
         ctx.set_shape_and_dtype(node.outputs[3], qk_shape, output_dtype)
 
 

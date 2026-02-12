@@ -103,7 +103,7 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
         else [0] * n_spatial
     )
 
-    spatial_out: list[int | ir.SymbolicDim] = []
+    spatial_dims_out: list[int | ir.SymbolicDim] = []
     for i in range(n_spatial):
         in_dim = x_shape[i + 2]
         k = kernel_shape[i]
@@ -111,7 +111,7 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
         d = dilations[i]
 
         if k is None:
-            spatial_out.append(ctx.new_symbolic_dim())
+            spatial_dims_out.append(ctx.new_symbolic_dim())
             continue
 
         out_dim = (
@@ -121,8 +121,8 @@ def infer_conv_transpose(ctx: _context.ShapeInferenceContext, node: ir.Node) -> 
             - pads[i]
             - pads[i + n_spatial]
         )
-        spatial_out.append(out_dim)
+        spatial_dims_out.append(out_dim)
 
-    output_dims = [batch_dim, out_channels, *spatial_out]
+    output_dims = [batch_dim, out_channels, *spatial_dims_out]
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims), output_dtype)

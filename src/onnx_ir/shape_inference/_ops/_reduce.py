@@ -42,7 +42,8 @@ def _read_axes(node: ir.Node) -> list[int] | None:
     if axes_attr is not None:
         return list(axes_attr.as_ints())
 
-    return None
+    # No axes input and no axes attribute means "reduce all axes"
+    return []
 
 
 @_reg("", "ReduceSum", since_version=1)

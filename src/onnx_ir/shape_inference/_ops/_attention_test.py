@@ -44,7 +44,8 @@ class AttentionTest(unittest.TestCase):
             [ts(FLOAT), ts(FLOAT, [1, 10, 64]), ts(FLOAT, [1, 10, 64])],
             opset_version=23,
         )
-        self.assertEqual(actual, [ts(FLOAT, [1, 10, 64])])
+        # Q has no shape → output shape is None (can't determine without Q)
+        self.assertIsNone(actual[0].shape)
 
     def test_missing_all_shapes(self):
         actual = run_shape_inference(
