@@ -233,7 +233,6 @@ _SKIP_SYMBOLIC_SHAPE: set[str] = {
     "test_string_split_basic",
     "test_string_split_consecutive_delimiters",
     "test_string_split_empty_string_delimiter",
-    "test_string_split_empty_tensor",
     "test_string_split_maxsplit",
     "test_string_split_no_delimiter",
     # StringNormalizer: output dim may change due to stopwords
@@ -350,6 +349,63 @@ def _shapes_compatible(
     return True, has_symbolic
 
 
+def _run_inference_and_compare(
+    test_case: unittest.TestCase,
+    model_path: pathlib.Path,
+) -> tuple[bool, bool, bool]:
+    """Run shape inference on a model and compare with expected outputs.
+
+    Returns:
+        (all_ok, has_symbolic, has_other_error): all_ok is True when every
+        output matches.  has_symbolic is True when at least one output has a
+        symbolic dim where a concrete one was expected.  has_other_error is
+        True when a non-symbolic mismatch occurred (dtype None, shape None,
+        rank mismatch, concrete value mismatch).
+    """
+    proto = onnx.load(model_path)
+    input_tensors = _load_test_inputs(model_path.parent)
+    _inject_inputs_as_initializers(proto, input_tensors)
+
+    model = ir.serde.deserialize_model(proto)
+
+    expected: dict[str, tuple[ir.DataType | None, ir.Shape | None]] = {}
+    for out in model.graph.outputs:
+        expected[out.name] = (out.dtype, out.shape)
+        out.dtype = None
+        out.shape = None
+
+    from onnx_ir.shape_inference import infer_symbolic_shapes
+
+    infer_symbolic_shapes(model)
+
+    all_ok = True
+    has_symbolic = False
+    has_other_error = False
+
+    for out in model.graph.outputs:
+        exp_dtype, exp_shape = expected[out.name]
+
+        if exp_dtype is not None:
+            if out.dtype is None or out.dtype != exp_dtype:
+                all_ok = False
+                has_other_error = True
+
+        if exp_shape is not None:
+            if out.shape is None:
+                all_ok = False
+                has_other_error = True
+            else:
+                compatible, symbolic = _shapes_compatible(exp_shape, out.shape)
+                if not compatible:
+                    all_ok = False
+                    has_other_error = True
+                elif symbolic:
+                    all_ok = False
+                    has_symbolic = True
+
+    return all_ok, has_symbolic, has_other_error
+
+
 class ShapeInferenceBackendTest(unittest.TestCase):
     @parameterized.parameterized.expand(_test_args)
     def test_shape_inference_matches_expected(self, _: str, model_path: pathlib.Path) -> None:
@@ -410,6 +466,37 @@ class ShapeInferenceBackendTest(unittest.TestCase):
                     f"Output '{out.name}': shape mismatch: "
                     f"expected={exp_shape}, got={out.shape}",
                 )
+
+
+# Build test args for _SKIP_SYMBOLIC_SHAPE validation
+_symbolic_skip_test_args = [
+    (name, _ONNX_BACKEND_NODE_TEST_DIR / name / "model.onnx")
+    for name in sorted(_SKIP_SYMBOLIC_SHAPE)
+    if (_ONNX_BACKEND_NODE_TEST_DIR / name / "model.onnx").exists()
+]
+
+
+class SymbolicShapeSkipValidationTest(unittest.TestCase):
+    """Verify _SKIP_SYMBOLIC_SHAPE entries fail due to symbolic dims only.
+
+    If an entry starts passing, it should be removed from the skip list.
+    If an entry fails for a non-symbolic reason, the skip list category is wrong.
+    """
+
+    @parameterized.parameterized.expand(_symbolic_skip_test_args)
+    def test_skip_is_symbolic_not_other_error(self, _: str, model_path: pathlib.Path) -> None:
+        all_ok, has_symbolic, has_other_error = _run_inference_and_compare(self, model_path)
+        if all_ok:
+            self.fail(
+                f"Test passes now — remove '{model_path.parent.name}' "
+                f"from _SKIP_SYMBOLIC_SHAPE"
+            )
+        self.assertTrue(
+            has_symbolic,
+            f"'{model_path.parent.name}' does not have symbolic dim issues; "
+            f"it has other errors (has_other_error={has_other_error}). "
+            f"Move it to the correct skip list.",
+        )
 
 
 if __name__ == "__main__":
