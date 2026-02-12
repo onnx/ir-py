@@ -25,9 +25,8 @@ class DFTTest(unittest.TestCase):
             [ts(FLOAT, [1, 10, 2])],
             opset_version=20,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
         self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual[0].shape.rank(), 3)
 
     def test_missing_shape(self):
         actual = run_shape_inference(
@@ -36,8 +35,7 @@ class DFTTest(unittest.TestCase):
             [ts(FLOAT)],
             opset_version=20,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_no_inputs(self):
         with self.assertRaises(OpUsageError):
@@ -61,7 +59,6 @@ class STFTTest(unittest.TestCase):
             [ts(FLOAT, [1, 128, 1]), ts(ir.DataType.INT64, [])],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 4)
         self.assertEqual(actual[0].shape[0], 1)  # batch from signal
         self.assertEqual(actual[0].shape[3], 2)  # real/imag
@@ -98,9 +95,8 @@ class DFTSymbolicDimsTest(unittest.TestCase):
             [ts(FLOAT, ["N", "L", 2])],
             opset_version=20,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
         self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual[0].shape.rank(), 3)
 
 
 class STFTSymbolicDimsTest(unittest.TestCase):
@@ -111,7 +107,6 @@ class STFTSymbolicDimsTest(unittest.TestCase):
             [ts(FLOAT, ["N", 128, 1]), ts(ir.DataType.INT64, [])],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 4)
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
         self.assertEqual(actual[0].shape[3], 2)

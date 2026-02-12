@@ -144,11 +144,7 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
             ],
             opset_version=23,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
+        self.assertEqual(actual, [ts(FLOAT, ["B", "S", "D"])])
 
     def test_symbolic_with_concrete_embed_dim(self):
         actual = run_shape_inference(
@@ -161,11 +157,7 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
             ],
             opset_version=23,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[2], 64)
+        self.assertEqual(actual, [ts(FLOAT, ["B", "S", 64])])
 
     def test_4d_concrete(self):
         """4D inputs: [batch, num_heads, seq_len, head_size]."""
@@ -180,9 +172,9 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
             opset_version=23,
             num_outputs=3,
         )
-        self.assertEqual(list(actual[0].shape), [2, 8, 10, 64])
-        self.assertEqual(list(actual[1].shape), [2, 8, 10, 64])
-        self.assertEqual(list(actual[2].shape), [2, 8, 10, 64])
+        self.assertEqual(actual[0], ts(FLOAT, [2, 8, 10, 64]))
+        self.assertEqual(actual[1], ts(FLOAT, [2, 8, 10, 64]))
+        self.assertEqual(actual[2], ts(FLOAT, [2, 8, 10, 64]))
 
     def test_4d_symbolic(self):
         """4D inputs with symbolic batch and seq dims."""
@@ -197,12 +189,7 @@ class AttentionSymbolicDimsTest(unittest.TestCase):
             opset_version=23,
             num_outputs=3,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[1], 8)
-        self.assertIsInstance(actual[0].shape[2], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[3], 64)
+        self.assertEqual(actual[0], ts(FLOAT, ["B", 8, "S", 64]))
         # present_key follows K shape
         self.assertEqual(actual[1].shape.rank(), 4)
         # present_value follows V shape

@@ -86,8 +86,7 @@ class EinsumTest(unittest.TestCase):
     def test_unknown_input_shape_graceful(self):
         attrs = {"equation": ir.Attr("equation", ir.AttributeType.STRING, "ij->ij")}
         actual = run_shape_inference("", "Einsum", [ts(FLOAT)], attrs, opset_version=17)
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_missing_equation_raises(self):
         with self.assertRaises(OpUsageError):

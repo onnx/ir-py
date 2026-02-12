@@ -86,9 +86,7 @@ class ConcatTest(unittest.TestCase):
             {"axis": ir.Attr("axis", ir.AttributeType.INT, 0)},
             opset_version=17,
         )
-        # dtype should still propagate even if shape is unknown
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_symbolic_concat_dim(self):
         """When the concat dim is symbolic, result should also be symbolic."""

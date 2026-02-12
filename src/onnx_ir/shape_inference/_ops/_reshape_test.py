@@ -193,11 +193,7 @@ class ReshapeTest(unittest.TestCase):
             [data, shape_val],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 2)
-        # 0 copies dim from input → 3, -1 is 6/3=2
-        self.assertEqual(actual[0].shape[0], 2)
-        self.assertEqual(actual[0].shape[1], 3)
+        self.assertEqual(actual, [ts(FLOAT, [2, 3])])
 
     def test_no_inputs(self):
         with self.assertRaises(OpUsageError):
@@ -218,8 +214,7 @@ class ReshapeTest(unittest.TestCase):
             [data, shape_val],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_zero_copies_from_input_missing_dim(self):
         """0-dim in target copies from input; when input has the dim, it's used."""
@@ -231,12 +226,7 @@ class ReshapeTest(unittest.TestCase):
             [data, shape_val],
             opset_version=17,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 3)
-        # dim 0: 0 copies from input dim 0 → 6
-        self.assertEqual(actual[0].shape[0], 6)
-        self.assertEqual(actual[0].shape[1], 2)
-        self.assertEqual(actual[0].shape[2], 3)
+        self.assertEqual(actual, [ts(FLOAT, [6, 2, 3])])
 
 
 if __name__ == "__main__":

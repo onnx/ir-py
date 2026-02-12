@@ -68,8 +68,8 @@ class TopKTest(unittest.TestCase):
         actual = run_shape_inference_with_values(
             "", "TopK", [x, k], opset_version=21, num_outputs=2
         )
-        self.assertEqual(list(actual[0].shape), [3, 4, 3])
-        self.assertEqual(list(actual[1].shape), [3, 4, 3])
+        self.assertEqual(actual[0], ts(FLOAT, [3, 4, 3]))
+        self.assertEqual(actual[1], ts(INT64, [3, 4, 3]))
 
     def test_symbolic_dims(self):
         """TopK with symbolic input dims preserves them on non-axis dims."""

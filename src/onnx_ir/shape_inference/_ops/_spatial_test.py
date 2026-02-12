@@ -192,12 +192,7 @@ class GridSampleSymbolicDimsTest(unittest.TestCase):
             [ts(FLOAT, ["N", "C", "H", "W"]), ts(FLOAT, ["N", 6, 7, 2])],
             opset_version=20,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
-        self.assertEqual(actual[0].shape[2], 6)
-        self.assertEqual(actual[0].shape[3], 7)
+        self.assertEqual(actual, [ts(FLOAT, ["N", "C", 6, 7])])
 
 
 class Col2ImSymbolicDimsTest(unittest.TestCase):
@@ -337,12 +332,10 @@ class MaxRoiPoolSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=1,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
         self.assertEqual(actual[0].shape[2], 2)
         self.assertEqual(actual[0].shape[3], 2)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
 
 
 class RoiAlignSymbolicDimsTest(unittest.TestCase):
@@ -362,12 +355,10 @@ class RoiAlignSymbolicDimsTest(unittest.TestCase):
             attrs,
             opset_version=16,
         )
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
-        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
         self.assertEqual(actual[0].shape[2], 3)
         self.assertEqual(actual[0].shape[3], 3)
+        self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
+        self.assertIsInstance(actual[0].shape[1], ir.SymbolicDim)
 
 
 if __name__ == "__main__":

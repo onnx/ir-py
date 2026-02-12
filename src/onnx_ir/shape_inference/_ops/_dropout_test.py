@@ -59,10 +59,8 @@ class DropoutTest(unittest.TestCase):
             opset_version=13,
             num_outputs=2,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
-        self.assertIsNone(actual[1].shape)
-        self.assertEqual(actual[1].type.dtype, BOOL)
+        self.assertEqual(actual[0], ts(FLOAT))
+        self.assertEqual(actual[1], ts(BOOL))
 
     def test_single_output_only(self):
         actual = run_shape_inference(

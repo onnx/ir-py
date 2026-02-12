@@ -98,5 +98,7 @@ class ExpandTest(unittest.TestCase):
             opset_version=17,
         )
         self.assertEqual(actual, [ts(FLOAT)])
+
+
 if __name__ == "__main__":
     unittest.main()

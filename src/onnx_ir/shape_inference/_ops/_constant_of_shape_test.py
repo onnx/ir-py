@@ -57,8 +57,7 @@ class ConstantOfShapeTest(unittest.TestCase):
             [shape_val],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_scalar_output(self):
         """From ONNX test_constantofshape_without_input_shape_scalar: shape=[] → scalar."""

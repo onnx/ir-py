@@ -212,10 +212,8 @@ class PoolingSymbolicDimsTest(unittest.TestCase):
     )
     def test_global_pool_symbolic_dims(self, _name, op_type, input_shape):
         actual = run_shape_inference("", op_type, [ts(FLOAT, input_shape)], opset_version=21)
-        self.assertIsNotNone(actual[0].shape)
-        self.assertEqual(actual[0].shape.rank(), 4)
-        self.assertEqual(actual[0].shape[2], 1)
-        self.assertEqual(actual[0].shape[3], 1)
+        expected = list(input_shape[:2]) + [1, 1]
+        self.assertEqual(actual, [ts(FLOAT, expected)])
 
 
 if __name__ == "__main__":

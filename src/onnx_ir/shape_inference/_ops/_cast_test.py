@@ -58,8 +58,7 @@ class CastTest(unittest.TestCase):
             {"to": ir.Attr("to", ir.AttributeType.INT, INT64)},
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, INT64)
+        self.assertEqual(actual, [ts(INT64)])
 
     def test_cast_no_inputs(self):
         with self.assertRaises(OpUsageError):
@@ -118,8 +117,7 @@ class CastLikeTest(unittest.TestCase):
             [ts(FLOAT), ts(INT64, [1])],
             opset_version=17,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, INT64)
+        self.assertEqual(actual, [ts(INT64)])
 
     def test_cast_like_no_inputs(self):
         with self.assertRaises(OpUsageError):

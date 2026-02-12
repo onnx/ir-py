@@ -28,8 +28,7 @@ class ResizeTest(unittest.TestCase):
             [ts(FLOAT)],
             opset_version=19,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
     def test_fallback_symbolic_dims(self):
         actual = run_shape_inference(

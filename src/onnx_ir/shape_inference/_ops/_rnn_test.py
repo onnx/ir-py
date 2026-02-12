@@ -124,8 +124,7 @@ class RNNMissingShapeTest(unittest.TestCase):
             opset_version=21,
             num_outputs=2,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT), ts(FLOAT)])
 
     def test_rnn_no_hidden_size_symbolic(self):
         """When hidden_size is missing and W is not provided, use symbolic dim."""

@@ -340,8 +340,7 @@ class ConvIntegerTest(unittest.TestCase):
             [ts(INT8), ts(INT8, [1, 1, 3, 3])],
             opset_version=10,
         )
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, INT32)
+        self.assertEqual(actual, [ts(INT32)])
 
     def test_conv_integer_with_padding(self):
         actual = run_shape_inference(

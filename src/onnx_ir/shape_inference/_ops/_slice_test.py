@@ -70,14 +70,10 @@ class SliceTest(unittest.TestCase):
         actual = self._run(ts(FLOAT, [3, 2]), [1, 0], [2, 2])
         self.assertEqual(actual, [ts(FLOAT, [1, 2])])
 
-    def test_symbolic_dim_becomes_unknown(self):
-        """Symbolic dims that are sliced become unknown."""
+    def test_symbolic_dim_preserved_on_non_sliced_axis(self):
+        """Symbolic dim on non-sliced axis is preserved; sliced axis is concrete."""
         actual = self._run(ts(FLOAT, ["a", 2]), [0], [1], [1], [1])
-        result = actual[0]
-        # Dim 0 is symbolic and untouched
-        self.assertNotIsInstance(result.shape[0], int)
-        # Dim 1 is concrete sliced
-        self.assertEqual(result.shape[1], 1)
+        self.assertEqual(actual, [ts(FLOAT, ["a", 1])])
 
     def test_symbolic_input_const_slice(self):
         """Slice on ["N", "C"] with const starts/ends on axis 1 → ["N", 6]."""

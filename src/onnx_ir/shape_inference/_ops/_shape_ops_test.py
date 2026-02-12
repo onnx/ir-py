@@ -208,8 +208,7 @@ class FlattenTest(unittest.TestCase):
     def test_flatten_missing_shape(self):
         """Flatten with unknown input shape → dtype only."""
         actual = run_shape_inference("", "Flatten", [ts(FLOAT)], opset_version=17)
-        self.assertIsNone(actual[0].shape)
-        self.assertEqual(actual[0].type.dtype, FLOAT)
+        self.assertEqual(actual, [ts(FLOAT)])
 
 
 class DetTest(unittest.TestCase):
