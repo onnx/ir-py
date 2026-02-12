@@ -92,8 +92,39 @@ def infer_stft(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 
     if signal.shape is not None:
         batch_size = signal.shape[0]
-        frames = ctx.new_symbolic_dim()
-        freq_bins = ctx.new_symbolic_dim()
+        signal_length = signal.shape[1]
+
+        frames: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+        freq_bins: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+
+        onesided_attr = node.attributes.get("onesided")
+        onesided = onesided_attr.as_int() if onesided_attr is not None else 1
+
+        # Determine dft_size from frame_length (input[3]) or window (input[2])
+        dft_size: int | None = None
+        if len(node.inputs) > 3 and node.inputs[3] is not None:
+            fl_const = ir.convenience.get_const_tensor(node.inputs[3])
+            if fl_const is not None:
+                dft_size = int(fl_const.numpy().item())
+        if dft_size is None and len(node.inputs) > 2 and node.inputs[2] is not None:
+            win = node.inputs[2]
+            if win.shape is not None and isinstance(win.shape[0], int):
+                dft_size = win.shape[0]
+
+        # Compute freq_bins from dft_size
+        if dft_size is not None:
+            freq_bins = dft_size // 2 + 1 if onesided else dft_size
+
+        # Compute frames when frame_step and signal_length are known
+        frame_step_const = ir.convenience.get_const_tensor(node.inputs[1])  # type: ignore[arg-type]
+        if (
+            frame_step_const is not None
+            and dft_size is not None
+            and isinstance(signal_length, int)
+        ):
+            step = int(frame_step_const.numpy().item())
+            frames = (signal_length - dft_size) // step + 1
+
         output_shape = ir.Shape([batch_size, frames, freq_bins, 2])
     else:
         output_shape = None

@@ -365,10 +365,10 @@ def _run_inference_and_compare(
 
     model = ir.serde.deserialize_model(proto)
 
-    expected: dict[str, tuple[ir.DataType | None, ir.Shape | None]] = {}
+    expected: dict[str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]] = {}
     for out in model.graph.outputs:
-        expected[out.name] = (out.dtype, out.shape)
-        out.dtype = None
+        expected[out.name] = (out.dtype, out.shape, out.type)
+        out.type = None
         out.shape = None
 
     from onnx_ir.shape_inference import infer_symbolic_shapes
@@ -380,7 +380,14 @@ def _run_inference_and_compare(
     has_other_error = False
 
     for out in model.graph.outputs:
-        exp_dtype, exp_shape = expected[out.name]
+        exp_dtype, exp_shape, exp_type = expected[out.name]
+
+        # For sequence/optional types, just check the type class matches
+        if exp_type is not None and isinstance(exp_type, ir.SequenceType):
+            if out.type is None or not isinstance(out.type, ir.SequenceType):
+                all_ok = False
+                has_other_error = True
+            continue
 
         if exp_dtype is not None:
             if out.dtype is None or out.dtype != exp_dtype:
@@ -420,18 +427,30 @@ class ShapeInferenceBackendTest(unittest.TestCase):
         model = ir.serde.deserialize_model(proto)
 
         # Save expected output dtype and shape, then clear them
-        expected: dict[str, tuple[ir.DataType | None, ir.Shape | None]] = {}
+        expected: dict[str, tuple[ir.DataType | None, ir.Shape | None, ir.TypeProtocol | None]] = {}
         for out in model.graph.outputs:
-            expected[out.name] = (out.dtype, out.shape)
-            out.dtype = None
-            out.shape = None
+            expected[out.name] = (out.dtype, out.shape, out.type)
+            out.type = None
 
         from onnx_ir.shape_inference import infer_symbolic_shapes
 
         infer_symbolic_shapes(model)
 
         for out in model.graph.outputs:
-            exp_dtype, exp_shape = expected[out.name]
+            exp_dtype, exp_shape, exp_type = expected[out.name]
+
+            # For sequence/optional types, just check type class matches
+            if exp_type is not None and isinstance(exp_type, ir.SequenceType):
+                self.assertIsNotNone(
+                    out.type,
+                    f"Output '{out.name}': type is None, expected SequenceType",
+                )
+                self.assertIsInstance(
+                    out.type,
+                    ir.SequenceType,
+                    f"Output '{out.name}': expected SequenceType, got {type(out.type).__name__}",
+                )
+                continue
 
             # Check dtype
             if exp_dtype is not None:

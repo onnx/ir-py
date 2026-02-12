@@ -29,9 +29,14 @@ def infer_onehot(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             axis += output_rank
 
         new_dims: list[int | ir.SymbolicDim] = []
+        depth_val: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+        depth_const = ir.convenience.get_const_tensor(node.inputs[1])  # type: ignore[arg-type]
+        if depth_const is not None:
+            depth_val = int(depth_const.numpy().item())
+
         for i in range(output_rank):
             if i == axis:
-                new_dims.append(ctx.new_symbolic_dim())
+                new_dims.append(depth_val)
             elif i < axis:
                 new_dims.append(indices.shape[i])
             else:

@@ -56,12 +56,19 @@ def infer_mel_weight_matrix(ctx: _context.ShapeInferenceContext, node: ir.Node) 
     )
 
     if len(node.outputs) > 0:
-        output_shape = ir.Shape(
-            [
-                ctx.new_symbolic_dim(),
-                ctx.new_symbolic_dim(),
-            ]
-        )
+        num_freq: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+        num_mel: int | ir.SymbolicDim = ctx.new_symbolic_dim()
+
+        if len(node.inputs) > 0 and node.inputs[0] is not None:
+            bins_const = ir.convenience.get_const_tensor(node.inputs[0])
+            if bins_const is not None:
+                num_freq = int(bins_const.numpy().item())
+        if len(node.inputs) > 1 and node.inputs[1] is not None:
+            mel_const = ir.convenience.get_const_tensor(node.inputs[1])
+            if mel_const is not None:
+                num_mel = int(mel_const.numpy().item())
+
+        output_shape = ir.Shape([num_freq, num_mel])
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
 
 
