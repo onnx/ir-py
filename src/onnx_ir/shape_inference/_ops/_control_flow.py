@@ -1,12 +1,13 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Shape inference for control flow operators (If, Loop)."""
+"""Shape inference for control flow operators (If, Loop, Scan)."""
 
 from __future__ import annotations
 
 __all__ = [
     "infer_if",
     "infer_loop",
+    "infer_scan",
 ]
 
 import onnx_ir as ir
@@ -173,3 +174,39 @@ def infer_loop(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
             else:
                 scan_shape = None
             ctx.set_shape_and_dtype(output, scan_shape, dtype)
+
+
+@_registry.registry.register("", "Scan", since_version=11)
+def infer_scan(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for Scan operator.
+
+    State outputs keep body output shapes. Scan outputs get a symbolic scan dim prepended.
+    """
+    body_attr = node.attributes.get("body")
+    if body_attr is not None:
+        body_graph = body_attr.as_graph()
+        if body_graph is not None:
+            num_scan_inputs_attr = node.attributes.get("num_scan_inputs")
+            num_scan_inputs = (
+                num_scan_inputs_attr.as_int() if num_scan_inputs_attr is not None else 0
+            )
+            # Number of state variables = total inputs - scan inputs
+            num_state = len(node.inputs) - num_scan_inputs
+            for i, output in enumerate(node.outputs):
+                if i < len(body_graph.outputs):
+                    body_out = body_graph.outputs[i]
+                    if i < num_state:
+                        # State output: same shape as body state output
+                        ctx.set_shape_and_dtype(output, body_out.shape, body_out.dtype)
+                    else:
+                        # Scan output: body scan output shape + scan dim prepended
+                        if body_out.shape is not None:
+                            scan_len = ctx.new_symbolic_dim()
+                            out_shape = ir.Shape([scan_len, *body_out.shape])
+                        else:
+                            out_shape = None
+                        ctx.set_shape_and_dtype(output, out_shape, body_out.dtype)
+            return
+
+    for output in node.outputs:
+        ctx.set_shape_and_dtype(output, None, None)

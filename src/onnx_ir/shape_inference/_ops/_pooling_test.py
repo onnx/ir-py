@@ -139,9 +139,7 @@ class LpPoolTest(unittest.TestCase):
 
     def test_lp_pool_missing_kernel_shape_raises(self):
         with self.assertRaises(OpUsageError):
-            run_shape_inference(
-                "", "LpPool", [ts(FLOAT, [1, 1, 5, 5])], opset_version=18
-            )
+            run_shape_inference("", "LpPool", [ts(FLOAT, [1, 1, 5, 5])], opset_version=18)
 
     def test_lp_pool_auto_pad_raises(self):
         attrs = {

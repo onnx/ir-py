@@ -45,9 +45,7 @@ class PadTest(unittest.TestCase):
 
     def test_const_pads_concrete_dims(self):
         """Pad with const pads on concrete dims: [3, 4] + pads [1, 0, 1, 0] → [5, 4]."""
-        data_val = ir.Value(
-            name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3, 4])
-        )
+        data_val = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape([3, 4]))
         pads_val = const_value([1, 0, 1, 0], name="pads")
         actual = run_shape_inference_with_values(
             "", "Pad", [data_val, pads_val], opset_version=13
@@ -56,9 +54,7 @@ class PadTest(unittest.TestCase):
 
     def test_const_pads_with_symbolic_dim(self):
         """Pad with const pads but symbolic input dim produces symbolic output dim."""
-        data_val = ir.Value(
-            name="data", type=ir.TensorType(FLOAT), shape=ir.Shape(["N", 4])
-        )
+        data_val = ir.Value(name="data", type=ir.TensorType(FLOAT), shape=ir.Shape(["N", 4]))
         pads_val = const_value([1, 0, 1, 0], name="pads")
         actual = run_shape_inference_with_values(
             "", "Pad", [data_val, pads_val], opset_version=13

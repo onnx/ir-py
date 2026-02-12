@@ -12,6 +12,7 @@ __all__ = [
     "infer_grid_sample",
     "infer_max_roi_pool",
     "infer_max_unpool",
+    "infer_non_max_suppression",
     "infer_roi_align",
 ]
 
@@ -308,3 +309,16 @@ def infer_deform_conv(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
     output_dims_final: list[int | ir.SymbolicDim] = [batch_dim, out_channels, *spatial_dims]
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape(output_dims_final), output_dtype)
+
+
+@_registry.registry.register("", "NonMaxSuppression", since_version=10)
+def infer_non_max_suppression(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
+    """Infer shape and dtype for NonMaxSuppression operator.
+
+    Output: [selected_indices_count, 3], dtype=INT64.
+    """
+    _context.check_inputs(node, "boxes", "scores")
+
+    output_shape = ir.Shape([ctx.new_symbolic_dim(), 3])
+    if len(node.outputs) > 0:
+        ctx.set_shape_and_dtype(node.outputs[0], output_shape, ir.DataType.INT64)

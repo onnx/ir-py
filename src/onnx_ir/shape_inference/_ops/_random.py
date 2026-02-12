@@ -6,10 +6,7 @@ from __future__ import annotations
 
 __all__ = [
     "infer_bernoulli",
-    "infer_blackman_window",
     "infer_eye_like",
-    "infer_hamming_window",
-    "infer_hann_window",
     "infer_multinomial",
     "infer_random_normal",
     "infer_random_normal_like",
@@ -54,29 +51,6 @@ def _infer_random_from_shape(ctx: _context.ShapeInferenceContext, node: ir.Node)
     output_dtype = (
         ir.DataType(dtype_attr.as_int()) if dtype_attr is not None else ir.DataType.FLOAT
     )
-
-    if len(node.outputs) > 0:
-        ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
-
-
-def _infer_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Shared inference for BlackmanWindow, HammingWindow, HannWindow.
-
-    Output is a 1-D tensor whose length equals the scalar ``size`` input.
-    """
-    (size,) = _context.check_inputs(node, "size")
-
-    dtype_attr = node.attributes.get("output_datatype")
-    output_dtype = (
-        ir.DataType(dtype_attr.as_int()) if dtype_attr is not None else ir.DataType.FLOAT
-    )
-
-    size_const = ir.convenience.get_const_tensor(size)
-    if size_const is not None:
-        size_val = int(size_const.numpy().item())
-        output_shape: ir.Shape = ir.Shape([size_val])
-    else:
-        output_shape = ir.Shape([ctx.new_symbolic_dim()])
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
@@ -151,24 +125,3 @@ def infer_multinomial(ctx: _context.ShapeInferenceContext, node: ir.Node) -> Non
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], output_shape, output_dtype)
-
-
-# -- Window ops ---------------------------------------------------------------
-
-
-@_reg("", "BlackmanWindow", since_version=17)
-def infer_blackman_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for BlackmanWindow operator."""
-    _infer_window(ctx, node)
-
-
-@_reg("", "HammingWindow", since_version=17)
-def infer_hamming_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for HammingWindow operator."""
-    _infer_window(ctx, node)
-
-
-@_reg("", "HannWindow", since_version=17)
-def infer_hann_window(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
-    """Infer shape and dtype for HannWindow operator."""
-    _infer_window(ctx, node)

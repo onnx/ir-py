@@ -173,9 +173,7 @@ class ReshapeTest(unittest.TestCase):
         """Two -1 dims should record an error."""
         from onnx_ir.shape_inference import ShapeInferenceError
 
-        data = ir.Value(
-            name="data", shape=ir.Shape([2, 3, 4]), type=ir.TensorType(FLOAT)
-        )
+        data = ir.Value(name="data", shape=ir.Shape([2, 3, 4]), type=ir.TensorType(FLOAT))
         shape_val = const_value([-1, -1])
         with self.assertRaises(ShapeInferenceError):
             run_shape_inference_with_values(
@@ -187,9 +185,7 @@ class ReshapeTest(unittest.TestCase):
 
     def test_neg_one_with_zero_dim_static(self):
         """Reshape [-1, 0] with static input [2, 3] and allowzero=0 → -1 resolves."""
-        data = ir.Value(
-            name="data", shape=ir.Shape([2, 3]), type=ir.TensorType(FLOAT)
-        )
+        data = ir.Value(name="data", shape=ir.Shape([2, 3]), type=ir.TensorType(FLOAT))
         shape_val = const_value([-1, 0])
         actual = run_shape_inference_with_values(
             "",

@@ -215,9 +215,7 @@ class QuantizeLinearTest(unittest.TestCase):
     def test_quantize_linear_with_zero_point_dtype(self):
         x = ir.Value(name="x", shape=ir.Shape([3, 4]), type=ir.TensorType(FLOAT))
         x_scale = ir.Value(name="x_scale", shape=ir.Shape([]), type=ir.TensorType(FLOAT))
-        x_zp = ir.Value(
-            name="x_zp", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.INT8)
-        )
+        x_zp = ir.Value(name="x_zp", shape=ir.Shape([]), type=ir.TensorType(ir.DataType.INT8))
         actual = run_shape_inference_with_values(
             "",
             "QuantizeLinear",

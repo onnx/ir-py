@@ -236,9 +236,7 @@ class CenterCropPadTest(unittest.TestCase):
         input_val = ir.Value(
             name="input", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 3, 10, 10])
         )
-        shape_val = ir.Value(
-            name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4])
-        )
+        shape_val = ir.Value(name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4]))
         actual = run_shape_inference_with_values(
             "", "CenterCropPad", [input_val, shape_val], opset_version=18
         )
@@ -247,9 +245,7 @@ class CenterCropPadTest(unittest.TestCase):
 
     def test_center_crop_pad_missing_input_shape(self):
         input_val = ir.Value(name="input", type=ir.TensorType(FLOAT))
-        shape_val = ir.Value(
-            name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4])
-        )
+        shape_val = ir.Value(name="shape", type=ir.TensorType(INT64), shape=ir.Shape([4]))
         actual = run_shape_inference_with_values(
             "", "CenterCropPad", [input_val, shape_val], opset_version=18
         )
@@ -270,12 +266,8 @@ class MaxUnpoolTest(unittest.TestCase):
         self.assertEqual(actual[0].shape[1], 1)
 
     def test_max_unpool_with_output_shape(self):
-        x_val = ir.Value(
-            name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 1, 2, 2])
-        )
-        i_val = ir.Value(
-            name="i", type=ir.TensorType(INT64), shape=ir.Shape([1, 1, 2, 2])
-        )
+        x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 1, 2, 2]))
+        i_val = ir.Value(name="i", type=ir.TensorType(INT64), shape=ir.Shape([1, 1, 2, 2]))
         os_val = const_value([1, 1, 4, 4], name="output_shape")
         actual = run_shape_inference_with_values(
             "", "MaxUnpool", [x_val, i_val, os_val], opset_version=11

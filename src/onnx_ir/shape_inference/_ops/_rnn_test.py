@@ -125,12 +125,8 @@ class RNNHiddenSizeFromWTest(unittest.TestCase):
         """Infer hidden_size from W input when attribute is not provided."""
         # W shape: [num_directions, hidden_size * num_gates, input_size]
         # For RNN, num_gates=1, so W[1] = hidden_size
-        x_val = ir.Value(
-            name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8])
-        )
-        w_val = ir.Value(
-            name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 16, 8])
-        )
+        x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8]))
+        w_val = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 16, 8]))
         actual = run_shape_inference_with_values(
             "",
             "RNN",
@@ -143,13 +139,9 @@ class RNNHiddenSizeFromWTest(unittest.TestCase):
 
     def test_lstm_hidden_size_from_w(self):
         """Infer hidden_size from W for LSTM (num_gates=4)."""
-        x_val = ir.Value(
-            name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8])
-        )
+        x_val = ir.Value(name="x", type=ir.TensorType(FLOAT), shape=ir.Shape([10, 2, 8]))
         # W[1] = hidden_size * 4 = 64 → hidden_size = 16
-        w_val = ir.Value(
-            name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 64, 8])
-        )
+        w_val = ir.Value(name="w", type=ir.TensorType(FLOAT), shape=ir.Shape([1, 64, 8]))
         actual = run_shape_inference_with_values(
             "",
             "LSTM",

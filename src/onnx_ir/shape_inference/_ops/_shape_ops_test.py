@@ -365,9 +365,7 @@ class EinsumTest(unittest.TestCase):
 class NonZeroTest(unittest.TestCase):
     def test_symbolic_input(self):
         """NonZero on ["N", 3] → rank-2 output with symbolic dims."""
-        actual = run_shape_inference(
-            "", "NonZero", [ts(FLOAT, ["N", 3])], opset_version=17
-        )
+        actual = run_shape_inference("", "NonZero", [ts(FLOAT, ["N", 3])], opset_version=17)
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 2)
@@ -378,24 +376,18 @@ class NonZeroTest(unittest.TestCase):
 
 class DetTest(unittest.TestCase):
     def test_det_basic(self):
-        actual = run_shape_inference(
-            "", "Det", [ts(FLOAT, [3, 3])], opset_version=17
-        )
+        actual = run_shape_inference("", "Det", [ts(FLOAT, [3, 3])], opset_version=17)
         self.assertEqual(actual, [ts(FLOAT, [])])
 
     def test_det_batched(self):
-        actual = run_shape_inference(
-            "", "Det", [ts(FLOAT, [2, 5, 3, 3])], opset_version=17
-        )
+        actual = run_shape_inference("", "Det", [ts(FLOAT, [2, 5, 3, 3])], opset_version=17)
         self.assertEqual(actual, [ts(FLOAT, [2, 5])])
 
 
 class NonZeroConcreteTest(unittest.TestCase):
     def test_non_zero_concrete_rank(self):
         """NonZero on [3, 4] → output shape [2, symbolic]."""
-        actual = run_shape_inference(
-            "", "NonZero", [ts(FLOAT, [3, 4])], opset_version=17
-        )
+        actual = run_shape_inference("", "NonZero", [ts(FLOAT, [3, 4])], opset_version=17)
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape[0], 2)
@@ -403,9 +395,7 @@ class NonZeroConcreteTest(unittest.TestCase):
 
     def test_non_zero_no_shape(self):
         """NonZero without input shape → both dims are symbolic."""
-        actual = run_shape_inference(
-            "", "NonZero", [ts(FLOAT)], opset_version=17
-        )
+        actual = run_shape_inference("", "NonZero", [ts(FLOAT)], opset_version=17)
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 2)
@@ -470,9 +460,7 @@ class ScanTest(unittest.TestCase):
             "num_scan_inputs": ir.Attr("num_scan_inputs", ir.AttributeType.INT, 0),
         }
         # 1 input (the state), 0 scan inputs → num_state = 1
-        state_val = ir.Value(
-            name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
-        )
+        state_val = ir.Value(name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2]))
         actual = run_shape_inference_with_values(
             "", "Scan", [state_val], attrs, opset_version=11, num_outputs=2
         )
@@ -486,9 +474,7 @@ class ScanTest(unittest.TestCase):
 
     def test_scan_no_body(self):
         """Scan without body graph → all outputs are None."""
-        state_val = ir.Value(
-            name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2])
-        )
+        state_val = ir.Value(name="state", type=ir.TensorType(FLOAT), shape=ir.Shape([2]))
         actual = run_shape_inference_with_values(
             "", "Scan", [state_val], opset_version=11, num_outputs=2
         )
@@ -499,9 +485,7 @@ class ScanTest(unittest.TestCase):
 class ImageDecoderTest(unittest.TestCase):
     def test_image_decoder_basic(self):
         UINT8 = ir.DataType.UINT8
-        actual = run_shape_inference(
-            "", "ImageDecoder", [ts(UINT8, [100])], opset_version=20
-        )
+        actual = run_shape_inference("", "ImageDecoder", [ts(UINT8, [100])], opset_version=20)
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 3)
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
@@ -537,9 +521,7 @@ class MelWeightMatrixTest(unittest.TestCase):
 
 class TfIdfVectorizerTest(unittest.TestCase):
     def test_tfidf_vectorizer_1d(self):
-        actual = run_shape_inference(
-            "", "TfIdfVectorizer", [ts(INT64, [10])], opset_version=9
-        )
+        actual = run_shape_inference("", "TfIdfVectorizer", [ts(INT64, [10])], opset_version=9)
         self.assertIsNotNone(actual[0].shape)
         self.assertEqual(actual[0].shape.rank(), 1)
         self.assertIsInstance(actual[0].shape[0], ir.SymbolicDim)
@@ -557,9 +539,7 @@ class TfIdfVectorizerTest(unittest.TestCase):
 
 class OptionalTest(unittest.TestCase):
     def test_optional_basic(self):
-        actual = run_shape_inference(
-            "", "Optional", [ts(FLOAT, [3, 4])], opset_version=15
-        )
+        actual = run_shape_inference("", "Optional", [ts(FLOAT, [3, 4])], opset_version=15)
         self.assertEqual(actual, [ts(FLOAT, [3, 4])])
 
     def test_optional_get_element(self):
@@ -590,9 +570,7 @@ class TensorScatterTest(unittest.TestCase):
 class CompressTest(unittest.TestCase):
     def test_symbolic_input(self):
         """Compress on ["N", 3] → 1D output with symbolic dim."""
-        actual = run_shape_inference(
-            "", "Compress", [ts(FLOAT, ["N", 3])], opset_version=17
-        )
+        actual = run_shape_inference("", "Compress", [ts(FLOAT, ["N", 3])], opset_version=17)
         result = actual[0]
         self.assertIsNotNone(result.shape)
         self.assertEqual(result.shape.rank(), 1)
