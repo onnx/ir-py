@@ -79,6 +79,52 @@ class ShapeOpPropagationTest(unittest.TestCase):
         self.assertEqual(str(sym_val[1]), "W")
 
 
+class SizeOpPropagationTest(unittest.TestCase):
+    """Test that Size op stores symbolic_value (total number of elements)."""
+
+    def test_size_concrete_shape(self):
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT, [3, 4, 5]))
+        [out] = _run_node(ctx, "", "Size", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNotNone(sym_val)
+        self.assertEqual(sym_val, [60])
+
+    def test_size_symbolic_shape(self):
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT, ["N", 3, "H"]))
+        [out] = _run_node(ctx, "", "Size", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNotNone(sym_val)
+        # Product of symbolic dims is a symbolic expression
+        self.assertEqual(len(sym_val), 1)
+
+    def test_size_scalar(self):
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT, []))
+        [out] = _run_node(ctx, "", "Size", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNotNone(sym_val)
+        self.assertEqual(sym_val, [1])
+
+    def test_size_rank1(self):
+        """Size of a 1-D tensor is the single dim value."""
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT, [7]))
+        [out] = _run_node(ctx, "", "Size", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNotNone(sym_val)
+        self.assertEqual(sym_val, [7])
+
+    def test_size_no_shape(self):
+        """Size with unknown shape → no symbolic_value."""
+        ctx = _context.ShapeInferenceContext({"": 17})
+        x = _make_value("x", ts(FLOAT))
+        [out] = _run_node(ctx, "", "Size", [x])
+        sym_val = ctx.get_symbolic_value(out)
+        self.assertIsNone(sym_val)
+
+
 class SlicePropagationTest(unittest.TestCase):
     """Test that Slice propagates symbolic_value."""
 

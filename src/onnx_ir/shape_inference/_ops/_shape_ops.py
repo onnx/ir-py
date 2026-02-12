@@ -58,14 +58,26 @@ def infer_shape(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
 def infer_size(ctx: _context.ShapeInferenceContext, node: ir.Node) -> None:
     """Infer shape and dtype for Size operator.
 
-    Output is a scalar INT64 tensor.
+    Output is a scalar INT64 tensor containing the total number of
+    elements in the input tensor.
 
     Spec: https://onnx.ai/onnx/operators/onnx__Size.html
     """
-    _context.check_inputs(node, "data")
+    (data,) = _context.check_inputs(node, "data")
 
     if len(node.outputs) > 0:
         ctx.set_shape_and_dtype(node.outputs[0], ir.Shape([]), ir.DataType.INT64)
+
+        # Partial data propagation: compute total number of elements
+        if data.shape is not None:
+            rank = data.shape.rank()
+            if rank == 0:
+                ctx.set_symbolic_value(node.outputs[0], [1])
+            else:
+                total: int | ir.SymbolicDim = functools.reduce(
+                    operator.mul, data.shape.dims, 1
+                )
+                ctx.set_symbolic_value(node.outputs[0], [total])
 
 
 @_registry.registry.register("", "Flatten", since_version=1)
