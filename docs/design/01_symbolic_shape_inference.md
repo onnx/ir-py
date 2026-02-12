@@ -516,6 +516,60 @@ concrete = shape.evaluate({"batch": 4, "seq": 128})  # Shape([4, 64, 256])
 symbols = shape.free_symbols()  # {"batch", "seq"}
 ```
 
+## Testing Infrastructure
+
+### The `ts()` Helper
+
+All op-level tests use the `ts()` (TypeAndShape) helper from `_testing.py` for
+concise, readable assertions.  Instead of verbose multi-line checks
+(`assertIsNotNone`, `.rank()`, per-dim equality, `.type.dtype`), a single
+`assertEqual` covers the full type and shape:
+
+```python
+from onnx_ir.shape_inference._ops._testing import ts
+
+FLOAT = ir.DataType.FLOAT
+
+# Create expected TypeAndShape inline
+ts(FLOAT, [3, 4])          # Tensor(FLOAT), Shape([3, 4])
+ts(FLOAT, ["batch", 128])  # Tensor(FLOAT), Shape([SymbolicDim("batch"), 128])
+ts(FLOAT, [3, "_d0"])      # Tensor(FLOAT), Shape([3, SymbolicDim("_d0")])
+ts(FLOAT)                  # Tensor(FLOAT), shape=None (unknown rank)
+```
+
+**Asserting results:**
+
+```python
+actual = run_shape_inference("", "Add", [ts(FLOAT, [3, 4]), ts(FLOAT, [3, 4])], ...)
+self.assertEqual(actual, [ts(FLOAT, [3, 4])])
+```
+
+**Auto-generated symbolic dim names (`_d0`, `_d1`, …):**
+
+When an op creates new unknown dimensions via `ctx.new_symbolic_dim()`, they
+are named `_d0`, `_d1`, etc.  The counter resets at the start of each
+`run_shape_inference()` / `run_shape_inference_with_values()` call, so the
+first auto-generated dim in any test is always `_d0`:
+
+```python
+# Conv with symbolic spatial dims → new _d0, _d1 for output spatial
+actual = run_shape_inference("", "Conv", [ts(FLOAT, ["N", 3, "H", "W"]), ...], ...)
+self.assertEqual(actual, [ts(FLOAT, ["N", 16, "_d0", "_d1"])])
+
+# Named symbolic dims propagate through passthrough ops
+actual = run_shape_inference("", "Relu", [ts(FLOAT, ["N", "C"])], ...)
+self.assertEqual(actual, [ts(FLOAT, ["N", "C"])])
+```
+
+**Other helpers in `_testing.py`:**
+
+- `const_value(data, name, dtype)` – creates an `ir.Value` backed by a
+  constant tensor, for ops that read constant inputs (Reshape, Slice, etc.)
+- `run_shape_inference(domain, op_type, inputs, ...)` – runs a single op's
+  shape inference and returns the list of output `TypeAndShape`
+- `run_shape_inference_with_values(domain, op_type, values, ...)` – same but
+  accepts pre-built `ir.Value` objects (needed for const inputs)
+
 ## Future Work
 
 1. **Constraint System**: Track dimension equality constraints and propagate bindings
