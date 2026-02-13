@@ -5452,7 +5452,7 @@ class GraphSortTest(unittest.TestCase):
             name="cycle",
             opset_imports={"": 21},
         )
-        with self.assertRaises(ValueError, msg="cycle"):
+        with self.assertRaisesRegex(ValueError, "cycle"):
             graph.sort()
 
 
