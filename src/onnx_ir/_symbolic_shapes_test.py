@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 
 import sympy
@@ -108,6 +109,36 @@ class SymbolicDimTest(unittest.TestCase):
         dim = ir.SymbolicDim("N")
         result = 2 * dim
         self.assertEqual(result.value, "2*N")
+
+    def test_truediv_with_int(self):
+        dim = ir.SymbolicDim("N")
+        result = dim / 3
+        self.assertEqual(result.value, "N/3")
+
+    def test_rtruediv(self):
+        dim = ir.SymbolicDim("N")
+        result = 6 / dim
+        self.assertEqual(result.value, "6/N")
+
+    def test_ceil(self):
+        dim = ir.SymbolicDim("N")
+        result = math.ceil(dim / 3)
+        self.assertEqual(result.value, "ceiling(N/3)")
+
+    def test_floor(self):
+        dim = ir.SymbolicDim("N")
+        result = math.floor(dim / 3)
+        self.assertEqual(result.value, "floor(N/3)")
+
+    def test_trunc(self):
+        dim = ir.SymbolicDim("N")
+        result = math.trunc(dim)
+        self.assertEqual(result.value, "N")
+
+    def test_neg(self):
+        dim = ir.SymbolicDim("N")
+        result = -dim
+        self.assertEqual(result.value, "-N")
 
     def test_unsupported_operand_raises_type_error(self):
         dim = ir.SymbolicDim("N")
@@ -569,10 +600,13 @@ class ParseSymbolicExpressionSecurityTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_symbolic_expression("{a: 1}")
 
-    def test_rejects_dot_access(self):
-        """Test that dot access is rejected."""
-        with self.assertRaises(ValueError):
-            parse_symbolic_expression("a.b")
+    def test_identifier_with_dot(self):
+        """Test that dots are allowed in identifiers."""
+        result = parse_symbolic_expression("decoder_input_ids.45_dim_1")
+        self.assertEqual(
+            result,
+            sympy.Symbol("decoder_input_ids.45_dim_1", integer=True, positive=True),
+        )
 
     def test_rejects_string_literal(self):
         """Test that string literals are rejected."""

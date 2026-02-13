@@ -14,11 +14,10 @@ import sympy
 
 __all__ = [
     "parse_symbolic_expression",
-    "ALLOWED_FUNCTIONS",
 ]
 
 # Allowed functions for parsing symbolic dimension expressions
-ALLOWED_FUNCTIONS: dict[str, Callable[..., sympy.Expr]] = {
+_ALLOWED_FUNCTIONS: dict[str, Callable[..., sympy.Expr]] = {
     "max": sympy.Max,
     "Max": sympy.Max,
     "min": sympy.Min,
@@ -73,11 +72,11 @@ class _ExpressionTokenizer:
                 self.pos += 1
             return ("NUMBER", int(self.text[start : self.pos]))
 
-        # Identifier
+        # Identifier (dots allowed for names like 'decoder_input_ids.45_dim_1')
         if char.isalpha() or char == "_":
             start = self.pos
             while self.pos < self.length and (
-                self.text[self.pos].isalnum() or self.text[self.pos] == "_"
+                self.text[self.pos].isalnum() or self.text[self.pos] in "_."
             ):
                 self.pos += 1
             return ("IDENT", self.text[start : self.pos])
@@ -262,10 +261,10 @@ class _ExpressionParser:
 
     def _parse_function_call(self, name: str) -> sympy.Expr:
         """Parse a function call."""
-        if name not in ALLOWED_FUNCTIONS:
+        if name not in _ALLOWED_FUNCTIONS:
             raise ValueError(
                 f"Unknown function '{name}' in expression '{self.text}'. "
-                f"Allowed functions: {', '.join(ALLOWED_FUNCTIONS.keys())}"
+                f"Allowed functions: {', '.join(sorted(_ALLOWED_FUNCTIONS.keys()))}"
             )
 
         self._expect("LPAREN")
@@ -280,7 +279,7 @@ class _ExpressionParser:
 
         self._expect("RPAREN")
 
-        func = ALLOWED_FUNCTIONS[name]
+        func = _ALLOWED_FUNCTIONS[name]
         return func(*args)
 
 
