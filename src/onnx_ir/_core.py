@@ -3547,6 +3547,9 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             """Add a predecessor of a node, and increment the depth of the predecessor."""
             if predecessor is None:
                 return
+            if predecessor not in node_depth:
+                # Predecessor is from a different graph (e.g., outer scope); skip it.
+                return
             node_predecessors[child].append(predecessor)
             node_depth[predecessor] += 1
 
