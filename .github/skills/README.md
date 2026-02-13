@@ -4,7 +4,7 @@ This directory contains specialized skills for AI agents working with the ONNX I
 
 ## Available Skills
 
-### [Pass Writing](./pass-writing.md)
+### [Pass Writing](./pass-writing/SKILL.md)
 
 Comprehensive guide for creating transformation passes in ONNX IR. This skill covers:
 
@@ -31,7 +31,8 @@ These skills are designed to be used by AI agents to improve code quality and co
 
 When adding new skills:
 
-1. Create a descriptive markdown file in this directory
-2. Update this README with a brief description of the new skill
-3. Include comprehensive examples from the codebase
-4. Document both what to do and what to avoid
+1. Create a new directory under `skills/` with a lowercase, hyphenated name (e.g., `webapp-testing`)
+2. Add a `SKILL.md` file inside the directory with the skill content
+3. Update this README with a brief description of the new skill
+4. Include comprehensive examples from the codebase
+5. Document both what to do and what to avoid

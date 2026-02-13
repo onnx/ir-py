@@ -1,6 +1,7 @@
-# ONNX IR Pass Writing Skill
-
-This skill provides comprehensive guidance for creating transformation passes in the ONNX IR project. It encapsulates best practices, conventions, and patterns derived from existing passes in `onnx_ir/passes/common/`.
+---
+name: pass-writing
+description: Comprehensive guidance for creating transformation passes in the ONNX IR project. It encapsulates best practices, conventions, and patterns derived from existing passes in `onnx_ir/passes/common/`.
+---
 
 ## Overview
 
