@@ -5074,5 +5074,387 @@ class GraphViewCloneTest(unittest.TestCase):
         self.assertEqual(full_graph[2].name, "mul")
 
 
+def _sort_op_names(graph: ir.Graph) -> list[str]:
+    """Return the list of op_type names in graph order."""
+    return [node.op_type for node in graph]
+
+
+def _build_linear_graph(op_types: list[str], graph_name: str = "test") -> ir.Graph:
+    """Build a linear chain: X -> op1 -> op2 -> ... -> Y."""
+    x = ir.Value(name="X")
+    prev = x
+    nodes = []
+    for i, op_type in enumerate(op_types):
+        node = ir.Node("", op_type, inputs=[prev], name=f"n{i}")
+        prev = node.outputs[0]
+        prev.name = f"v{i}"
+        nodes.append(node)
+
+    graph = ir.Graph(
+        inputs=[x],
+        outputs=[prev],
+        nodes=nodes,
+        name=graph_name,
+        opset_imports={"": 21},
+    )
+    return graph
+
+
+class GraphSortTest(unittest.TestCase):
+    """Tests for Graph.sort() topological sorting."""
+
+    def test_sort_empty_graph(self):
+        x = ir.Value(name="X")
+        graph = ir.Graph(
+            inputs=[x], outputs=[x], nodes=[], name="empty", opset_imports={"": 21}
+        )
+        graph.sort()
+        self.assertEqual(list(graph), [])
+
+    def test_sort_single_node(self):
+        graph = _build_linear_graph(["Relu"])
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu"])
+
+    def test_sort_already_sorted_linear(self):
+        graph = _build_linear_graph(["Relu", "Sigmoid", "Tanh"])
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu", "Sigmoid", "Tanh"])
+
+    def test_sort_reversed_linear(self):
+        """Nodes in reverse order should be sorted to topological order."""
+        x = ir.Value(name="X")
+        n0 = ir.Node("", "Relu", inputs=[x], name="n0")
+        v0 = n0.outputs[0]
+        v0.name = "v0"
+        n1 = ir.Node("", "Sigmoid", inputs=[v0], name="n1")
+        v1 = n1.outputs[0]
+        v1.name = "v1"
+        n2 = ir.Node("", "Tanh", inputs=[v1], name="n2")
+        v2 = n2.outputs[0]
+        v2.name = "v2"
+
+        # Insert in reverse order
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[v2],
+            nodes=[n2, n1, n0],
+            name="test",
+            opset_imports={"": 21},
+        )
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu", "Sigmoid", "Tanh"])
+
+    def test_sort_diamond_graph(self):
+        """Diamond pattern: X -> A -> C, X -> B -> C."""
+        x = ir.Value(name="X")
+        a = ir.Node("", "Relu", inputs=[x], name="A")
+        va = a.outputs[0]
+        va.name = "va"
+        b = ir.Node("", "Sigmoid", inputs=[x], name="B")
+        vb = b.outputs[0]
+        vb.name = "vb"
+        c = ir.Node("", "Add", inputs=[va, vb], name="C")
+        vc = c.outputs[0]
+        vc.name = "vc"
+
+        # Insert out of order: C before A and B
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[vc],
+            nodes=[c, b, a],
+            name="test",
+            opset_imports={"": 21},
+        )
+        graph.sort()
+        ops = _sort_op_names(graph)
+        # C must come after both A and B
+        self.assertLess(ops.index("Relu"), ops.index("Add"))
+        self.assertLess(ops.index("Sigmoid"), ops.index("Add"))
+
+    def test_sort_with_none_inputs(self):
+        """Nodes with None inputs should not cause errors."""
+        x = ir.Value(name="X")
+        node = ir.Node("", "Relu", inputs=[None, x], name="n0")
+        out = node.outputs[0]
+        out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[out],
+            nodes=[node],
+            name="test",
+            opset_imports={"": 21},
+        )
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu"])
+
+    def test_sort_preserves_order_when_possible(self):
+        """Sort is stable: independent nodes preserve original order."""
+        x = ir.Value(name="X")
+        a = ir.Node("", "Relu", inputs=[x], name="A")
+        va = a.outputs[0]
+        va.name = "va"
+        b = ir.Node("", "Sigmoid", inputs=[x], name="B")
+        vb = b.outputs[0]
+        vb.name = "vb"
+        c = ir.Node("", "Tanh", inputs=[x], name="C")
+        vc = c.outputs[0]
+        vc.name = "vc"
+        merge = ir.Node("", "Sum", inputs=[va, vb, vc], name="Merge", num_outputs=1)
+        out = merge.outputs[0]
+        out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[out],
+            nodes=[a, b, c, merge],
+            name="test",
+            opset_imports={"": 21},
+        )
+        graph.sort()
+        # Independent nodes A, B, C should keep their original order
+        self.assertEqual(_sort_op_names(graph), ["Relu", "Sigmoid", "Tanh", "Sum"])
+
+    def _make_if_graph(self, unsorted_subgraph: bool = False) -> ir.Graph:
+        """Create a graph with an If node containing a subgraph."""
+        x = ir.Value(name="X")
+        cond_node = ir.Node("", "Relu", inputs=[x], name="cond")
+        cond_val = cond_node.outputs[0]
+        cond_val.name = "cond_val"
+
+        sub_in = ir.Value(name="sub_in")
+        sub_sig = ir.Node("", "Sigmoid", inputs=[sub_in], name="sub_sig")
+        sub_v = sub_sig.outputs[0]
+        sub_v.name = "sub_v"
+        sub_tanh = ir.Node("", "Tanh", inputs=[sub_v], name="sub_tanh")
+        sub_out = sub_tanh.outputs[0]
+        sub_out.name = "sub_out"
+
+        sub_nodes = [sub_tanh, sub_sig] if unsorted_subgraph else [sub_sig, sub_tanh]
+        subgraph = ir.Graph(
+            inputs=[sub_in],
+            outputs=[sub_out],
+            nodes=sub_nodes,
+            name="then_branch",
+            opset_imports={"": 21},
+        )
+
+        then_attr = ir.Attr("then_branch", ir.AttributeType.GRAPH, subgraph)
+        if_node = ir.Node("", "If", [cond_val], [then_attr], name="if_node")
+        if_out = if_node.outputs[0]
+        if_out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[if_out],
+            nodes=[if_node, cond_node],  # Unsorted: if before cond
+            name="main",
+            opset_imports={"": 21},
+        )
+        return graph
+
+    def test_sort_with_graph_attribute(self):
+        """Sort handles subgraphs in GRAPH attributes."""
+        graph = self._make_if_graph(unsorted_subgraph=True)
+        graph.sort()
+
+        self.assertEqual(_sort_op_names(graph), ["Relu", "If"])
+
+        if_node = list(graph)[1]
+        subgraph = if_node.attributes["then_branch"].value
+        self.assertEqual(_sort_op_names(subgraph), ["Sigmoid", "Tanh"])
+
+    def test_sort_with_graphs_attribute(self):
+        """Sort handles subgraphs in GRAPHS attributes (multiple graphs)."""
+        x = ir.Value(name="X")
+        relu = ir.Node("", "Relu", inputs=[x], name="relu")
+        relu_out = relu.outputs[0]
+        relu_out.name = "relu_out"
+
+        sub_in1 = ir.Value(name="sub_in1")
+        sub_node1 = ir.Node("", "Sigmoid", inputs=[sub_in1], name="sub1")
+        sub_out1 = sub_node1.outputs[0]
+        sub_out1.name = "sub_out1"
+        sg1 = ir.Graph(
+            inputs=[sub_in1],
+            outputs=[sub_out1],
+            nodes=[sub_node1],
+            name="sg1",
+            opset_imports={"": 21},
+        )
+
+        sub_in2 = ir.Value(name="sub_in2")
+        sub_node2 = ir.Node("", "Tanh", inputs=[sub_in2], name="sub2")
+        sub_out2 = sub_node2.outputs[0]
+        sub_out2.name = "sub_out2"
+        sg2 = ir.Graph(
+            inputs=[sub_in2],
+            outputs=[sub_out2],
+            nodes=[sub_node2],
+            name="sg2",
+            opset_imports={"": 21},
+        )
+
+        graphs_attr = ir.Attr("branches", ir.AttributeType.GRAPHS, [sg1, sg2])
+        multi_node = ir.Node(
+            "",
+            "CustomMultiBranch",
+            [relu_out],
+            [graphs_attr],
+            name="multi",
+        )
+        multi_out = multi_node.outputs[0]
+        multi_out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[multi_out],
+            nodes=[multi_node, relu],  # Unsorted
+            name="main",
+            opset_imports={"": 21},
+        )
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu", "CustomMultiBranch"])
+
+    def test_sort_subgraph_with_outer_scope_input(self):
+        """Subgraph node consuming a value produced in the parent graph should not crash."""
+        x = ir.Value(name="X")
+        relu = ir.Node("", "Relu", inputs=[x], name="relu")
+        relu_out = relu.outputs[0]
+        relu_out.name = "relu_out"
+
+        sub_in = ir.Value(name="sub_in")
+        sub_add = ir.Node("", "Add", inputs=[sub_in, relu_out], name="sub_add")
+        sub_out = sub_add.outputs[0]
+        sub_out.name = "sub_out"
+        sub_sig = ir.Node("", "Sigmoid", inputs=[sub_out], name="sub_sig")
+        sub_final = sub_sig.outputs[0]
+        sub_final.name = "sub_final"
+
+        subgraph = ir.Graph(
+            inputs=[sub_in],
+            outputs=[sub_final],
+            nodes=[sub_sig, sub_add],  # Unsorted
+            name="body",
+            opset_imports={"": 21},
+        )
+
+        body_attr = ir.Attr("body", ir.AttributeType.GRAPH, subgraph)
+        loop_node = ir.Node("", "Loop", [relu_out], [body_attr], name="loop")
+        loop_out = loop_node.outputs[0]
+        loop_out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[loop_out],
+            nodes=[loop_node, relu],  # Unsorted
+            name="main",
+            opset_imports={"": 21},
+        )
+
+        graph.sort()
+
+        self.assertEqual(_sort_op_names(graph), ["Relu", "Loop"])
+
+        body = loop_node.attributes["body"].value
+        self.assertEqual(_sort_op_names(body), ["Add", "Sigmoid"])
+
+    def test_sort_subgraph_directly_with_outer_scope_reference(self):
+        """Calling sort() on a subgraph directly when it references outer-scope values."""
+        x = ir.Value(name="X")
+        relu = ir.Node("", "Relu", inputs=[x], name="relu")
+        relu_out = relu.outputs[0]
+        relu_out.name = "relu_out"
+
+        sub_in = ir.Value(name="sub_in")
+        sub_add = ir.Node("", "Add", inputs=[sub_in, relu_out], name="sub_add")
+        sub_v = sub_add.outputs[0]
+        sub_v.name = "sub_v"
+        sub_sig = ir.Node("", "Sigmoid", inputs=[sub_v], name="sub_sig")
+        sub_out = sub_sig.outputs[0]
+        sub_out.name = "sub_out"
+
+        subgraph = ir.Graph(
+            inputs=[sub_in],
+            outputs=[sub_out],
+            nodes=[sub_sig, sub_add],  # Unsorted
+            name="body",
+            opset_imports={"": 21},
+        )
+
+        # Sort the subgraph directly — relu is NOT in this graph's nodes.
+        # This is the exact scenario that caused the original KeyError bug.
+        subgraph.sort()
+        self.assertEqual(_sort_op_names(subgraph), ["Add", "Sigmoid"])
+
+    def test_sort_deeply_nested_outer_scope(self):
+        """A deeply nested subgraph referencing a grandparent value."""
+        x = ir.Value(name="X")
+        relu = ir.Node("", "Relu", inputs=[x], name="relu")
+        relu_out = relu.outputs[0]
+        relu_out.name = "relu_out"
+
+        inner_in = ir.Value(name="inner_in")
+        inner_add = ir.Node("", "Add", inputs=[inner_in, relu_out], name="inner_add")
+        inner_out = inner_add.outputs[0]
+        inner_out.name = "inner_out"
+        inner_graph = ir.Graph(
+            inputs=[inner_in],
+            outputs=[inner_out],
+            nodes=[inner_add],
+            name="inner",
+            opset_imports={"": 21},
+        )
+
+        mid_in = ir.Value(name="mid_in")
+        inner_attr = ir.Attr("body", ir.AttributeType.GRAPH, inner_graph)
+        mid_node = ir.Node("", "Loop", [mid_in], [inner_attr], name="mid_loop")
+        mid_out = mid_node.outputs[0]
+        mid_out.name = "mid_out"
+        mid_graph = ir.Graph(
+            inputs=[mid_in],
+            outputs=[mid_out],
+            nodes=[mid_node],
+            name="middle",
+            opset_imports={"": 21},
+        )
+
+        outer_attr = ir.Attr("body", ir.AttributeType.GRAPH, mid_graph)
+        outer_loop = ir.Node("", "Loop", [relu_out], [outer_attr], name="outer_loop")
+        outer_out = outer_loop.outputs[0]
+        outer_out.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[outer_out],
+            nodes=[outer_loop, relu],  # Unsorted
+            name="main",
+            opset_imports={"": 21},
+        )
+
+        graph.sort()
+        self.assertEqual(_sort_op_names(graph), ["Relu", "Loop"])
+
+    def test_sort_raises_on_cycle(self):
+        """A graph with a cycle should raise ValueError."""
+        v_a = ir.Value(name="v_a")
+        v_b = ir.Value(name="v_b")
+
+        node_a = ir.Node("", "Relu", inputs=[v_b], name="A", outputs=[v_a])
+        node_b = ir.Node("", "Sigmoid", inputs=[v_a], name="B", outputs=[v_b])
+
+        x = ir.Value(name="X")
+        graph = ir.Graph(
+            inputs=[x],
+            outputs=[v_a],
+            nodes=[node_a, node_b],
+            name="cycle",
+            opset_imports={"": 21},
+        )
+        with self.assertRaises(ValueError, msg="cycle"):
+            graph.sort()
+
+
 if __name__ == "__main__":
     unittest.main()
