@@ -3003,26 +3003,24 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             user_node.replace_input_with(index, replacement)
 
     def merge_shapes(self, other: Shape | None, /) -> None:
-        """Merge the shape of this value with another shape to update the existing shape, with the current shape's dimensions taking precedence.
+        """Merge the shape of this value with another shape to update the existing shape in-place.
 
-        Two dimensions are merged as follows:
+        Two dimensions are merged as follows (in order of precedence):
 
         * If both dimensions are equal, the merged dimension is the same.
-        * If one dimension is SymbolicDim and the other is concrete, the merged dimension is the concrete one.
-        * If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value).
-        * In all other cases where the dimensions differ, the current shape's dimension is taken (a warning is emitted when both are concrete integers).
+        * If both dimensions are different concrete integers, a ValueError is raised.
+        * If one dimension is concrete and the other is SymbolicDim, the concrete dimension is preferred (from either shape).
+        * If both dimensions are SymbolicDim, a named symbolic dimension (non-None value) is preferred over an unnamed one (None value), regardless of which shape it comes from.
+        * If both dimensions are named symbolic dimensions with different names, the current shape's dimension is kept.
 
         .. versionadded:: 0.1.14
 
         Args:
             other: The other shape to merge with.
 
-        Returns:
-            A new shape that is the result of merging this shape with the other shape.
-
         Raises:
             ValueError: If the shapes have different ranks.
-            ValueError: If there are conflicting concrete dimensions.
+            ValueError: If there are conflicting concrete dimensions (both are integers but different).
         """
         if other is None:
             return
