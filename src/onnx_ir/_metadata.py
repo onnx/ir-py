@@ -43,3 +43,6 @@ class MetadataStore(collections.UserDict):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.data!r}, invalid_keys={self._invalid_keys!r})"
+
+    def __bool__(self) -> bool:
+        return bool(self.data) or bool(self._invalid_keys)
