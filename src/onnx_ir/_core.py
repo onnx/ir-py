@@ -3371,7 +3371,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
-    def clone(self, allow_outer_scope_values: bool = False) -> Graph:
+    def clone(self, allow_outer_scope_values: bool = False, deep_copy: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3391,6 +3391,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
                 when cloning subgraphs that reference values from the outer graph.
                 When False (default), values from outer scopes will cause an error if they
                 are referenced in the cloned graph.
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this graph.
@@ -3408,7 +3409,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             resolve_ref_attrs=False,
             allow_outer_scope_values=allow_outer_scope_values,
         )
-        return cloner.clone_graph(self)
+        return cloner.clone_graph(self, deep_copy=deep_copy)
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -3816,7 +3817,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
     def __repr__(self) -> str:
         return _graph_repr(self)
 
-    def clone(self) -> Graph:
+    def clone(self, deep_copy: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3826,6 +3827,9 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this graph.
@@ -3838,7 +3842,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
             metadata_props={},
             resolve_ref_attrs=False,
         )
-        return cloner.clone_graph(self)
+        return cloner.clone_graph(self, deep_copy=deep_copy)
 
 
 class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
@@ -3968,7 +3972,7 @@ Model(
         yield self.graph
         yield from self.graph.subgraphs()
 
-    def clone(self) -> Model:
+    def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
 
         All graphs, nodes, values, and subgraphs are cloned. The cloned model will have
@@ -3979,11 +3983,14 @@ Model(
 
         .. versionadded:: 0.1.14
 
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
+
         Returns:
             A deep copy of this model.
         """
-        new_graph = self.graph.clone()
-        new_functions = [func.clone() for func in self.functions.values()]
+        new_graph = self.graph.clone(deep_copy=deep_copy)
+        new_functions = [func.clone(deep_copy=deep_copy) for func in self.functions.values()]
         new_model = Model(
             new_graph,
             ir_version=self.ir_version,
@@ -4185,7 +4192,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
             pass
         yield from seen_graphs.keys()
 
-    def clone(self) -> Function:
+    def clone(self, deep_copy: bool = False) -> Function:
         """Create a deep copy of this function in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned function will have
@@ -4195,6 +4202,9 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this function.
@@ -4207,9 +4217,10 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
             metadata_props={},
             resolve_ref_attrs=False,
         )
-        new_graph = cloner.clone_graph(self._graph)
+        new_graph = cloner.clone_graph(self._graph, deep_copy=deep_copy)
         new_attributes = [
-            cloner.clone_attr(attr.name, attr) for attr in self._attributes.values()
+            cloner.clone_attr(attr.name, attr, deep_copy=deep_copy)
+            for attr in self._attributes.values()
         ]
         return Function(
             domain=self._domain,

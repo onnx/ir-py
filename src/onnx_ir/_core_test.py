@@ -4036,6 +4036,109 @@ class GraphCloneTest(unittest.TestCase):
 
         # Note: meta is NOT cloned - it's a separate runtime dictionary
 
+    def test_deep_clone_value_meta(self):
+        """Test deep cloning of value meta."""
+        v0 = _core.Value(name="input")
+        v0.meta["valid_key"] = [10, 20]
+        v0.meta["invalid_key"] = [30, 40]
+        v0.meta.invalidate("invalid_key")
+
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        node.outputs[0].meta["valid_key"] = [50, 60]
+        node.outputs[0].meta["invalid_key"] = [70, 80]
+        node.outputs[0].meta.invalidate("invalid_key")
+
+        graph = _core.Graph(inputs=(v0,), outputs=(node.outputs[0],), nodes=(node,))
+        cloned_graph = graph.clone(deep_copy=True)
+
+        # Check input value
+        cloned_input = cloned_graph.inputs[0]
+        self.assertEqual(cloned_input.meta["valid_key"], v0.meta["valid_key"])
+        self.assertEqual(cloned_input.meta["invalid_key"], v0.meta["invalid_key"])
+
+        # Check that the meta values are not the same objects
+        self.assertIsNot(cloned_input.meta["valid_key"], v0.meta["valid_key"])
+        self.assertIsNot(cloned_input.meta["invalid_key"], v0.meta["invalid_key"])
+
+        # Check validity
+        self.assertTrue(cloned_input.meta.is_valid("valid_key"))
+        self.assertFalse(cloned_input.meta.is_valid("invalid_key"))
+
+        # Check output value
+        cloned_output = cloned_graph.outputs[0]
+        self.assertEqual(cloned_output.meta["valid_key"], node.outputs[0].meta["valid_key"])
+        self.assertEqual(
+            cloned_output.meta["invalid_key"], node.outputs[0].meta["invalid_key"]
+        )
+
+        # Check that the meta values are not the same objects
+        self.assertIsNot(cloned_output.meta["valid_key"], node.outputs[0].meta["valid_key"])
+        self.assertIsNot(
+            cloned_output.meta["invalid_key"], node.outputs[0].meta["invalid_key"]
+        )
+
+        # Check validity
+        self.assertTrue(cloned_output.meta.is_valid("valid_key"))
+        self.assertFalse(cloned_output.meta.is_valid("invalid_key"))
+
+    def test_deep_clone_node_meta(self):
+        """Test deep cloning of node meta."""
+        v0 = _core.Value(name="input")
+        node = _core.Node(
+            "",
+            "Identity",
+            inputs=(v0,),
+            num_outputs=1,
+        )
+        node.meta["valid_key"] = [1, 2, 3]
+        node.meta["invalid_key"] = [4, 5]
+        node.meta.invalidate("invalid_key")
+
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+
+        cloned_graph = graph.clone(deep_copy=True)
+        cloned_node = cloned_graph[0]
+
+        # Check expected values
+        self.assertEqual(cloned_node.meta["valid_key"], node.meta["valid_key"])
+        self.assertEqual(cloned_node.meta["invalid_key"], node.meta["invalid_key"])
+
+        # Check that the meta values are not the same objects
+        self.assertIsNot(cloned_node.meta["valid_key"], node.meta["valid_key"])
+        self.assertIsNot(cloned_node.meta["invalid_key"], node.meta["invalid_key"])
+
+        # Check validity
+        self.assertTrue(cloned_node.meta.is_valid("valid_key"))
+        self.assertFalse(cloned_node.meta.is_valid("invalid_key"))
+
+    def test_deep_clone_graph_meta(self):
+        """Test deep cloning of graph meta."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(inputs=(v0,), outputs=(node.outputs[0],), nodes=(node,))
+
+        graph.meta["valid_key"] = [1, 2, 3]
+        graph.meta["invalid_key"] = [4, 5, 6]
+        graph.meta.invalidate("invalid_key")
+
+        cloned_graph = graph.clone(deep_copy=True)
+
+        # Check expected values
+        self.assertEqual(cloned_graph.meta["valid_key"], graph.meta["valid_key"])
+        self.assertEqual(cloned_graph.meta["invalid_key"], graph.meta["invalid_key"])
+
+        # Check that the meta values are not the same objects
+        self.assertIsNot(cloned_graph.meta["valid_key"], graph.meta["valid_key"])
+        self.assertIsNot(cloned_graph.meta["invalid_key"], graph.meta["invalid_key"])
+
+        # Check validity
+        self.assertTrue(cloned_graph.meta.is_valid("valid_key"))
+        self.assertFalse(cloned_graph.meta.is_valid("invalid_key"))
+
     def test_clone_preserves_node_attributes(self):
         """Test that cloning preserves node attributes."""
         v0 = _core.Value(name="input")
@@ -4484,6 +4587,39 @@ class ModelCloneTest(unittest.TestCase):
             cloned_model.metadata_props["version"], model.metadata_props["version"]
         )
         self.assertIsNot(cloned_model.metadata_props, model.metadata_props)
+
+    def test_deep_clone_model_with_meta(self):
+        """Test deep cloning a model with meta data stores."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=(v0,),
+            outputs=(node.outputs[0],),
+            nodes=(node,),
+        )
+        graph.meta["valid_key"] = [1, 2, 3]
+        graph.meta["invalid_key"] = [4, 5, 6]
+        graph.meta.invalidate("invalid_key")
+
+        model = _core.Model(graph, ir_version=10)
+        model.metadata_props["author"] = "test_author"
+        model.metadata_props["version"] = "1.0.0"
+
+        cloned_model = model.clone(deep_copy=True)
+
+        # Check expected values
+        self.assertEqual(cloned_model.graph.meta["valid_key"], graph.meta["valid_key"])
+        self.assertEqual(cloned_model.graph.meta["invalid_key"], graph.meta["invalid_key"])
+
+        # Check that the meta values are not the same objects
+        self.assertIsNot(cloned_model.graph.meta["valid_key"], model.graph.meta["valid_key"])
+        self.assertIsNot(
+            cloned_model.graph.meta["invalid_key"], model.graph.meta["invalid_key"]
+        )
+
+        # Check validity
+        self.assertTrue(cloned_model.graph.meta.is_valid("valid_key"))
+        self.assertFalse(cloned_model.graph.meta.is_valid("invalid_key"))
 
     def test_clone_model_with_complex_graph(self):
         """Test cloning a model with a complex graph including subgraphs."""
