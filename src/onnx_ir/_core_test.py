@@ -4139,6 +4139,19 @@ class GraphCloneTest(unittest.TestCase):
         self.assertTrue(cloned_graph.meta.is_valid("valid_key"))
         self.assertFalse(cloned_graph.meta.is_valid("invalid_key"))
 
+    @parameterized.parameterized.expand([(True,), (False,)])
+    def test_clone_graph_empty_meta_with_only_invalid_keys(self, deep_copy):
+        """Test cloning a graph with empty meta that has only invalid keys."""
+        v0 = _core.Value(name="input")
+        node = _core.Node("", "Identity", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(inputs=(v0,), outputs=(node.outputs[0],), nodes=(node,))
+        graph.meta.invalidate("invalid_key")
+
+        cloned_graph = graph.clone(deep_copy=deep_copy)
+
+        # Check validity
+        self.assertFalse(cloned_graph.meta.is_valid("invalid_key"))
+
     def test_clone_preserves_node_attributes(self):
         """Test that cloning preserves node attributes."""
         v0 = _core.Value(name="input")
