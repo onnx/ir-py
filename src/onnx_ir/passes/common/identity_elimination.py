@@ -92,10 +92,11 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
         assert graph_like is not None, "Node must be in a graph"
 
         output_is_graph_output = output_value.is_graph_output()
-        input_is_graph_input = input_value.is_graph_input()
 
-        # Case 3: Both output is graph output and input is graph input - keep the node
-        if output_is_graph_output and input_is_graph_input:
+        # Case 3: Both node output is graph output and node input is graph input or initializer - keep the node
+        if output_is_graph_output and (
+            input_value.is_graph_input() or input_value.is_initializer()
+        ):
             return False
 
         # Copy over shape/type if the output has more complete information
