@@ -147,6 +147,48 @@ class TestIdentityEliminationPass(unittest.TestCase):
         self.assertIs(result.model.graph.inputs[0], input_value)
         self.assertIs(result.model.graph.outputs[0], identity_node.outputs[0])
 
+    def test_keep_identity_when_input_is_initializer_and_output_is_graph_output(self):
+        """Test: y = Identity(x) where y is graph output AND x is an initializer."""
+        initializer_value = ir.Value(
+            name="initializer",
+            const_value=ir.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=ir.DataType.FLOAT),
+        )
+
+        # Create Identity node
+        identity_node = ir.Node("", "Identity", inputs=[initializer_value])
+        identity_node.outputs[0].name = "graph_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 2])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[],
+            outputs=[identity_node.outputs[0]],  # y IS a graph output
+            initializers=[initializer_value],  # x IS an initializer
+            nodes=[identity_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Precondition: verify the initializer is recognized
+        self.assertTrue(initializer_value.is_initializer())
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass did NOT modify the model (Case 3)
+        self.assertFalse(result.modified)
+
+        # Verify Identity node was kept
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 1)
+        self.assertEqual(remaining_nodes[0].op_type, "Identity")
+
+        # Verify structure is unchanged
+        self.assertEqual(len(result.model.graph.outputs), 1)
+        self.assertIs(result.model.graph.outputs[0], identity_node.outputs[0])
+
     def test_multiple_identity_nodes(self):
         """Test elimination of multiple Identity nodes in different scenarios."""
         # Create graph input
@@ -929,6 +971,58 @@ class TestIdentityEliminationPass(unittest.TestCase):
         assert input_value.shape is not None  # For type checker
         self.assertEqual(input_value.shape[0], sym_dim_with_value)
         self.assertEqual(input_value.shape[1], 10)
+
+    def test_eliminate_identity_when_input_is_initializer_and_output_is_not_graph_output(self):
+        """Test: y = Identity(x) where x is an initializer but y is NOT a graph output."""
+        # Create a value that will be used as an initializer
+        initializer_value = ir.Value(
+            name="initializer",
+            const_value=ir.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=ir.DataType.FLOAT),
+        )
+
+        # Create Identity node
+        identity_node = ir.Node("", "Identity", inputs=[initializer_value])
+        identity_node.outputs[0].name = "identity_output"
+        identity_node.outputs[0].shape = ir.Shape([2, 2])
+        identity_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Create Add node that uses the Identity output (so Identity output is NOT a graph output)
+        add_input = ir.val(
+            "add_input", shape=ir.Shape([2, 2]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        add_node = ir.Node("", "Add", inputs=[identity_node.outputs[0], add_input])
+        add_node.outputs[0].name = "add_output"
+        add_node.outputs[0].shape = ir.Shape([2, 2])
+        add_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[add_input],
+            outputs=[add_node.outputs[0]],  # Identity output is NOT a graph output
+            initializers=[initializer_value],  # x IS an initializer
+            nodes=[identity_node, add_node],
+            name="test_graph",
+        )
+
+        model = ir.Model(graph, ir_version=10)
+
+        # Precondition: verify the initializer is recognized
+        self.assertTrue(initializer_value.is_initializer())
+
+        # Run the pass
+        pass_instance = identity_elimination.IdentityEliminationPass()
+        result = pass_instance(model)
+
+        # Verify the pass WAS applied (Case 1: output is not graph output)
+        self.assertTrue(result.modified)
+
+        # Verify Identity node was removed
+        remaining_nodes = list(result.model.graph)
+        self.assertEqual(len(remaining_nodes), 1)
+        self.assertEqual(remaining_nodes[0].op_type, "Add")
+
+        # Verify Add node now uses the initializer directly
+        add_node_after = remaining_nodes[0]
+        self.assertIs(add_node_after.inputs[0], initializer_value)
 
     def test_duplicate_identity_output_in_graph_outputs(self):
         """Test case where the same Identity output appears multiple times in graph outputs."""
