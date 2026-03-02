@@ -29,6 +29,19 @@ Welcome. Today we'll look at onnx-ir — an in-memory IR for ONNX models designe
 
 ---
 
+# Agenda
+
+1. 🤔 **Why an In-Memory IR?** — Protobuf limitations
+2. 🏗️ **The IR Hierarchy** — Model, Graph, Node, Value
+3. 🔗 **Values** — SSA-like references vs string lookups
+4. 📦 **Initializers** — How constant data is stored
+5. 🔌 **TensorProtocol** — Unified interface & zero-copy tensors
+6. 🎿 **Graph: DoublyLinkedSet** — The ski lift architecture
+7. ✅ **Safe Iteration** — Mutating the graph during traversal
+8. 🛠️ **Passes & Convenience APIs** — Putting it all together
+
+---
+
 # Why an In-Memory IR?
 
 ONNX protobuf is a **serialization format**, not a manipulation format.
@@ -449,6 +462,53 @@ Let's see how removal and insertion work. When you remove node B, the cable reco
 For insertion, we create a new LinkBox chair and splice it into the cable. If the iterator is at B when we insert D after it, D is ahead on the cable and will be visited. If the iterator is already past that point at C, D is behind and won't cause a revisit.
 
 And the set guarantee: if you try to insert a node that's already somewhere in the set, it's automatically removed from its old position first. One skier, one chair.
+-->
+
+---
+
+# No Cleanup Pass: Immediate Chair Detach
+
+When a skier offboards, the chair is **detached from the cable immediately** — no deferred cleanup.
+
+```python
+def erase(self):                       # Called by remove()
+    prev, next_ = self.prev, self.next
+    prev.next, next_.prev = next_, prev # 1. Cable reconnects around the chair
+    self.value = None                   # 2. Skier gets off (chair is empty)
+    # Note: self.next is NOT cleared — the ghost chair still "knows" where the cable goes
+
+def remove(self, value):
+    box = self._value_ids_to_boxes[id(value)]
+    box.erase()                         # 3. Detach the chair
+    del self._value_ids_to_boxes[id(value)]  # 4. Remove from lookup board
+```
+
+<v-click>
+
+```
+ Iterator is here ──╮
+                     ▼
+ Before:   [A] ⇄ [B] ⇄ [C]           Cable: A ↔ B ↔ C
+
+ remove(B):
+           [A] ⇄──────⇄ [C]           Cable: A ↔ C  (B unlinked from cable)
+                  [B̸]───→ [C]          Ghost: B.next still → C (not cleared!)
+                   ▲
+           Iterator's local variable    Python GC collects B̸ once iterator advances
+```
+
+</v-click>
+
+<v-click>
+
+**Why no cleanup pass?** The ghost box lives only as long as the iterator holds it. Once `box = box.next` executes, the ghost has **zero references** → Python's garbage collector frees it. No tombstone list, no sweep phase, no manual cleanup.
+
+> 🎿 The chair falls off the cable the moment the skier leaves. The iterator just needs to take one more step forward before the chair vanishes.
+
+</v-click>
+
+<!--
+This is an elegant detail. When you call remove, erase immediately unlinks the box from the cable — its neighbors now skip it. But critically, the ghost box's own next pointer is NOT cleared. So if the iterator is currently looking at this box, it can still follow next to find the correct successor. Once the iterator advances with box = box.next, nothing references the ghost box anymore, and Python's garbage collector frees it automatically. There's no tombstone list to sweep, no cleanup pass needed. The memory is reclaimed incrementally as the iterator progresses.
 -->
 
 ---
