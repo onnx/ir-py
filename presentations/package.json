@@ -1,0 +1,19 @@
+{
+  "name": "presentations",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "slidev slides.md",
+    "build": "slidev build slides.md",
+    "export": "slidev export slides.md"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@slidev/cli": "^52.14.0",
+    "@slidev/theme-default": "^0.25.0"
+  }
+}

@@ -176,3 +176,5 @@ cython_debug/
 *.onnx
 !testdata/**/*.onnx
 docs/**/generated/*
+
+**/node_modules/**
