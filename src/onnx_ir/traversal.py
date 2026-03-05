@@ -131,9 +131,10 @@ def topological_order(
     ordering. Nodes appearing earlier in the original graph order are yielded
     first among nodes at the same topological level.
 
-    This is a lazy iterator — nodes are yielded one at a time without
-    materializing the full sorted list. For large graphs, this avoids
-    allocating the full sorted node list when you only need a single pass.
+    Nodes are yielded one at a time from the sorted order. An initial
+    O(V + E) pass builds the dependency graph before any nodes are
+    yielded, but the sorted sequence itself is not materialized — each
+    node is yielded as it becomes ready.
 
     When ``recursive`` is False (default), implicit dependencies through
     subgraph attributes (e.g., an ``If`` node's branch referencing an
