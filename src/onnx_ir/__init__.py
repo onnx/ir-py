@@ -7,6 +7,7 @@ __all__ = [
     "serde",
     "traversal",
     "convenience",
+    "editing",
     "external_data",
     "tape",
     "schemas",
@@ -94,7 +95,7 @@ __all__ = [
 
 import types
 
-from onnx_ir import convenience, external_data, passes, schemas, serde, tape, traversal
+from onnx_ir import convenience, editing, external_data, passes, schemas, serde, tape, traversal
 from onnx_ir._convenience._constructors import node, tensor, val
 from onnx_ir._core import (
     Attr,
