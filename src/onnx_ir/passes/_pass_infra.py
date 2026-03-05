@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, final
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "PassManager",
     "PassResult",
     "functionalize",
+    "pass_fn",
     # Errors
     "InvariantError",
     "PreconditionError",
@@ -349,3 +350,49 @@ def functionalize(pass_instance: PassBase) -> FunctionalPass:
         A functional pass.
     """
     return _FunctionalPassWrapper(pass_instance)
+
+
+def pass_fn(fn: Callable[[ir.Model], bool]) -> InPlacePass:
+    """Decorator that wraps a function into an :class:`InPlacePass`.
+
+    The decorated function should accept an :class:`ir.Model` and return
+    ``True`` if the model was modified, ``False`` otherwise.
+
+    .. versionadded:: 0.2
+
+    Args:
+        fn: A function ``(model: ir.Model) -> bool``.
+
+    Returns:
+        An :class:`InPlacePass` instance that can be used with
+        :class:`Sequential` and :class:`PassManager`.
+
+    Example::
+
+        @ir.passes.pass_fn
+        def my_pass(model: ir.Model) -> bool:
+            modified = False
+            for node in ir.traversal.RecursiveGraphIterator(model.graph):
+                if node.op_type == "Identity":
+                    ...
+                    modified = True
+            return modified
+
+        result = my_pass(model)
+        pipeline = ir.passes.Sequential(my_pass, other_pass)
+    """
+
+    class _FnPass(InPlacePass):
+        def call(self, model: ir.Model) -> PassResult:
+            modified = fn(model)
+            return PassResult(model, modified=modified)
+
+        def __repr__(self) -> str:
+            return f"{self.__class__.__qualname__}({fn.__name__})"
+
+    _FnPass.__name__ = fn.__name__
+    _FnPass.__qualname__ = fn.__qualname__
+    _FnPass.__doc__ = fn.__doc__
+    _FnPass.__module__ = fn.__module__
+
+    return _FnPass()

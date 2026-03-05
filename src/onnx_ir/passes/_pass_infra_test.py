@@ -393,5 +393,128 @@ class FunctionalizeTest(unittest.TestCase):
         self.assertEqual(result.model.graph.inputs[0].name, "modified_name")
 
 
+class PassFnTest(unittest.TestCase):
+    """Test the pass_fn decorator that wraps functions into InPlacePass instances."""
+
+    def test_pass_fn_returns_in_place_pass(self):
+        @_pass_infra.pass_fn
+        def noop_pass(model: ir.Model) -> bool:
+            return False
+
+        self.assertIsInstance(noop_pass, _pass_infra.InPlacePass)
+        self.assertTrue(noop_pass.in_place)
+        self.assertTrue(noop_pass.changes_input)
+
+    def test_pass_fn_returns_pass_result(self):
+        @_pass_infra.pass_fn
+        def noop_pass(model: ir.Model) -> bool:
+            return False
+
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result = noop_pass(model)
+        self.assertIsInstance(result, _pass_infra.PassResult)
+        self.assertIs(result.model, model)
+        self.assertFalse(result.modified)
+
+    def test_pass_fn_reports_modified_true(self):
+        @_pass_infra.pass_fn
+        def modify_pass(model: ir.Model) -> bool:
+            model.ir_version = 42
+            return True
+
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result = modify_pass(model)
+        self.assertTrue(result.modified)
+        self.assertEqual(result.model.ir_version, 42)
+
+    def test_pass_fn_preserves_function_name(self):
+        @_pass_infra.pass_fn
+        def my_custom_pass(model: ir.Model) -> bool:
+            return False
+
+        self.assertEqual(type(my_custom_pass).__name__, "my_custom_pass")
+
+    def test_pass_fn_preserves_docstring(self):
+        @_pass_infra.pass_fn
+        def documented_pass(model: ir.Model) -> bool:
+            """This pass does something useful."""
+            return False
+
+        self.assertEqual(type(documented_pass).__doc__, "This pass does something useful.")
+
+    def test_pass_fn_works_with_sequential(self):
+        call_order: list[str] = []
+
+        @_pass_infra.pass_fn
+        def first_pass(model: ir.Model) -> bool:
+            call_order.append("first")
+            return True
+
+        @_pass_infra.pass_fn
+        def second_pass(model: ir.Model) -> bool:
+            call_order.append("second")
+            return False
+
+        pipeline = _pass_infra.Sequential(first_pass, second_pass)
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result = pipeline(model)
+
+        self.assertEqual(call_order, ["first", "second"])
+        self.assertTrue(result.modified)
+
+    def test_pass_fn_works_with_pass_manager(self):
+        call_count = 0
+
+        @_pass_infra.pass_fn
+        def counting_pass(model: ir.Model) -> bool:
+            nonlocal call_count
+            call_count += 1
+            # Return modified=True on first call only
+            return call_count == 1
+
+        manager = _pass_infra.PassManager([counting_pass], steps=3, early_stop=True)
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result = manager(model)
+
+        # First step: modified=True, second step: modified=False -> early stop
+        self.assertEqual(call_count, 2)
+        self.assertTrue(result.modified)
+
+    def test_pass_fn_can_accept_pass_result(self):
+        @_pass_infra.pass_fn
+        def noop_pass(model: ir.Model) -> bool:
+            return False
+
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result1 = noop_pass(model)
+        # PassBase.__call__ accepts PassResult too
+        result2 = noop_pass(result1)
+        self.assertIs(result2.model, model)
+
+    def test_pass_fn_can_be_functionalized(self):
+        @_pass_infra.pass_fn
+        def modify_pass(model: ir.Model) -> bool:
+            model.ir_version = 42
+            return True
+
+        functional = _pass_infra.functionalize(modify_pass)
+        self.assertIsInstance(functional, _pass_infra.FunctionalPass)
+
+        model = ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=10)
+        result = functional(model)
+
+        # Original model unchanged
+        self.assertEqual(model.ir_version, 10)
+        # Result model modified
+        self.assertEqual(result.model.ir_version, 42)
+
+    def test_pass_fn_repr(self):
+        @_pass_infra.pass_fn
+        def my_pass(model: ir.Model) -> bool:
+            return False
+
+        self.assertIn("my_pass", repr(my_pass))
+
+
 if __name__ == "__main__":
     unittest.main()
