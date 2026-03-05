@@ -2380,6 +2380,105 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         """
         return self._domain, self._op_type, self._overload
 
+    def clone(self) -> Node:
+        """Create a deep copy of this node with fresh output values.
+
+        The cloned node:
+
+        - Has the same op_type, domain, overload, version, and attributes
+        - Has the same input references (shared, not copied)
+        - Has NEW output Value objects (not shared with the original)
+        - Copies output properties (name, type, shape, const_value, doc_string,
+          metadata_props, meta) from the original outputs
+        - Copies node metadata (meta, metadata_props, doc_string) from the original
+        - Does NOT belong to any graph (must be inserted manually)
+
+        Graph-typed attributes are deep-cloned (their subgraphs are recursively copied).
+        All other attribute types are shared since their values are immutable.
+
+        .. note::
+            Inputs are shared by reference. The cloned node will reference the
+            same input :class:`Value` objects as the original. This is intentional:
+            the clone is meant to be inserted into the same (or a related) graph.
+
+        Returns:
+            A new Node that is a deep copy of this node.
+
+        Example::
+
+            original = graph.node("my_relu")
+            copy = original.clone()
+            graph.insert_after(original, copy)
+        """
+        cloned_attributes = self._clone_attributes()
+        new_node = Node(
+            self._domain,
+            self._op_type,
+            self._inputs,
+            cloned_attributes,
+            overload=self._overload,
+            num_outputs=len(self._outputs),
+            version=self._version,
+            name=self._name,
+            doc_string=self.doc_string,
+            metadata_props=(
+                dict(self._metadata_props) if self._metadata_props else None
+            ),
+        )
+        if self._metadata is not None:
+            new_node.meta.update(self._metadata)
+
+        # Copy output properties from original to cloned outputs
+        for original_output, new_output in zip(self._outputs, new_node._outputs):
+            new_output.name = original_output.name
+            new_output.type = original_output.type
+            new_output.shape = (
+                original_output.shape.copy()
+                if original_output.shape is not None
+                else None
+            )
+            new_output.const_value = original_output.const_value
+            new_output.doc_string = original_output.doc_string
+            if original_output._metadata_props:  # pylint: disable=protected-access
+                new_output.metadata_props.update(
+                    original_output._metadata_props  # pylint: disable=protected-access
+                )
+            if original_output._metadata is not None:  # pylint: disable=protected-access
+                new_output.meta.update(
+                    original_output._metadata  # pylint: disable=protected-access
+                )
+
+        return new_node
+
+    def _clone_attributes(self) -> list[Attr]:
+        """Clone this node's attributes, deep-copying graph-typed attributes."""
+        if not self._attributes:
+            return []
+
+        has_graph_attrs = any(
+            attr.type in (_enums.AttributeType.GRAPH, _enums.AttributeType.GRAPHS)
+            for attr in self._attributes.values()
+        )
+        if not has_graph_attrs:
+            # Fast path: no graph attributes, all values are immutable so share them
+            return list(self._attributes.values())
+
+        # Slow path: clone graph attributes using the Cloner infrastructure
+        from onnx_ir import _cloner
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={},
+            metadata_props={},
+            resolve_ref_attrs=False,
+            allow_outer_scope_values=True,
+        )
+        return [
+            cloned
+            for key, attr in self._attributes.items()
+            if (cloned := cloner.clone_attr(key, attr)) is not None
+        ]
+
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
 

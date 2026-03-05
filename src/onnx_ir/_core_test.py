@@ -3886,6 +3886,295 @@ class StringTensorTest(unittest.TestCase):
         self.assertEqual(tensor.nbytes, 3)
 
 
+class NodeCloneTest(unittest.TestCase):
+    """Test the Node.clone() method."""
+
+    def test_clone_basic_node(self):
+        """Test cloning a simple node produces a new node with same properties."""
+        v0 = _core.Value(name="input0")
+        v1 = _core.Value(name="input1")
+        node = _core.Node(
+            "", "Add", inputs=(v0, v1), num_outputs=1, name="add_node"
+        )
+        cloned = node.clone()
+
+        self.assertIsNot(cloned, node)
+        self.assertEqual(cloned.op_type, "Add")
+        self.assertEqual(cloned.domain, "")
+        self.assertEqual(cloned.name, "add_node")
+        self.assertEqual(len(cloned.outputs), 1)
+
+    def test_clone_shares_input_references(self):
+        """Cloned node's inputs reference the same Value objects as the original."""
+        v0 = _core.Value(name="input0")
+        v1 = _core.Value(name="input1")
+        node = _core.Node("", "Add", inputs=(v0, v1), num_outputs=1)
+        cloned = node.clone()
+
+        self.assertIs(cloned.inputs[0], v0)
+        self.assertIs(cloned.inputs[1], v1)
+
+    def test_clone_creates_fresh_output_values(self):
+        """Cloned node's outputs are new Value objects, not the originals."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=2)
+        cloned = node.clone()
+
+        self.assertEqual(len(cloned.outputs), 2)
+        for i in range(2):
+            self.assertIsNot(cloned.outputs[i], node.outputs[i])
+
+    def test_clone_output_values_reference_cloned_node_as_producer(self):
+        """Cloned outputs have the cloned node as their producer, not the original."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        cloned = node.clone()
+
+        self.assertIs(cloned.outputs[0].producer(), cloned)
+        # Original is still intact
+        self.assertIs(node.outputs[0].producer(), node)
+
+    def test_clone_copies_output_properties(self):
+        """Cloned outputs carry the same name, type, shape, const_value, and doc_string."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        original_output = node.outputs[0]
+        original_output.name = "relu_out"
+        original_output.type = _core.TensorType(ir.DataType.FLOAT)
+        original_output.shape = _core.Shape([1, 3, 224, 224])
+        original_output.doc_string = "output doc"
+        original_output.const_value = ir.Tensor(np.array([1.0], dtype=np.float32))
+
+        cloned = node.clone()
+        cloned_output = cloned.outputs[0]
+
+        self.assertEqual(cloned_output.name, "relu_out")
+        self.assertEqual(cloned_output.type, _core.TensorType(ir.DataType.FLOAT))
+        self.assertEqual(cloned_output.shape, _core.Shape([1, 3, 224, 224]))
+        self.assertEqual(cloned_output.doc_string, "output doc")
+        self.assertIsNotNone(cloned_output.const_value)
+
+    def test_clone_output_shape_is_independent_copy(self):
+        """Mutating cloned output shape doesn't affect original."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        node.outputs[0].shape = _core.Shape([1, 3])
+
+        cloned = node.clone()
+        # The shapes should be equal but distinct objects
+        self.assertEqual(cloned.outputs[0].shape, _core.Shape([1, 3]))
+        self.assertIsNot(cloned.outputs[0].shape, node.outputs[0].shape)
+
+    def test_clone_preserves_domain_and_overload(self):
+        """Domain and overload are preserved on the clone."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node(
+            "custom.domain", "CustomOp", inputs=(v0,),
+            num_outputs=1, overload="my_overload"
+        )
+        cloned = node.clone()
+
+        self.assertEqual(cloned.domain, "custom.domain")
+        self.assertEqual(cloned.overload, "my_overload")
+
+    def test_clone_preserves_version(self):
+        """Version is preserved on the clone."""
+        v0 = _core.Value(name="input0")
+        node = _core.Node(
+            "", "Relu", inputs=(v0,), num_outputs=1, version=13
+        )
+        cloned = node.clone()
+
+        self.assertEqual(cloned.version, 13)
+
+    def test_clone_preserves_simple_attributes(self):
+        """Scalar and list attributes are preserved."""
+        v0 = _core.Value(name="input0")
+        attrs = [
+            _core.Attr("alpha", ir.AttributeType.FLOAT, 0.5),
+            _core.Attr("axis", ir.AttributeType.INT, 1),
+            _core.Attr("perm", ir.AttributeType.INTS, (0, 2, 1)),
+        ]
+        node = _core.Node("", "TestOp", inputs=(v0,), attributes=attrs, num_outputs=1)
+        cloned = node.clone()
+
+        self.assertEqual(len(cloned.attributes), 3)
+        self.assertEqual(cloned.attributes["alpha"].as_float(), 0.5)
+        self.assertEqual(cloned.attributes["axis"].as_int(), 1)
+        self.assertEqual(cloned.attributes["perm"].as_ints(), (0, 2, 1))
+
+    def test_clone_deep_copies_graph_attributes(self):
+        """Graph-typed attributes are deep-cloned (new graph, new nodes)."""
+        # Build a subgraph
+        sub_input = _core.Value(name="sub_in")
+        sub_node = _core.Node("", "Identity", inputs=(sub_input,), num_outputs=1)
+        sub_graph = _core.Graph(
+            inputs=[sub_input],
+            outputs=[sub_node.outputs[0]],
+            nodes=[sub_node],
+            name="subgraph",
+        )
+        graph_attr = _core.Attr("body", ir.AttributeType.GRAPH, sub_graph)
+
+        v0 = _core.Value(name="cond")
+        node = _core.Node(
+            "", "If", inputs=(v0,), attributes=[graph_attr], num_outputs=1
+        )
+        cloned = node.clone()
+
+        cloned_graph = cloned.attributes["body"].as_graph()
+        self.assertIsNot(cloned_graph, sub_graph)
+        self.assertEqual(cloned_graph.name, "subgraph")
+        # The nodes inside the subgraph should also be cloned
+        cloned_sub_nodes = list(cloned_graph)
+        self.assertEqual(len(cloned_sub_nodes), 1)
+        self.assertIsNot(cloned_sub_nodes[0], sub_node)
+
+    def test_clone_does_not_belong_to_graph(self):
+        """Cloned node does not belong to any graph, even if the original does."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        graph = _core.Graph(
+            inputs=[v0],
+            outputs=list(node.outputs),
+            nodes=[node],
+        )
+        self.assertIs(node.graph, graph)
+
+        cloned = node.clone()
+        self.assertIsNone(cloned.graph)
+
+    def test_clone_preserves_metadata_props(self):
+        """metadata_props are copied (not shared) to the clone."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node(
+            "", "Relu", inputs=(v0,), num_outputs=1,
+            metadata_props={"key": "value"}
+        )
+        cloned = node.clone()
+
+        self.assertEqual(cloned.metadata_props, {"key": "value"})
+        # They should be independent
+        cloned.metadata_props["key2"] = "value2"
+        self.assertNotIn("key2", node.metadata_props)
+
+    def test_clone_preserves_meta(self):
+        """meta store is copied (not shared) to the clone."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        node.meta["analysis_result"] = 42
+        cloned = node.clone()
+
+        self.assertEqual(cloned.meta["analysis_result"], 42)
+        # They should be independent
+        cloned.meta["extra"] = 99
+        self.assertNotIn("extra", node.meta)
+
+    def test_clone_preserves_output_metadata_props(self):
+        """Output metadata_props are copied to the cloned output."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        node.outputs[0].metadata_props["out_key"] = "out_val"
+
+        cloned = node.clone()
+        self.assertEqual(cloned.outputs[0].metadata_props, {"out_key": "out_val"})
+        # Independence check
+        cloned.outputs[0].metadata_props["new_key"] = "new_val"
+        self.assertNotIn("new_key", node.outputs[0].metadata_props)
+
+    def test_clone_preserves_output_meta(self):
+        """Output meta store is copied to the cloned output."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        node.outputs[0].meta["score"] = 3.14
+
+        cloned = node.clone()
+        self.assertEqual(cloned.outputs[0].meta["score"], 3.14)
+        # Independence check
+        cloned.outputs[0].meta["other"] = 1.0
+        self.assertNotIn("other", node.outputs[0].meta)
+
+    def test_clone_with_none_inputs(self):
+        """Cloning handles None inputs correctly."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "TestOp", inputs=(v0, None, v0), num_outputs=1)
+        cloned = node.clone()
+
+        self.assertEqual(len(cloned.inputs), 3)
+        self.assertIs(cloned.inputs[0], v0)
+        self.assertIsNone(cloned.inputs[1])
+        self.assertIs(cloned.inputs[2], v0)
+
+    def test_clone_with_zero_outputs(self):
+        """Cloning a node with zero outputs works correctly."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Print", inputs=(v0,), num_outputs=0)
+        cloned = node.clone()
+
+        self.assertEqual(len(cloned.outputs), 0)
+        self.assertEqual(cloned.op_type, "Print")
+
+    def test_clone_registers_as_user_of_inputs(self):
+        """The cloned node registers itself as a user of the input values."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Relu", inputs=(v0,), num_outputs=1)
+        # Original node is a user
+        original_users = {use.node for use in v0.uses()}
+        self.assertIn(node, original_users)
+
+        cloned = node.clone()
+        all_users = {use.node for use in v0.uses()}
+        self.assertIn(node, all_users)
+        self.assertIn(cloned, all_users)
+
+    def test_clone_preserves_doc_string(self):
+        """doc_string is preserved on the clone."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node(
+            "", "Relu", inputs=(v0,), num_outputs=1, doc_string="A relu node"
+        )
+        cloned = node.clone()
+        self.assertEqual(cloned.doc_string, "A relu node")
+
+    def test_clone_with_multiple_outputs(self):
+        """Cloning a node with multiple outputs creates fresh values for each."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("", "Split", inputs=(v0,), num_outputs=3)
+        for i, out in enumerate(node.outputs):
+            out.name = f"split_out_{i}"
+
+        cloned = node.clone()
+        self.assertEqual(len(cloned.outputs), 3)
+        for i in range(3):
+            self.assertIsNot(cloned.outputs[i], node.outputs[i])
+            self.assertEqual(cloned.outputs[i].name, f"split_out_{i}")
+            self.assertIs(cloned.outputs[i].producer(), cloned)
+            self.assertEqual(cloned.outputs[i].index(), i)
+
+    def test_clone_normalizes_ai_onnx_domain(self):
+        """ai.onnx domain is normalized to empty string, preserved through clone."""
+        v0 = _core.Value(name="v0")
+        node = _core.Node("ai.onnx", "Relu", inputs=(v0,), num_outputs=1)
+        self.assertEqual(node.domain, "")
+        cloned = node.clone()
+        self.assertEqual(cloned.domain, "")
+
+    def test_clone_ref_attributes_preserved(self):
+        """Reference attributes are preserved in the clone."""
+        v0 = _core.Value(name="v0")
+        ref_attr = _core.Attr(
+            "my_attr", ir.AttributeType.FLOAT, None, ref_attr_name="parent_attr"
+        )
+        node = _core.Node(
+            "", "TestOp", inputs=(v0,), attributes=[ref_attr], num_outputs=1
+        )
+        cloned = node.clone()
+
+        cloned_attr = cloned.attributes["my_attr"]
+        self.assertTrue(cloned_attr.is_ref())
+        self.assertEqual(cloned_attr.ref_attr_name, "parent_attr")
+
+
 class GraphCloneTest(unittest.TestCase):
     """Test the Graph.clone() method."""
 
