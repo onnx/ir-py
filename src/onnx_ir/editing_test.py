@@ -1315,6 +1315,41 @@ class SubgraphHandleMutationTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             handle.as_graph_view()
 
+    def test_replace_with_propagate_metadata_false(self):
+        """Verify replace_with(propagate_metadata=False) skips metadata transfer."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        node_b.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+        node_b.outputs[0].shape = ir.Shape([2, 3])
+        node_b.outputs[0].name = "b_out"
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        fused.outputs[0].type = ir.TensorType(ir.DataType.INT32)
+
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+            propagate_metadata=False,
+        )
+
+        # Metadata should NOT have been overwritten
+        self.assertEqual(fused.outputs[0].type, ir.TensorType(ir.DataType.INT32))
+        self.assertIsNone(fused.outputs[0].shape)
+
+    def test_between_with_invalid_bounds_raises(self):
+        """between() with unreachable inputs raises ValueError."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        # Use an unrelated value as input bound — traversal can't reach it
+        unrelated_value = ir.Value(name="unrelated")
+        with self.assertRaises(ValueError):
+            editing.SubgraphHandle.between(
+                graph, [unrelated_value], [node_c.outputs[0]]
+            )
+
 
 class SubgraphHandleGraphViewTest(unittest.TestCase):
     """Test SubgraphHandle.as_graph_view()."""
@@ -1481,6 +1516,16 @@ class GraphCheckpointErrorTest(unittest.TestCase):
 
         cp = editing.GraphCheckpoint(model)
         cp.commit()
+
+        with self.assertRaises(RuntimeError):
+            cp.commit()
+
+    def test_rollback_then_commit_error(self):
+        """Verify RuntimeError when committing after rollback."""
+        model, _, _, _ = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        cp.rollback()
 
         with self.assertRaises(RuntimeError):
             cp.commit()

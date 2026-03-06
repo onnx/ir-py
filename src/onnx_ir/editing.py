@@ -909,7 +909,10 @@ class GraphCheckpoint:
             raise RuntimeError(
                 "This checkpoint has already been committed or rolled back."
             )
-        assert self._saved_graph is not None
+        if self._saved_graph is None:
+            raise RuntimeError(
+                "Checkpoint is active but has no saved graph. This is an internal error."
+            )
         self._model.graph = self._saved_graph
         self._saved_graph = None
         self._original_graph = None
