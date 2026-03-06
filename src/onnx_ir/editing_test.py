@@ -1025,5 +1025,619 @@ class EliminateNodeAccessViaModuleTest(unittest.TestCase):
         self.assertTrue(callable(ir.editing.eliminate_node))
 
 
+# ============================================================================
+# SubgraphHandle tests
+# ============================================================================
+
+
+def _diamond_graph() -> tuple[ir.Model, ir.Node, ir.Node, ir.Node, ir.Node]:
+    """Build a diamond: input -> A -> B -> D -> output, A -> C -> D -> output.
+
+    Returns (model, node_a, node_b, node_c, node_d).
+    """
+    graph_input = ir.Value(name="input")
+    node_a = ir.Node("", "A", inputs=[graph_input], num_outputs=1)
+    node_b = ir.Node("", "B", inputs=node_a.outputs, num_outputs=1)
+    node_c = ir.Node("", "C", inputs=node_a.outputs, num_outputs=1)
+    node_d = ir.Node(
+        "", "D", inputs=[node_b.outputs[0], node_c.outputs[0]], num_outputs=1
+    )
+    graph = ir.Graph(
+        inputs=[graph_input],
+        outputs=list(node_d.outputs),
+        nodes=[node_a, node_b, node_c, node_d],
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    return model, node_a, node_b, node_c, node_d
+
+
+class SubgraphHandleConstructionTest(unittest.TestCase):
+    """Test SubgraphHandle construction and boundary discovery."""
+
+    def test_construction_from_two_nodes(self):
+        """Create handle from 2 nodes, verify inputs/outputs/internal_values."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        # inputs: graph_input (produced outside)
+        self.assertEqual(len(handle.inputs), 1)
+        self.assertIs(handle.inputs[0], graph.inputs[0])
+        # outputs: node_b output (consumed by node_c, which is external)
+        self.assertEqual(len(handle.outputs), 1)
+        self.assertIs(handle.outputs[0], node_b.outputs[0])
+        # internal: node_a output (produced by A, consumed by B, both internal)
+        self.assertEqual(len(handle.internal_values), 1)
+        self.assertIn(node_a.outputs[0], handle.internal_values)
+
+    def test_construction_via_between(self):
+        """Bounded traversal from outputs back to inputs."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle.between(
+            graph, [graph.inputs[0]], [node_b.outputs[0]]
+        )
+
+        self.assertEqual(len(handle.nodes), 2)
+        self.assertIn(node_a, handle.nodes)
+        self.assertIn(node_b, handle.nodes)
+
+    def test_single_node_handle(self):
+        """Single-node handle degenerates correctly."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_b])
+
+        # inputs: node_a's output
+        self.assertEqual(len(handle.inputs), 1)
+        self.assertIs(handle.inputs[0], node_a.outputs[0])
+        # outputs: node_b's output (consumed by node_c)
+        self.assertEqual(len(handle.outputs), 1)
+        self.assertIs(handle.outputs[0], node_b.outputs[0])
+        # no internal values for single node
+        self.assertEqual(len(handle.internal_values), 0)
+
+    def test_graph_inputs_and_outputs(self):
+        """Subgraph consuming graph inputs, producing graph outputs."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        # Handle over entire chain (A, B, C) — inputs are graph inputs, outputs are graph outputs
+        handle = editing.SubgraphHandle(graph, [node_a, node_b, node_c])
+
+        self.assertEqual(len(handle.inputs), 1)
+        self.assertIs(handle.inputs[0], graph.inputs[0])
+        self.assertEqual(len(handle.outputs), 1)
+        self.assertIs(handle.outputs[0], node_c.outputs[0])
+
+    def test_shared_input_appears_once(self):
+        """Two subgraph nodes consuming the same external value → appears once in inputs."""
+        # Build: input -> A, input -> B, A+B -> C -> output
+        graph_input = ir.Value(name="input")
+        node_a = ir.Node("", "A", inputs=[graph_input], num_outputs=1)
+        node_b = ir.Node("", "B", inputs=[graph_input], num_outputs=1)
+        node_c = ir.Node(
+            "", "C", inputs=[node_a.outputs[0], node_b.outputs[0]], num_outputs=1
+        )
+        graph = ir.Graph(
+            inputs=[graph_input],
+            outputs=list(node_c.outputs),
+            nodes=[node_a, node_b, node_c],
+        )
+        model = ir.Model(graph=graph, ir_version=10)
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        # graph_input should appear exactly once
+        self.assertEqual(len(handle.inputs), 1)
+        self.assertIs(handle.inputs[0], graph_input)
+
+    def test_internal_edges_not_in_inputs_or_outputs(self):
+        """Values flowing between subgraph nodes don't appear in inputs/outputs."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        # node_a.outputs[0] is internal (produced by A, consumed by B)
+        self.assertNotIn(node_a.outputs[0], handle.inputs)
+        self.assertNotIn(node_a.outputs[0], handle.outputs)
+        self.assertIn(node_a.outputs[0], handle.internal_values)
+
+    def test_diamond_pattern(self):
+        """Two subgraph nodes sharing an input, merging at an output."""
+        model, node_a, node_b, node_c, node_d = _diamond_graph()
+        graph = model.graph
+
+        # Handle over B, C, D
+        handle = editing.SubgraphHandle(graph, [node_b, node_c, node_d])
+
+        # inputs: node_a.outputs[0] (shared by B and C)
+        self.assertEqual(len(handle.inputs), 1)
+        self.assertIs(handle.inputs[0], node_a.outputs[0])
+        # outputs: node_d.outputs[0] (graph output)
+        self.assertEqual(len(handle.outputs), 1)
+        self.assertIs(handle.outputs[0], node_d.outputs[0])
+        # internal: B's and C's outputs
+        self.assertEqual(len(handle.internal_values), 2)
+        self.assertIn(node_b.outputs[0], handle.internal_values)
+        self.assertIn(node_c.outputs[0], handle.internal_values)
+
+    def test_empty_external_consumers(self):
+        """All outputs consumed internally → outputs is empty (unless graph output)."""
+        # Build: input -> A -> B -> output, where handle is just A
+        # But B consumes A's output, so A's output has external consumer
+        # For truly internal: need multi-output node or subgraph where all consumers are internal
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        # A+B+C covers everything, C's output is a graph output so appears in outputs
+        # But A's and B's outputs are internal
+        handle = editing.SubgraphHandle(graph, [node_a, node_b, node_c])
+
+        # Only C's output is externally visible (graph output)
+        self.assertEqual(len(handle.outputs), 1)
+        self.assertIs(handle.outputs[0], node_c.outputs[0])
+
+    def test_empty_nodes_raises(self):
+        """Empty node set raises ValueError."""
+        model, _, _, _ = _simple_graph_with_chain()
+        with self.assertRaises(ValueError):
+            editing.SubgraphHandle(model.graph, [])
+
+    def test_node_not_in_parent_raises(self):
+        """Node not belonging to parent raises ValueError."""
+        model, _, _, _ = _simple_graph_with_chain()
+        orphan = ir.Node("", "Orphan", inputs=[], num_outputs=1)
+        with self.assertRaises(ValueError):
+            editing.SubgraphHandle(model.graph, [orphan])
+
+    def test_iteration_order(self):
+        """__iter__ yields nodes in parent-graph order."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_c, node_a, node_b])
+
+        # Should iterate in parent-graph order: A, B, C
+        iterated = list(handle)
+        self.assertEqual(iterated, [node_a, node_b, node_c])
+
+    def test_len(self):
+        """__len__ returns number of nodes."""
+        model, node_a, node_b, _ = _simple_graph_with_chain()
+        handle = editing.SubgraphHandle(model.graph, [node_a, node_b])
+        self.assertEqual(len(handle), 2)
+
+    def test_contains(self):
+        """__contains__ checks membership."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        handle = editing.SubgraphHandle(model.graph, [node_a, node_b])
+        self.assertIn(node_a, handle)
+        self.assertIn(node_b, handle)
+        self.assertNotIn(node_c, handle)
+
+
+class SubgraphHandleMutationTest(unittest.TestCase):
+    """Test SubgraphHandle replace_with and consumed-once semantics."""
+
+    def test_replace_with_fuses_two_nodes(self):
+        """Replace a 2-node subgraph with a single fused node."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        # Create a fused replacement
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+        )
+
+        # fused should be in graph, A and B should not
+        graph_nodes = list(model.graph)
+        self.assertIn(fused, graph_nodes)
+        self.assertNotIn(node_a, graph_nodes)
+        self.assertNotIn(node_b, graph_nodes)
+        # C should now consume fused's output
+        self.assertIs(node_c.inputs[0], fused.outputs[0])
+
+    def test_replace_with_propagates_metadata(self):
+        """Verify type/shape/name transfer via replace_with."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        node_b.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+        node_b.outputs[0].shape = ir.Shape([2, 3])
+        node_b.outputs[0].name = "b_out"
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+        )
+
+        self.assertEqual(fused.outputs[0].type, ir.TensorType(ir.DataType.FLOAT))
+        self.assertEqual(fused.outputs[0].shape, ir.Shape([2, 3]))
+        self.assertEqual(fused.outputs[0].name, "b_out")
+
+    def test_replace_with_handles_graph_outputs(self):
+        """Subgraph outputs that are also graph outputs are handled."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        # Handle over entire chain — C's output is the graph output
+        handle = editing.SubgraphHandle(graph, [node_a, node_b, node_c])
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_c.outputs[0]: fused.outputs[0]},
+        )
+
+        # The graph output should now use fused's output
+        self.assertIn(fused, list(model.graph))
+        self.assertNotIn(node_a, list(model.graph))
+
+    def test_consumed_handle_replace_with_raises(self):
+        """Verify RuntimeError after consumption via replace_with."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+        )
+
+        # Second call should raise
+        fused2 = ir.Node("", "Fused2", inputs=[graph.inputs[0]], num_outputs=1)
+        with self.assertRaises(RuntimeError):
+            handle.replace_with(new_nodes=[fused2], output_mapping={})
+
+    def test_consumed_handle_as_graph_view_raises(self):
+        """Verify RuntimeError on as_graph_view after consumption."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        handle.replace_with(
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+        )
+
+        with self.assertRaises(RuntimeError):
+            handle.as_graph_view()
+
+
+class SubgraphHandleGraphViewTest(unittest.TestCase):
+    """Test SubgraphHandle.as_graph_view()."""
+
+    def test_as_graph_view_returns_correct_view(self):
+        """Verify GraphView has correct nodes/inputs/outputs."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+        view = handle.as_graph_view()
+
+        self.assertIsInstance(view, ir.GraphView)
+        view_nodes = list(view)
+        self.assertEqual(len(view_nodes), 2)
+        self.assertIn(node_a, view_nodes)
+        self.assertIn(node_b, view_nodes)
+        self.assertEqual(len(view.inputs), 1)
+        self.assertEqual(len(view.outputs), 1)
+
+
+class SubgraphHandleLivenessTest(unittest.TestCase):
+    """Test stale handle detection."""
+
+    def test_stale_handle_after_nodes_removed_raises(self):
+        """Create handle, remove nodes via another operation, verify RuntimeError."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        # Remove nodes via replace_subgraph (simulates another code path)
+        fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+        editing.replace_subgraph(
+            old_nodes=[node_a, node_b],
+            new_nodes=[fused],
+            output_mapping={node_b.outputs[0]: fused.outputs[0]},
+        )
+
+        # The handle references nodes that have been removed
+        fused2 = ir.Node("", "Fused2", inputs=[graph.inputs[0]], num_outputs=1)
+        with self.assertRaises(RuntimeError):
+            handle.replace_with(
+                new_nodes=[fused2],
+                output_mapping={node_b.outputs[0]: fused2.outputs[0]},
+            )
+
+    def test_stale_handle_after_rollback_operates_on_wrong_graph(self):
+        """After rollback, handle's parent graph is not model.graph.
+
+        SubgraphHandle doesn't hold a model reference, so it cannot detect
+        that model.graph was swapped by rollback. However, any mutations
+        would affect the old (stale) graph, not model.graph. This test
+        documents this behavior — callers must not reuse handles after rollback.
+        """
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        handle = editing.SubgraphHandle(graph, [node_a, node_b])
+
+        cp = editing.GraphCheckpoint(model)
+        cp.rollback()
+
+        # The handle's parent is the old graph, not model.graph
+        self.assertIsNot(handle.parent, model.graph)
+
+
+# ============================================================================
+# GraphCheckpoint tests
+# ============================================================================
+
+
+class GraphCheckpointBasicTest(unittest.TestCase):
+    """Test basic GraphCheckpoint commit and rollback."""
+
+    def test_basic_commit(self):
+        """Checkpoint → edit → commit → verify edit persists."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        # Edit: replace B with D
+        node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+        editing.replace_node(node_b, node_d)
+        cp.commit()
+
+        # Edit should persist
+        self.assertIn(node_d, list(model.graph))
+        self.assertNotIn(node_b, list(model.graph))
+        self.assertFalse(cp.is_active)
+
+    def test_basic_rollback(self):
+        """Checkpoint → edit → rollback → verify original state."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        original_graph = model.graph
+
+        cp = editing.GraphCheckpoint(model)
+        # Edit: replace B with D
+        node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+        editing.replace_node(node_b, node_d)
+        cp.rollback()
+
+        # Graph should be restored (a clone of the original)
+        self.assertIsNot(model.graph, original_graph)
+        # The restored graph should have the original 3 nodes
+        restored_nodes = list(model.graph)
+        self.assertEqual(len(restored_nodes), 3)
+        op_types = [n.op_type for n in restored_nodes]
+        self.assertEqual(op_types, ["A", "B", "C"])
+        self.assertFalse(cp.is_active)
+
+    def test_auto_rollback_on_exception(self):
+        """Checkpoint in context manager → raise → verify restore."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with self.assertRaises(ValueError):
+            with editing.GraphCheckpoint(model):
+                node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+                editing.replace_node(node_b, node_d)
+                raise ValueError("test error")
+
+        # Graph should be restored
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
+
+    def test_auto_commit_on_clean_exit(self):
+        """Checkpoint in context manager → no error → verify edit persists."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with editing.GraphCheckpoint(model):
+            node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+            editing.replace_node(node_b, node_d)
+
+        # Edit should persist
+        self.assertIn(node_d, list(model.graph))
+        self.assertNotIn(node_b, list(model.graph))
+
+
+class GraphCheckpointErrorTest(unittest.TestCase):
+    """Test GraphCheckpoint error handling."""
+
+    def test_double_rollback_error(self):
+        """Verify RuntimeError on second rollback."""
+        model, _, _, _ = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        cp.rollback()
+
+        with self.assertRaises(RuntimeError):
+            cp.rollback()
+
+    def test_commit_then_rollback_error(self):
+        """Verify RuntimeError when rolling back after commit."""
+        model, _, _, _ = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        cp.commit()
+
+        with self.assertRaises(RuntimeError):
+            cp.rollback()
+
+    def test_double_commit_error(self):
+        """Verify RuntimeError on second commit."""
+        model, _, _, _ = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        cp.commit()
+
+        with self.assertRaises(RuntimeError):
+            cp.commit()
+
+
+class GraphCheckpointNestedTest(unittest.TestCase):
+    """Test nested checkpoint behavior."""
+
+    def test_nested_checkpoints_inner_rollback_outer_commit(self):
+        """Inner rollback restores to inner state; outer auto-commits."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with editing.GraphCheckpoint(model):
+            # Edit: replace B with D
+            node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+            editing.replace_node(node_b, node_d)
+
+            # Inner checkpoint
+            with editing.GraphCheckpoint(model) as inner_cp:
+                # Edit: replace D with E (on the live graph)
+                node_e = ir.Node(
+                    "", "E", inputs=list(node_a.outputs), num_outputs=1
+                )
+                editing.replace_node(node_d, node_e)
+                # Inner rollback — restores to state with D
+                inner_cp.rollback()
+
+            op_types = [n.op_type for n in model.graph]
+            self.assertEqual(op_types, ["A", "D", "C"])
+
+        # Outer auto-commits on clean exit (graph was swapped by inner rollback,
+        # so __exit__ commits rather than re-rolling back)
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "D", "C"])
+
+    def test_nested_checkpoints_out_of_order_raises(self):
+        """Outer rollback first → inner rollback raises RuntimeError."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        outer_cp = editing.GraphCheckpoint(model)
+
+        # Edit
+        node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+        editing.replace_node(node_b, node_d)
+
+        inner_cp = editing.GraphCheckpoint(model)
+
+        # Outer rollback first (out of order)
+        outer_cp.rollback()
+
+        # Inner rollback should fail — graph identity mismatch
+        with self.assertRaises(RuntimeError):
+            inner_cp.rollback()
+
+
+class GraphCheckpointIntegrityTest(unittest.TestCase):
+    """Test graph integrity after rollback."""
+
+    def test_rollback_preserves_graph_integrity(self):
+        """After rollback, verify graph edges are consistent."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        cp = editing.GraphCheckpoint(model)
+        node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
+        editing.replace_node(node_b, node_d)
+        cp.rollback()
+
+        # Walk all nodes and verify edges are consistent
+        graph = model.graph
+        for node in graph:
+            for inp in node.inputs:
+                if inp is not None:
+                    producer = inp.producer()
+                    if producer is not None:
+                        self.assertIs(
+                            producer.graph,
+                            graph,
+                            f"Producer of input to {node.op_type} is not in the graph",
+                        )
+
+    def test_reference_invalidation(self):
+        """After rollback, verify original nodes' .graph is not model.graph."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        original_graph = model.graph
+
+        cp = editing.GraphCheckpoint(model)
+        cp.rollback()
+
+        # Original nodes still belong to the old graph, not model.graph
+        self.assertIs(node_a.graph, original_graph)
+        self.assertIsNot(node_a.graph, model.graph)
+
+    def test_noop_checkpoint(self):
+        """Create checkpoint, commit immediately, verify no side effects."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        original_graph = model.graph
+
+        cp = editing.GraphCheckpoint(model)
+        cp.commit()
+
+        # Graph should be unchanged (same object)
+        self.assertIs(model.graph, original_graph)
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
+
+    def test_auto_rollback_with_graph_already_swapped(self):
+        """Context manager exception after inner rollback → auto-commits (no crash)."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with self.assertRaises(ValueError):
+            with editing.GraphCheckpoint(model) as outer_cp:
+                # Inner checkpoint and rollback
+                inner_cp = editing.GraphCheckpoint(model)
+                inner_cp.rollback()
+                # Now outer's original graph is gone
+                # Raise to trigger outer's __exit__
+                raise ValueError("test error")
+
+        # Should not crash — outer auto-commits (discards stale snapshot)
+
+
+class GraphCheckpointWithSubgraphHandleTest(unittest.TestCase):
+    """Test integration between GraphCheckpoint and SubgraphHandle."""
+
+    def test_checkpoint_with_subgraph_handle(self):
+        """Use both APIs together: checkpoint + handle replace."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+        graph = model.graph
+
+        with editing.GraphCheckpoint(model):
+            handle = editing.SubgraphHandle(graph, [node_a, node_b])
+            fused = ir.Node("", "Fused", inputs=[graph.inputs[0]], num_outputs=1)
+            handle.replace_with(
+                new_nodes=[fused],
+                output_mapping={node_b.outputs[0]: fused.outputs[0]},
+            )
+
+        # Edit should persist (auto-commit on clean exit)
+        graph_nodes = list(model.graph)
+        self.assertIn(fused, graph_nodes)
+        self.assertNotIn(node_a, graph_nodes)
+        self.assertNotIn(node_b, graph_nodes)
+
+
+class SubgraphHandleAccessViaModuleTest(unittest.TestCase):
+    """Test that SubgraphHandle is accessible via ir.editing."""
+
+    def test_accessible_via_ir_editing(self):
+        self.assertTrue(hasattr(ir.editing, "SubgraphHandle"))
+
+
+class GraphCheckpointAccessViaModuleTest(unittest.TestCase):
+    """Test that GraphCheckpoint is accessible via ir.editing."""
+
+    def test_accessible_via_ir_editing(self):
+        self.assertTrue(hasattr(ir.editing, "GraphCheckpoint"))
+
+
 if __name__ == "__main__":
     unittest.main()

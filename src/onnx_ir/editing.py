@@ -43,9 +43,13 @@ __all__ = [
     "insert_on_edge",
     "replace_node",
     "replace_subgraph",
+    # Tier 2
+    "GraphCheckpoint",
+    "SubgraphHandle",
 ]
 
-from collections.abc import Sequence
+from collections.abc import Collection, Iterator, Sequence
+from typing import Literal
 
 from onnx_ir import _core
 
@@ -533,3 +537,436 @@ def replace_subgraph(
 
     # 5. Remove all old_nodes (safe=True detaches inputs and validates)
     graph.remove(old_nodes, safe=True)
+
+
+# ============================================================================
+# Tier 2: SubgraphHandle
+# ============================================================================
+
+
+class SubgraphHandle:
+    """An immutable, boundary-annotated handle to a subgraph within a parent Graph.
+
+    Unlike :class:`~onnx_ir.GraphView` (read-only, no parent reference, stores tuples),
+    ``SubgraphHandle`` knows its parent graph, auto-discovers boundary values,
+    and supports mutation operations that delegate to existing editing functions.
+
+    Terminology:
+        - **inputs**: Values consumed by subgraph nodes but produced *outside* the subgraph
+          (or are graph inputs/initializers). These are the subgraph's external dependencies.
+        - **outputs**: Values produced by subgraph nodes and consumed by at least one node
+          *outside* the subgraph, or that appear in the parent graph's output list.
+          These are the subgraph's externally-visible results.
+        - **internal values**: Values produced and consumed entirely within the subgraph.
+
+    The handle is immutable after construction. Calling :meth:`replace_with`
+    consumes the handle (the nodes are removed from the parent graph), and
+    using the handle after that raises :class:`RuntimeError`.
+
+    Example::
+
+        import onnx_ir as ir
+        from onnx_ir import editing
+
+        # Find a MatMul+Add pattern and analyze it
+        handle = editing.SubgraphHandle(graph, [matmul_node, add_node])
+        print(handle.inputs)   # e.g., (A, B, bias)
+        print(handle.outputs)  # e.g., (add_output,)
+
+        # Replace with fused Gemm
+        gemm = ir.node("Gemm", inputs=[*handle.inputs])
+        handle.replace_with(
+            new_nodes=[gemm],
+            output_mapping={add_node.outputs[0]: gemm.outputs[0]},
+        )
+    """
+
+    def __init__(
+        self,
+        parent: _core.Graph,
+        nodes: Collection[_core.Node],
+    ) -> None:
+        """Create a SubgraphHandle from a parent graph and a set of nodes.
+
+        Args:
+            parent: The graph that contains all the nodes.
+            nodes: The nodes in the subgraph. Must all belong to *parent*.
+
+        Raises:
+            ValueError: If *nodes* is empty.
+            ValueError: If any node does not belong to *parent*.
+        """
+        if not nodes:
+            raise ValueError("nodes must not be empty.")
+        node_set = frozenset(nodes)
+        for node in node_set:
+            if node.graph is not parent:
+                raise ValueError(
+                    f"Node {node!r} does not belong to the parent graph {parent!r}. "
+                    f"All nodes must belong to the parent graph."
+                )
+
+        self._parent = parent
+        self._nodes = node_set
+        self._consumed = False
+
+        # Compute ordered nodes (parent-graph order)
+        self._ordered_nodes: tuple[_core.Node, ...] = tuple(
+            n for n in parent if n in self._nodes
+        )
+
+        # Compute boundaries
+        self._inputs: tuple[_core.Value, ...]
+        self._outputs: tuple[_core.Value, ...]
+        self._internal_values: frozenset[_core.Value]
+        self._compute_boundaries()
+
+    def _compute_boundaries(self) -> None:
+        """Discover inputs, outputs, and internal values in O(V + E)."""
+        node_set = self._nodes
+
+        inputs: list[_core.Value] = []
+        outputs: list[_core.Value] = []
+        internal: set[_core.Value] = set()
+        seen_inputs: set[_core.Value] = set()
+
+        # Discover inputs: any input value whose producer is NOT in the subgraph
+        for node in self._ordered_nodes:
+            for inp in node.inputs:
+                if inp is None or inp in seen_inputs:
+                    continue
+                producer = inp.producer()
+                if producer is None or producer not in node_set:
+                    inputs.append(inp)
+                    seen_inputs.add(inp)
+
+        # Discover outputs: any output value that has a consumer outside the
+        # subgraph, or appears in parent.outputs
+        parent_outputs = frozenset(self._parent.outputs)
+        for node in self._ordered_nodes:
+            for out in node.outputs:
+                has_external_consumer = any(
+                    user not in node_set for user, _ in out.uses()
+                )
+                if has_external_consumer or out in parent_outputs:
+                    outputs.append(out)
+                else:
+                    internal.add(out)
+
+        self._inputs = tuple(inputs)
+        self._outputs = tuple(outputs)
+        self._internal_values = frozenset(internal)
+
+    # ---- Construction alternatives ----
+
+    @classmethod
+    def between(
+        cls,
+        parent: _core.Graph,
+        input_values: Sequence[_core.Value],
+        output_values: Sequence[_core.Value],
+    ) -> SubgraphHandle:
+        """Create a SubgraphHandle from boundary values.
+
+        Performs a backward traversal from *output_values* to *input_values*
+        to discover all nodes in between. Uses the same algorithm as
+        :func:`onnx_ir.convenience.extract` but without cloning.
+
+        Args:
+            parent: The graph containing the subgraph.
+            input_values: Values that bound the subgraph's "top" edge.
+                Traversal stops at producers of these values.
+            output_values: Values that bound the subgraph's "bottom" edge.
+                Traversal starts from producers of these values.
+
+        Raises:
+            ValueError: If the subgraph is not properly bounded (unreachable
+                inputs, missing values).
+        """
+        from onnx_ir._convenience._extractor import _find_subgraph_bounded_by_values
+
+        nodes, _ = _find_subgraph_bounded_by_values(
+            parent, input_values, output_values, parent_graph=parent
+        )
+        return cls(parent, nodes)
+
+    # ---- Read-only properties ----
+
+    def _check_not_consumed(self) -> None:
+        """Raise RuntimeError if this handle has been consumed."""
+        if self._consumed:
+            raise RuntimeError(
+                "This SubgraphHandle has already been consumed by a mutation "
+                "operation (replace_with). Create a new handle if needed."
+            )
+
+    @property
+    def parent(self) -> _core.Graph:
+        """The parent graph containing this subgraph."""
+        return self._parent
+
+    @property
+    def nodes(self) -> frozenset[_core.Node]:
+        """The nodes in this subgraph (unordered set)."""
+        return self._nodes
+
+    @property
+    def inputs(self) -> tuple[_core.Value, ...]:
+        """Values consumed by subgraph nodes but produced outside.
+
+        Includes graph inputs and initializers consumed by the subgraph.
+        Order: deterministic, sorted by first use position in the parent graph.
+        """
+        return self._inputs
+
+    @property
+    def outputs(self) -> tuple[_core.Value, ...]:
+        """Values produced by subgraph nodes and consumed externally.
+
+        Includes values that appear in ``parent.outputs``.
+        Order: deterministic, sorted by producer position in the parent graph.
+        """
+        return self._outputs
+
+    @property
+    def internal_values(self) -> frozenset[_core.Value]:
+        """Values produced and consumed entirely within the subgraph."""
+        return self._internal_values
+
+    def __len__(self) -> int:
+        """Number of nodes in the subgraph."""
+        return len(self._nodes)
+
+    def __contains__(self, node: _core.Node) -> bool:
+        """Check if a node is in this subgraph."""
+        return node in self._nodes
+
+    def __iter__(self) -> Iterator[_core.Node]:
+        """Iterate over nodes in parent-graph order."""
+        return iter(self._ordered_nodes)
+
+    # ---- Mutation operations (consume the handle) ----
+
+    def replace_with(
+        self,
+        new_nodes: Sequence[_core.Node],
+        output_mapping: dict[_core.Value, _core.Value],
+        *,
+        propagate_metadata: bool = True,
+    ) -> None:
+        """Replace this subgraph with new nodes.
+
+        Delegates to :func:`replace_subgraph` with the handle's nodes.
+        After this call, the handle is **consumed** and must not be reused.
+
+        Before delegating, verifies that all nodes are still in the parent
+        graph (guards against stale handles after checkpoint rollback).
+
+        Args:
+            new_nodes: Replacement nodes.
+            output_mapping: Maps old output values to new output values.
+            propagate_metadata: If True, propagate type/shape/name/const_value.
+
+        Raises:
+            RuntimeError: If the handle has already been consumed.
+            RuntimeError: If any node no longer belongs to the parent graph
+                (e.g., after a checkpoint rollback invalidated this handle).
+        """
+        self._check_not_consumed()
+
+        # Liveness check: verify nodes still belong to the parent graph
+        for node in self._nodes:
+            if node.graph is not self._parent:
+                raise RuntimeError(
+                    f"Node {node!r} no longer belongs to the parent graph. "
+                    "This handle is stale — the graph may have been modified "
+                    "by a checkpoint rollback or other operation."
+                )
+
+        replace_subgraph(
+            old_nodes=list(self._ordered_nodes),
+            new_nodes=new_nodes,
+            output_mapping=output_mapping,
+            propagate_metadata=propagate_metadata,
+        )
+        self._consumed = True
+
+    def as_graph_view(self) -> _core.GraphView:
+        """Return a read-only GraphView of this subgraph.
+
+        Does NOT consume the handle. The GraphView references the same
+        Node objects (not copies).
+
+        .. warning::
+            The GraphView's lifetime is bounded by this handle's. After
+            :meth:`replace_with` consumes the handle, any previously-returned
+            GraphView is stale (its nodes have been removed from the graph).
+
+        Raises:
+            RuntimeError: If the handle has already been consumed.
+        """
+        self._check_not_consumed()
+        return _core.GraphView(
+            inputs=list(self._inputs),
+            outputs=list(self._outputs),
+            nodes=self._ordered_nodes,
+        )
+
+
+# ============================================================================
+# Tier 2: GraphCheckpoint
+# ============================================================================
+
+
+class GraphCheckpoint:
+    """A checkpoint for a model's graph, enabling rollback on failure.
+
+    Takes a snapshot of ``model.graph`` at creation time. If the transformation
+    fails or produces an invalid result, call :meth:`rollback` to restore the
+    graph to its checkpointed state.
+
+    **Cost:** O(V + E) at creation (``graph.clone()``), O(1) at rollback (reference
+    swap), O(1) at commit (discard the clone for GC).
+
+    **Reference invalidation:** After :meth:`rollback`, the model's graph is a
+    *different object* with different Node and Value instances. Any local
+    variables referencing nodes/values from the pre-rollback graph are
+    **stale** and must not be used. The context manager pattern naturally
+    avoids this issue because rollback exits the ``with`` block.
+
+    **Functions are NOT checkpointed.** Only ``model.graph`` is cloned. If a
+    pass modifies model functions, those changes survive rollback.
+
+    Usage as context manager (recommended)::
+
+        with editing.GraphCheckpoint(model) as cp:
+            editing.replace_node(old_node, new_node)
+            editing.eliminate_node(identity_node)
+            if not validate(model):
+                cp.rollback()
+        # After the block: graph is either transformed (success)
+        # or restored (rollback / exception).
+
+    Usage for fine-grained rollback in a loop::
+
+        for matmul, add in find_fusible_pairs(model.graph):
+            with editing.GraphCheckpoint(model):
+                try:
+                    gemm = ir.node("Gemm", inputs=[...])
+                    editing.replace_subgraph([matmul, add], [gemm], {...})
+                except ValueError:
+                    pass  # auto-rollback on exception, try next pair
+
+    Explicit usage (without context manager)::
+
+        cp = editing.GraphCheckpoint(model)
+        editing.replace_node(old_node, new_node)
+        if not is_valid(model):
+            cp.rollback()
+        else:
+            cp.commit()  # free the snapshot
+
+    Args:
+        model: The model whose graph to checkpoint.
+    """
+
+    def __init__(self, model: _core.Model) -> None:
+        """Create a checkpoint of the model's current graph state.
+
+        Args:
+            model: The model to checkpoint. ``model.graph`` is cloned.
+        """
+        self._model = model
+        self._original_graph: _core.Graph | None = model.graph  # Track identity for safety check
+        self._saved_graph: _core.Graph | None = model.graph.clone()
+        self._active = True
+
+    @property
+    def is_active(self) -> bool:
+        """True if this checkpoint has not been committed or rolled back."""
+        return self._active
+
+    def rollback(self) -> None:
+        """Restore the model's graph to the checkpointed state.
+
+        After rollback:
+        - ``model.graph`` is the cloned graph from checkpoint creation.
+        - All Node/Value references from the pre-rollback graph are stale.
+        - The checkpoint is consumed (not reusable).
+
+        As a safety check, verifies that ``model.graph`` has not already
+        been swapped by another checkpoint's rollback (which would indicate
+        out-of-order nested rollback — almost certainly a bug).
+
+        Raises:
+            RuntimeError: If the checkpoint has already been committed or
+                rolled back.
+            RuntimeError: If ``model.graph`` is not the same object that
+                was present when this checkpoint was created (indicates
+                another checkpoint already rolled back).
+        """
+        if not self._active:
+            raise RuntimeError(
+                "This checkpoint has already been committed or rolled back."
+            )
+        if self._model.graph is not self._original_graph:
+            raise RuntimeError(
+                "model.graph has been replaced since this checkpoint was created "
+                "(likely by another checkpoint's rollback). This indicates "
+                "out-of-order nested rollback, which is almost certainly a bug."
+            )
+        assert self._saved_graph is not None
+        self._model.graph = self._saved_graph
+        self._saved_graph = None
+        self._original_graph = None
+        self._active = False
+
+    def commit(self) -> None:
+        """Discard the checkpoint snapshot, freeing memory.
+
+        Call this when the transformation succeeded and rollback is no
+        longer needed. If using the context manager, commit is called
+        automatically on clean exit.
+
+        Raises:
+            RuntimeError: If the checkpoint has already been committed or
+                rolled back.
+        """
+        if not self._active:
+            raise RuntimeError(
+                "This checkpoint has already been committed or rolled back."
+            )
+        self._saved_graph = None  # Free the clone for GC
+        self._original_graph = None
+        self._active = False
+
+    def __enter__(self) -> GraphCheckpoint:
+        """Enter the checkpoint context."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> Literal[False]:
+        """Exit the checkpoint context.
+
+        - On clean exit (no exception, no prior rollback): calls ``commit()``.
+        - On exception (no prior rollback): calls ``rollback()``.
+        - If already rolled back or committed: no-op.
+
+        Exceptions are never suppressed (returns ``False``).
+        """
+        if self._active:
+            if exc_type is not None:
+                # On exception, only rollback if the graph hasn't been swapped
+                # by another checkpoint. If it has, we can't safely rollback —
+                # just commit (discard the now-stale snapshot).
+                if self._model.graph is self._original_graph:
+                    self.rollback()
+                else:
+                    self.commit()
+            else:
+                self.commit()
+        return False  # Never suppress exceptions
