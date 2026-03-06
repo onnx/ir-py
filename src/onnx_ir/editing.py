@@ -14,6 +14,10 @@ Key operations:
   redirecting consumers to its input.
 - :func:`insert_on_edge`: Insert a node between a value and all its consumers.
 - :func:`replace_subgraph`: Replace multiple connected nodes with new nodes.
+- :class:`SubgraphHandle`: Immutable, boundary-annotated handle to a subgraph
+  with auto-discovered inputs/outputs and :meth:`~SubgraphHandle.replace_with`.
+- :class:`GraphCheckpoint`: Snapshot-based transaction with rollback/commit
+  support and a context manager for safe graph modifications.
 
 These functions compose naturally with the existing traversal utilities
 (:mod:`onnx_ir.traversal`) and pass infrastructure (:mod:`onnx_ir.passes`).
@@ -954,6 +958,9 @@ class GraphCheckpoint:
 
         - On clean exit (no exception, no prior rollback): calls ``commit()``.
         - On exception (no prior rollback): calls ``rollback()``.
+        - On exception, but graph was already swapped by an inner checkpoint's
+          rollback: calls ``commit()`` (discards the now-stale snapshot instead
+          of rolling back to an inconsistent state).
         - If already rolled back or committed: no-op.
 
         Exceptions are never suppressed (returns ``False``).
