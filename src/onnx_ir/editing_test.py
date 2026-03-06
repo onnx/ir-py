@@ -1489,51 +1489,79 @@ class GraphCheckpointErrorTest(unittest.TestCase):
 class GraphCheckpointNestedTest(unittest.TestCase):
     """Test nested checkpoint behavior."""
 
-    def test_nested_checkpoints_inner_rollback_outer_commit(self):
-        """Inner rollback restores to inner state; outer auto-commits."""
+    def test_nested_lifo_rollback(self):
+        """Inner rollback then outer rollback restores correct states (LIFO)."""
         model, node_a, node_b, node_c = _simple_graph_with_chain()
 
-        with editing.GraphCheckpoint(model):
-            # Edit: replace B with D
-            node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
-            editing.replace_node(node_b, node_d)
-
-            # Inner checkpoint
-            with editing.GraphCheckpoint(model) as inner_cp:
-                # Edit: replace D with E (on the live graph)
-                node_e = ir.Node(
-                    "", "E", inputs=list(node_a.outputs), num_outputs=1
-                )
-                editing.replace_node(node_d, node_e)
-                # Inner rollback — restores to state with D
-                inner_cp.rollback()
-
-            op_types = [n.op_type for n in model.graph]
-            self.assertEqual(op_types, ["A", "D", "C"])
-
-        # Outer auto-commits on clean exit (graph was swapped by inner rollback,
-        # so __exit__ commits rather than re-rolling back)
-        op_types = [n.op_type for n in model.graph]
-        self.assertEqual(op_types, ["A", "D", "C"])
-
-    def test_nested_checkpoints_out_of_order_raises(self):
-        """Outer rollback first → inner rollback raises RuntimeError."""
-        model, node_a, node_b, node_c = _simple_graph_with_chain()
-
+        # Outer checkpoint (saves original A→B→C)
         outer_cp = editing.GraphCheckpoint(model)
 
-        # Edit
+        # Edit: replace B with D
         node_d = ir.Node("", "D", inputs=list(node_a.outputs), num_outputs=1)
         editing.replace_node(node_b, node_d)
 
+        # Inner checkpoint (saves A→D→C)
         inner_cp = editing.GraphCheckpoint(model)
 
-        # Outer rollback first (out of order)
-        outer_cp.rollback()
+        # Edit: replace D with E
+        node_e = ir.Node("", "E", inputs=list(node_a.outputs), num_outputs=1)
+        editing.replace_node(node_d, node_e)
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "E", "C"])
 
-        # Inner rollback should fail — graph identity mismatch
-        with self.assertRaises(RuntimeError):
-            inner_cp.rollback()
+        # Inner rollback — restores to A→D→C
+        inner_cp.rollback()
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "D", "C"])
+
+        # Outer rollback — restores to original A→B→C
+        outer_cp.rollback()
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
+
+    def test_nested_lifo_with_context_managers(self):
+        """LIFO nested rollback via context managers on exception."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with self.assertRaises(ValueError):
+            with editing.GraphCheckpoint(model):
+                node_d = ir.Node(
+                    "", "D", inputs=list(node_a.outputs), num_outputs=1
+                )
+                editing.replace_node(node_b, node_d)
+
+                with self.assertRaises(TypeError):
+                    with editing.GraphCheckpoint(model):
+                        node_e = ir.Node(
+                            "", "E", inputs=list(node_a.outputs), num_outputs=1
+                        )
+                        editing.replace_node(node_d, node_e)
+                        raise TypeError("inner failure")
+
+                # Inner auto-rolled back; state is A→D→C
+                op_types = [n.op_type for n in model.graph]
+                self.assertEqual(op_types, ["A", "D", "C"])
+                raise ValueError("outer failure")
+
+        # Outer auto-rolled back; state is A→B→C
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
+
+    def test_exception_after_inner_rollback_rolls_back_outer(self):
+        """Exception after inner rollback triggers outer rollback correctly."""
+        model, node_a, node_b, node_c = _simple_graph_with_chain()
+
+        with self.assertRaises(ValueError):
+            with editing.GraphCheckpoint(model):
+                # Inner checkpoint and explicit rollback
+                inner_cp = editing.GraphCheckpoint(model)
+                inner_cp.rollback()
+                # Raise after inner rollback — outer __exit__ should rollback
+                raise ValueError("test error")
+
+        # Outer auto-rolled back to original state
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
 
 
 class GraphCheckpointIntegrityTest(unittest.TestCase):
@@ -1586,20 +1614,26 @@ class GraphCheckpointIntegrityTest(unittest.TestCase):
         op_types = [n.op_type for n in model.graph]
         self.assertEqual(op_types, ["A", "B", "C"])
 
-    def test_auto_rollback_with_graph_already_swapped(self):
-        """Context manager exception after inner rollback → auto-commits (no crash)."""
+    def test_auto_rollback_after_inner_rollback_swapped_graph(self):
+        """Context manager exception after inner rollback → outer rolls back."""
         model, node_a, node_b, node_c = _simple_graph_with_chain()
 
         with self.assertRaises(ValueError):
-            with editing.GraphCheckpoint(model) as outer_cp:
+            with editing.GraphCheckpoint(model):
+                # Edit
+                node_d = ir.Node(
+                    "", "D", inputs=list(node_a.outputs), num_outputs=1
+                )
+                editing.replace_node(node_b, node_d)
                 # Inner checkpoint and rollback
                 inner_cp = editing.GraphCheckpoint(model)
                 inner_cp.rollback()
-                # Now outer's original graph is gone
                 # Raise to trigger outer's __exit__
                 raise ValueError("test error")
 
-        # Should not crash — outer auto-commits (discards stale snapshot)
+        # Outer should have rolled back to original state
+        op_types = [n.op_type for n in model.graph]
+        self.assertEqual(op_types, ["A", "B", "C"])
 
 
 class GraphCheckpointWithSubgraphHandleTest(unittest.TestCase):

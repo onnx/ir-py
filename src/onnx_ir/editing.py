@@ -898,26 +898,16 @@ class GraphCheckpoint:
         - All Node/Value references from the pre-rollback graph are stale.
         - The checkpoint is consumed (not reusable).
 
-        As a safety check, verifies that ``model.graph`` has not already
-        been swapped by another checkpoint's rollback (which would indicate
-        out-of-order nested rollback — almost certainly a bug).
+        Nested checkpoints are supported in LIFO order: inner rollback first,
+        then outer rollback restores to the outer checkpoint's saved state.
 
         Raises:
             RuntimeError: If the checkpoint has already been committed or
                 rolled back.
-            RuntimeError: If ``model.graph`` is not the same object that
-                was present when this checkpoint was created (indicates
-                another checkpoint already rolled back).
         """
         if not self._active:
             raise RuntimeError(
                 "This checkpoint has already been committed or rolled back."
-            )
-        if self._model.graph is not self._original_graph:
-            raise RuntimeError(
-                "model.graph has been replaced since this checkpoint was created "
-                "(likely by another checkpoint's rollback). This indicates "
-                "out-of-order nested rollback, which is almost certainly a bug."
             )
         assert self._saved_graph is not None
         self._model.graph = self._saved_graph
@@ -958,22 +948,13 @@ class GraphCheckpoint:
 
         - On clean exit (no exception, no prior rollback): calls ``commit()``.
         - On exception (no prior rollback): calls ``rollback()``.
-        - On exception, but graph was already swapped by an inner checkpoint's
-          rollback: calls ``commit()`` (discards the now-stale snapshot instead
-          of rolling back to an inconsistent state).
         - If already rolled back or committed: no-op.
 
         Exceptions are never suppressed (returns ``False``).
         """
         if self._active:
             if exc_type is not None:
-                # On exception, only rollback if the graph hasn't been swapped
-                # by another checkpoint. If it has, we can't safely rollback —
-                # just commit (discard the now-stale snapshot).
-                if self._model.graph is self._original_graph:
-                    self.rollback()
-                else:
-                    self.commit()
+                self.rollback()
             else:
                 self.commit()
         return False  # Never suppress exceptions
