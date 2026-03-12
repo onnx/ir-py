@@ -99,5 +99,28 @@ class GetConstantTensorTest(unittest.TestCase):
         self.assertEqual(node.outputs[0].type, ir.TensorType(result_2.dtype))
 
 
+class RenameValuesTest(unittest.TestCase):
+    def test_rename_values_supports_initializer_swaps(self):
+        first = ir.Value(name="const_0", const_value=ir.tensor([1], name="const_0"))
+        second = ir.Value(name="const_1", const_value=ir.tensor([2], name="const_1"))
+        graph = ir.Graph(
+            inputs=(),
+            outputs=[first, second],
+            nodes=(),
+            initializers=[first, second],
+            name="test_graph",
+        )
+
+        _convenience.rename_values((first, second), ("const_1", "const_0"))
+
+        self.assertEqual(first.name, "const_1")
+        self.assertEqual(second.name, "const_0")
+        self.assertEqual(first.const_value.name, "const_1")
+        self.assertEqual(second.const_value.name, "const_0")
+        self.assertEqual(set(graph.initializers), {"const_0", "const_1"})
+        self.assertIs(graph.initializers["const_1"], first)
+        self.assertIs(graph.initializers["const_0"], second)
+
+
 if __name__ == "__main__":
     unittest.main()

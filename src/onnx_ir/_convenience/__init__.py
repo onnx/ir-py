@@ -11,6 +11,7 @@ from __future__ import annotations
 __all__ = [
     "convert_attribute",
     "convert_attributes",
+    "rename_values",
     "replace_all_uses_with",
     "create_value_mapping",
     "replace_nodes_and_values",
@@ -358,6 +359,102 @@ def replace_all_uses_with(
         raise ValueError("The number of values and replacements must match.")
     for value, replacement in zip(values, replacements):
         value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
+
+
+def rename_values(
+    values: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
+    names: str | None | Sequence[str | None],
+) -> None:
+    """Rename one or more values.
+
+    When multiple initializer-backed values are renamed together, temporary names are
+    used so swaps and other permutations do not trip the initializer name guard.
+
+    Args:
+        values: The value or values to rename.
+        names: The target name or names.
+
+    Raises:
+        ValueError: If the number of values and names do not match, if one value is
+            given conflicting target names, or if an initializer target would collide
+            with an initializer outside the renamed set.
+    """
+    if not isinstance(values, Sequence):
+        values = (values,)
+    if isinstance(names, str) or names is None:
+        names = (names,)
+    if len(values) != len(names):
+        raise ValueError("The number of values and names must match.")
+
+    ordered_pairs: list[tuple[_core.Value, str | None]] = []
+    target_by_value_id: dict[int, str | None] = {}
+    for value, name in zip(values, names):
+        if not isinstance(value, _core.Value):
+            raise TypeError(f"value must be a Value object, not {type(value)}")
+        value_id = id(value)
+        if value_id in target_by_value_id:
+            if target_by_value_id[value_id] != name:
+                raise ValueError(
+                    f"Conflicting target names for value {value!r}: "
+                    f"{target_by_value_id[value_id]!r} vs {name!r}."
+                )
+            continue
+        target_by_value_id[value_id] = name
+        ordered_pairs.append((value, name))
+
+    initializer_pairs_by_graph: dict[_core.Graph, list[tuple[_core.Value, str | None]]] = {}
+    for value, name in ordered_pairs:
+        if not value.is_initializer():
+            continue
+        graph = value._graph
+        assert isinstance(graph, _core.Graph), "Initializer values must belong to a graph"
+        initializer_pairs_by_graph.setdefault(graph, []).append((value, name))
+
+    for graph, initializer_pairs in initializer_pairs_by_graph.items():
+        renamed_initializer_ids = {id(value) for value, _ in initializer_pairs}
+        seen_targets: dict[str, _core.Value] = {}
+        for value, name in initializer_pairs:
+            if name is None:
+                raise ValueError(
+                    "Initializer value cannot have name set to None. "
+                    "Please pop() the value from initializers first to do so."
+                )
+            existing = seen_targets.get(name)
+            if existing is not None and existing is not value:
+                raise ValueError(
+                    f"Cannot rename initializer '{value}' to '{name}': "
+                    "another initializer in the rename set already targets that name."
+                )
+            seen_targets[name] = value
+            if name in graph.initializers:
+                existing_initializer = graph.initializers[name]
+                if (
+                    existing_initializer is not value
+                    and id(existing_initializer) not in renamed_initializer_ids
+                ):
+                    raise ValueError(
+                        f"Cannot rename initializer '{value}' to '{name}': "
+                        "an initializer with that name already exists."
+                    )
+
+        used_names = set(graph.initializers)
+        used_names.update(
+            target_name for _, target_name in initializer_pairs if target_name is not None
+        )
+        tmp_index = 0
+        for value, name in initializer_pairs:
+            if value.name == name:
+                continue
+            tmp_name = f"__onnx_ir_tmp_name_{tmp_index}"
+            while tmp_name in used_names:
+                tmp_index += 1
+                tmp_name = f"__onnx_ir_tmp_name_{tmp_index}"
+            tmp_index += 1
+            used_names.add(tmp_name)
+            value.name = tmp_name
+
+    for value, name in ordered_pairs:
+        value.name = name
 
 
 def create_value_mapping(
