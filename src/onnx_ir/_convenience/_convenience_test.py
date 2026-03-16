@@ -121,6 +121,29 @@ class RenameValuesTest(unittest.TestCase):
         self.assertIs(graph.initializers["const_1"], first)
         self.assertIs(graph.initializers["const_0"], second)
 
+    def test_rename_values_rejects_none_names(self):
+        value = ir.Value(name="value")
+
+        with self.assertRaisesRegex(TypeError, "name must be a string"):
+            _convenience.rename_values(value, None)
+
+    def test_rename_values_rejects_initializer_collisions_outside_rename_set(self):
+        first = ir.Value(name="const_0", const_value=ir.tensor([1], name="const_0"))
+        second = ir.Value(name="const_1", const_value=ir.tensor([2], name="const_1"))
+        graph = ir.Graph(
+            inputs=(),
+            outputs=[first, second],
+            nodes=(),
+            initializers=[first, second],
+            name="test_graph",
+        )
+
+        with self.assertRaisesRegex(ValueError, "an initializer with that name already exists"):
+            _convenience.rename_values(first, "const_1")
+
+        self.assertIs(graph.initializers["const_0"], first)
+        self.assertIs(graph.initializers["const_1"], second)
+
 
 if __name__ == "__main__":
     unittest.main()
