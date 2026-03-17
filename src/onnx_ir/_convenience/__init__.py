@@ -406,7 +406,7 @@ def rename_values(
     for value, name in ordered_pairs:
         if not value.is_initializer():
             continue
-        graph = value._graph
+        graph = value.graph
         assert isinstance(graph, _core.Graph), "Initializer values must belong to a graph"
         initializer_pairs_by_graph.setdefault(graph, []).append((value, name))
 
