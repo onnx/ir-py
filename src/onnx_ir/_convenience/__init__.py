@@ -418,6 +418,8 @@ def rename_values(
         renamed_initializers = {value for value, _ in initializer_pairs}
         seen_targets: dict[str, _core.Value] = {}
         for value, name in initializer_pairs:
+            if name == "":
+                raise ValueError("Initializer value name cannot be an empty string.")
             existing = seen_targets.get(name)
             if existing is not None and existing is not value:
                 raise ValueError(

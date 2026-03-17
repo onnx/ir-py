@@ -144,6 +144,24 @@ class RenameValuesTest(unittest.TestCase):
         self.assertIs(graph.initializers["const_0"], first)
         self.assertIs(graph.initializers["const_1"], second)
 
+    def test_rename_values_rejects_empty_initializer_name_without_mutating_graph(self):
+        value = ir.Value(name="const_0", const_value=ir.tensor([1], name="const_0"))
+        graph = ir.Graph(
+            inputs=(),
+            outputs=[value],
+            nodes=(),
+            initializers=[value],
+            name="test_graph",
+        )
+
+        with self.assertRaisesRegex(ValueError, "empty string"):
+            _convenience.rename_values(value, "")
+
+        self.assertEqual(value.name, "const_0")
+        self.assertEqual(value.const_value.name, "const_0")
+        self.assertEqual(list(graph.initializers), ["const_0"])
+        self.assertIs(graph.initializers["const_0"], value)
+
 
 if __name__ == "__main__":
     unittest.main()
