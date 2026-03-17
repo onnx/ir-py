@@ -362,7 +362,7 @@ def replace_all_uses_with(
 
 
 def rename_values(
-    values: _protocols.ValueProtocol | Sequence[_protocols.ValueProtocol],
+    values: _core.Value | Sequence[_core.Value],
     names: str | None | Sequence[str | None],
 ) -> None:
     """Rename one or more values.
@@ -371,7 +371,8 @@ def rename_values(
     used so swaps and other permutations do not trip the initializer name guard.
 
     Args:
-        values: The value or values to rename.
+        values: The value or values to rename. Must be `_core.Value` instances or a
+            sequence of `_core.Value` instances.
         names: The target name or names.
 
     Raises:
