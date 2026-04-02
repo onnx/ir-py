@@ -525,8 +525,10 @@ class TestLiftSubgraphInitializersToMainGraphPass(unittest.TestCase):
         self.assertGreater(len(main_graph.initializers), 0)
 
         # Check that there are no name collisions between initializers and node outputs
-        init_names = {name for name in main_graph.initializers}
-        output_names = {output.name for node in main_graph for output in node.outputs if output.name}
+        init_names = set(main_graph.initializers)
+        output_names = {
+            output.name for node in main_graph for output in node.outputs if output.name
+        }
         collisions = init_names & output_names
 
         self.assertEqual(
