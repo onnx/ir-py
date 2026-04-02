@@ -149,6 +149,10 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
     def call(self, model: ir.Model) -> ir.passes.PassResult:
         count = 0
         registered_initializer_names: dict[str, int] = {}
+        # Collect all node output names in the main graph to avoid name collisions
+        main_graph_output_names = {
+            output.name for node in model.graph for output in node.outputs if output.name
+        }
         for graph in model.graphs():
             if graph is model.graph:
                 continue
@@ -171,9 +175,13 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
                 # Remove the initializer from the subgraph
                 graph.initializers.pop(name)
                 # To avoid name conflicts, we need to rename the initializer
-                # to a unique name in the main graph
+                # to a unique name in the main graph that doesn't conflict with
+                # either existing initializers or node outputs
                 new_name = name
-                while new_name in model.graph.initializers:
+                while (
+                    new_name in model.graph.initializers
+                    or new_name in main_graph_output_names
+                ):
                     if name in registered_initializer_names:
                         registered_initializer_names[name] += 1
                     else:
