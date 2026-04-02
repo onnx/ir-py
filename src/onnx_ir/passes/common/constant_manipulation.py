@@ -145,9 +145,10 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
 
     Initializers that are also graph inputs will not be lifted.
 
-    Note: Lifted initializers will be renamed if necessary to avoid name
-    collisions with existing initializers, node outputs, or graph inputs in
-    the main graph.
+    .. versionchanged:: 0.2.1
+        Lifted initializers will be renamed if necessary to avoid name
+        collisions with existing initializers, node outputs, or graph inputs in
+        the main graph.
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
