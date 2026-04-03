@@ -172,8 +172,11 @@ class TestShapeInferencePass(unittest.TestCase):
 
         # Verify the model is restored properly
         self.assertEqual(len(result.model.graph.inputs), 1)
+        self.assertNotIn(weight, result.model.graph.inputs)
         self.assertEqual(len(result.model.graph.initializers), 1)
-        self.assertIsNone(weight.const_value)
+        self.assertIn("W", result.model.graph.initializers)
+        self.assertIs(result.model.graph.initializers["W"], weight)
+        self.assertIsNone(result.model.graph.initializers["W"].const_value)
 
 
 if __name__ == "__main__":
