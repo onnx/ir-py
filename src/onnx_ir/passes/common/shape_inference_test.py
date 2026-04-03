@@ -132,6 +132,52 @@ class TestShapeInferencePass(unittest.TestCase):
             ir.DataType.FLOAT,
         )
 
+    def test_pass_with_initializers_without_const_value(self):
+        """ShapeInferencePass should handle initializers with const_value=None.
+
+        This is a common pattern where shape inference is needed before weights
+        are loaded. The initializer has shape and type set but no tensor data.
+        """
+        float_type = ir.TensorType(ir.DataType.FLOAT)
+
+        # Input
+        input_x = ir.Value(name="X", shape=ir.Shape([2, 3]), type=float_type)
+
+        # Initializer (weight) — no const_value: weights not loaded yet
+        weight = ir.Value(name="W", shape=ir.Shape([3, 4]), type=float_type)
+
+        # Node: output = MatMul(input_x, weight)
+        node = ir.Node("", "MatMul", inputs=[input_x, weight], num_outputs=1)
+        output = node.outputs[0]
+        output.name = "Y"
+
+        graph = ir.Graph(
+            inputs=[input_x],
+            outputs=[output],
+            nodes=[node],
+            initializers=[weight],
+            name="test_graph",
+            opset_imports={"": 20},
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        self.assertIsNone(weight.const_value)
+        self.assertIsNone(output.type)
+
+        # Perform shape inference — should not raise AssertionError
+        result = shape_inference.ShapeInferencePass()(model)
+        self.assertTrue(result.modified)
+        self.assertEqual(output.shape, ir.Shape([2, 4]))
+        self.assertEqual(output.dtype, ir.DataType.FLOAT)
+
+        # Verify the model is restored properly
+        self.assertEqual(len(result.model.graph.inputs), 1)
+        self.assertNotIn(weight, result.model.graph.inputs)
+        self.assertEqual(len(result.model.graph.initializers), 1)
+        self.assertIn("W", result.model.graph.initializers)
+        self.assertIs(result.model.graph.initializers["W"], weight)
+        self.assertIsNone(result.model.graph.initializers["W"].const_value)
+
 
 if __name__ == "__main__":
     unittest.main()
