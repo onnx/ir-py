@@ -449,10 +449,11 @@ class TensorProtoTensorTest(unittest.TestCase):
         tensor_proto_tensor = serde.from_proto(proto)
         roundtrip_array = tensor_proto_tensor.numpy()
         if onnx_dtype in {
-            ir.DataType.FLOAT8E5M2FNUZ,
-            ir.DataType.FLOAT8E5M2,
-            ir.DataType.FLOAT8E4M3FN,
             ir.DataType.BFLOAT16,
+            ir.DataType.FLOAT8E4M3FN,
+            ir.DataType.FLOAT8E4M3FNUZ,
+            ir.DataType.FLOAT8E5M2,
+            ir.DataType.FLOAT8E5M2FNUZ,
             ir.DataType.FLOAT8E8M0,
         }:
             # There is a bug in ml_dtypes that causes equality checks to fail for these dtypes
