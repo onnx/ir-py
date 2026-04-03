@@ -556,3 +556,41 @@ def get_const_tensor(
             )
         value.type = new_value_type
     return tensor
+
+
+def all_values(
+    graph_like: _core.Graph | _core.Function | _core.GraphView,
+) -> Iterable[_core.Value]:
+    """Yield all values in a graph / function / graph view.
+
+    Args:
+        graph_like: The graph, function, or graph view to yield values from.
+
+    Returns:
+        An iterable of all values in the graph / function / graph view.
+    """
+    # Yield all values in the model
+    seen = set()
+    for value in graph_like.inputs:
+        if value not in seen:
+            seen.add(value)
+            yield value
+    if not isinstance(graph_like, _core.Function):
+        for value in graph_like.initializers.values():
+            if value not in seen:
+                seen.add(value)
+                yield value
+    for node in traversal.RecursiveGraphIterator(graph_like):
+        # NOTE: If an input or initializer of a subgraph is unused, it will not be yielded by this function since it is not technically part of the graph. This is consistent with ONNX's handling of unused inputs and initializers.
+        for value in node.inputs:
+            if value not in seen:
+                seen.add(value)
+                yield value
+        for value in node.outputs:
+            if value not in seen:
+                seen.add(value)
+                yield value
+    for value in graph_like.outputs:
+        if value not in seen:
+            seen.add(value)
+            yield value
