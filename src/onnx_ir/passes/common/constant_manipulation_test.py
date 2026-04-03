@@ -452,6 +452,97 @@ class TestLiftSubgraphInitializersToMainGraphPass(unittest.TestCase):
         self.assertFalse(result.modified)
         self.assertIs(subgraph_output.graph, graph_node.attributes["subgraph"].as_graph())
 
+    def test_pass_avoids_name_collision_with_main_graph_node_outputs(self):
+        """Test that lifted initializers are renamed to avoid collisions with node outputs.
+
+        Regression test for https://github.com/microsoft/onnxscript/issues/2881
+        """
+        input_value = ir.Value(
+            name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape((1, 3))
+        )
+
+        # Create a constant node in main graph with output name 'val_0'
+        const_tensor = ir.tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+        const_node = ir.node(
+            "Constant", inputs=[], attributes={"value": const_tensor}, num_outputs=1
+        )
+        const_node.outputs[0].name = "val_0"
+
+        # Create a Mul node that uses the constant
+        mul_node = ir.node("Mul", inputs=[input_value, const_node.outputs[0]])
+
+        # Create a subgraph with an initializer also named 'val_0'
+        # This would cause a name collision if not handled properly
+        subgraph_init_tensor = ir.tensor(np.array([0, 1], dtype=np.int64))
+        subgraph_init = ir.Value(
+            name="val_0",
+            shape=subgraph_init_tensor.shape,
+            type=ir.TensorType(ir.DataType.INT64),
+            const_value=subgraph_init_tensor,
+        )
+        slice_node = ir.node(
+            "Slice", inputs=[input_value, subgraph_init, subgraph_init], num_outputs=1
+        )
+        subgraph = ir.Graph(
+            inputs=[],
+            outputs=[slice_node.outputs[0]],
+            nodes=[slice_node],
+            opset_imports={"": 20},
+            initializers=[subgraph_init],
+        )
+
+        # Create an If node with the subgraph
+        cond_tensor = ir.tensor(np.array(True, dtype=np.bool_))
+        cond_node = ir.node(
+            "Constant", inputs=[], attributes={"value": cond_tensor}, num_outputs=1
+        )
+        if_node = ir.node(
+            "If",
+            inputs=[cond_node.outputs[0]],
+            attributes={"then_branch": subgraph, "else_branch": subgraph},
+            num_outputs=1,
+        )
+
+        # Construct the model - only include nodes in the output path
+        main_graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[mul_node.outputs[0], if_node.outputs[0]],
+            nodes=[const_node, cond_node, mul_node, if_node],
+            opset_imports={"": 20},
+        )
+        model = ir.Model(
+            graph=main_graph,
+            ir_version=10,
+        )
+
+        # Apply the pass
+        result = constant_manipulation.LiftSubgraphInitializersToMainGraphPass()(model)
+        self.assertTrue(result.modified)
+
+        # Check that the subgraph initializer was lifted
+        self.assertEqual(len(subgraph.initializers), 0)
+        # The main graph should have the lifted initializer
+        self.assertGreater(len(main_graph.initializers), 0)
+
+        # Check that there are no name collisions between initializers and node outputs
+        init_names = set(main_graph.initializers)
+        output_names = {
+            output.name for node in main_graph for output in node.outputs if output.name
+        }
+        collisions = init_names & output_names
+
+        self.assertEqual(
+            len(collisions),
+            0,
+            f"Name collision detected: {collisions}. "
+            "Initializers and node outputs must have unique names.",
+        )
+
+        # Verify the model can be serialized and deserialized
+        proto = ir.to_proto(result.model)
+        reloaded_model = ir.from_proto(proto)
+        self.assertIsNotNone(reloaded_model)
+
 
 class TestRemoveInitializersFromInputsPass(unittest.TestCase):
     def test_remove_initializers_from_inputs(self):
