@@ -11,6 +11,7 @@ from __future__ import annotations
 __all__ = [
     "convert_attribute",
     "convert_attributes",
+    "rename_values",
     "replace_all_uses_with",
     "create_value_mapping",
     "replace_nodes_and_values",
@@ -358,6 +359,95 @@ def replace_all_uses_with(
         raise ValueError("The number of values and replacements must match.")
     for value, replacement in zip(values, replacements):
         value.replace_all_uses_with(replacement, replace_graph_outputs=replace_graph_outputs)
+
+
+def rename_values(
+    values: _core.Value | Sequence[_core.Value],
+    names: str | Sequence[str],
+) -> None:
+    """Rename one or more values.
+
+    Initializer-backed values are removed from their graphs while renaming so swaps
+    and other permutations do not trip the initializer name guard.
+
+    Args:
+        values: The value or values to rename. Must be `_core.Value` instances or a
+            sequence of `_core.Value` instances.
+        names: The target name or names.
+
+    Raises:
+        TypeError: If a value is not a :class:`~onnx_ir.Value` or a name is not a string.
+        ValueError: If the number of values and names do not match, if one value is
+            given conflicting target names, or if an initializer target would collide
+            with an initializer outside the renamed set.
+    """
+    if not isinstance(values, Sequence):
+        values = (values,)
+    if isinstance(names, str) or not isinstance(names, Sequence):
+        names = (names,)
+    if len(values) != len(names):
+        raise ValueError("The number of values and names must match.")
+
+    ordered_pairs: list[tuple[_core.Value, str]] = []
+    target_by_value: dict[_core.Value, str] = {}
+    for value, name in zip(values, names):
+        if not isinstance(value, _core.Value):
+            raise TypeError(f"value must be a Value object, not {type(value)}")
+        if not isinstance(name, str):
+            raise TypeError(f"name must be a string, not {type(name)}")
+        if value in target_by_value:
+            if target_by_value[value] != name:
+                raise ValueError(
+                    f"Conflicting target names for value {value!r}: "
+                    f"{target_by_value[value]!r} vs {name!r}."
+                )
+            continue
+        target_by_value[value] = name
+        ordered_pairs.append((value, name))
+
+    initializer_pairs_by_graph: dict[_core.Graph, list[tuple[_core.Value, str]]] = {}
+    for value, name in ordered_pairs:
+        if not value.is_initializer():
+            continue
+        graph = value.graph
+        assert isinstance(graph, _core.Graph), "Initializer values must belong to a graph"
+        initializer_pairs_by_graph.setdefault(graph, []).append((value, name))
+
+    initializer_values_by_graph: dict[_core.Graph, tuple[_core.Value, ...]] = {}
+    for graph, initializer_pairs in initializer_pairs_by_graph.items():
+        renamed_initializers = {value for value, _ in initializer_pairs}
+        seen_targets: dict[str, _core.Value] = {}
+        for value, name in initializer_pairs:
+            if name == "":
+                raise ValueError("Initializer value name cannot be an empty string.")
+            existing = seen_targets.get(name)
+            if existing is not None and existing is not value:
+                raise ValueError(
+                    f"Cannot rename initializer '{value}' to '{name}': "
+                    "another initializer in the rename set already targets that name."
+                )
+            seen_targets[name] = value
+            if name in graph.initializers:
+                existing_initializer = graph.initializers[name]
+                if existing_initializer is not value and existing_initializer not in renamed_initializers:
+                    raise ValueError(
+                        f"Cannot rename initializer '{value}' to '{name}': "
+                        "an initializer with that name already exists."
+                    )
+
+        initializer_values_by_graph[graph] = tuple(value for value, _ in initializer_pairs)
+
+    for graph, initializer_values in initializer_values_by_graph.items():
+        for value in initializer_values:
+            assert value.name is not None, "Initializer values must have names"
+            graph.initializers.pop(value.name)
+
+    for value, name in ordered_pairs:
+        value.name = name
+
+    for graph, initializer_values in initializer_values_by_graph.items():
+        for value in initializer_values:
+            graph.initializers.add(value)
 
 
 def create_value_mapping(
