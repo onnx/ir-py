@@ -63,12 +63,12 @@ jobs:
         run: nox -t ${{ matrix.nox-tag }} --forcecolor -- --cov=src/onnx_ir --cov-report=xml --cov-append --cov-branch -n=auto --junitxml junit.xml
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report-type: test_results
