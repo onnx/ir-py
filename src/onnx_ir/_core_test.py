@@ -510,7 +510,7 @@ class ExternalTensorTest(unittest.TestCase):
         np.testing.assert_equal(tensor, self.data)
 
     def test_initialize_raises_on_path_traversal(self):
-        with self.assertRaises(ValueError, msg="path traversal"):
+        with self.assertRaisesRegex(ValueError, "path traversal"):
             _core.ExternalTensor(
                 "../../etc/passwd",
                 offset=0,
@@ -522,7 +522,7 @@ class ExternalTensorTest(unittest.TestCase):
             )
 
     def test_initialize_raises_on_path_traversal_with_subdir(self):
-        with self.assertRaises(ValueError, msg="path traversal through subdir"):
+        with self.assertRaisesRegex(ValueError, "path traversal"):
             _core.ExternalTensor(
                 "subdir/../../../etc/passwd",
                 offset=0,

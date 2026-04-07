@@ -691,7 +691,9 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             resolved = os.path.normcase(
                 os.path.normpath(os.path.join(base_abs, os.fspath(location)))
             )
-            if resolved != base_abs and not resolved.startswith(base_abs + os.sep):
+            # Ensure the separator suffix is correct even when base_abs is the root directory
+            sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
+            if resolved != base_abs and not resolved.startswith(sep_base):
                 raise ValueError(
                     f"External data location '{location}' resolves to '{resolved}' "
                     f"which is outside the base directory '{base_abs}'. "
