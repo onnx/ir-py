@@ -544,7 +544,7 @@ class ExternalTensorTest(unittest.TestCase):
             name="input",
             shape=_core.Shape([1]),
         )
-        self.assertIsNotNone(tensor)
+        self.assertEqual(tensor.location, "subdir/data.bin")
 
     def test_initialize_no_path_check_when_base_dir_empty(self):
         # When base_dir is empty, no containment check is performed
@@ -557,7 +557,7 @@ class ExternalTensorTest(unittest.TestCase):
             name="input",
             shape=_core.Shape([1]),
         )
-        self.assertIsNotNone(tensor)
+        self.assertEqual(tensor.location, "../../some/path.bin")
 
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
