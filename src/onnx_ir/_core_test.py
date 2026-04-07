@@ -509,6 +509,56 @@ class ExternalTensorTest(unittest.TestCase):
         # Ensure repeated reads are consistent
         np.testing.assert_equal(tensor, self.data)
 
+    def test_initialize_raises_on_path_traversal(self):
+        with self.assertRaises(ValueError, msg="path traversal"):
+            _core.ExternalTensor(
+                "../../etc/passwd",
+                offset=0,
+                length=None,
+                dtype=ir.DataType.FLOAT,
+                base_dir=self.base_path,
+                name="input",
+                shape=_core.Shape([1]),
+            )
+
+    def test_initialize_raises_on_path_traversal_with_subdir(self):
+        with self.assertRaises(ValueError, msg="path traversal through subdir"):
+            _core.ExternalTensor(
+                "subdir/../../../etc/passwd",
+                offset=0,
+                length=None,
+                dtype=ir.DataType.FLOAT,
+                base_dir=self.base_path,
+                name="input",
+                shape=_core.Shape([1]),
+            )
+
+    def test_initialize_allows_subdir_location(self):
+        # A location inside a subdirectory should be allowed
+        tensor = _core.ExternalTensor(
+            "subdir/data.bin",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape([1]),
+        )
+        self.assertIsNotNone(tensor)
+
+    def test_initialize_no_path_check_when_base_dir_empty(self):
+        # When base_dir is empty, no containment check is performed
+        tensor = _core.ExternalTensor(
+            "../../some/path.bin",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir="",
+            name="input",
+            shape=_core.Shape([1]),
+        )
+        self.assertIsNotNone(tensor)
+
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
         external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)

@@ -682,6 +682,21 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
                 raise ValueError(
                     "The location must be a relative path. Please specify base_dir as well."
                 )
+        if base_dir:
+            # Validate that location doesn't escape the base directory (path traversal protection).
+            # os.path.normcase handles case-insensitive file systems (e.g. Windows).
+            base_abs = os.path.normcase(
+                os.path.normpath(os.path.abspath(os.fspath(base_dir)))
+            )
+            resolved = os.path.normcase(
+                os.path.normpath(os.path.join(base_abs, os.fspath(location)))
+            )
+            if resolved != base_abs and not resolved.startswith(base_abs + os.sep):
+                raise ValueError(
+                    f"External data location '{location}' resolves to '{resolved}' "
+                    f"which is outside the base directory '{base_abs}'. "
+                    "This may indicate a path traversal attack."
+                )
         self._location = location
         self._base_dir = base_dir
         self._offset: int | None = offset
