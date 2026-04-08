@@ -583,11 +583,11 @@ class ExternalTensorTest(unittest.TestCase):
             name="input",
             shape=_core.Shape(list(self.data.shape)),
         )
-        # Load should raise because the path contains a symbolic link
-        with self.assertRaisesRegex(ValueError, "symbolic link"):
+        # Load should raise because the symlink resolves outside base_dir
+        with self.assertRaisesRegex(ValueError, "symlink"):
             tensor.numpy()
 
-    def test_load_raises_on_symlink_within_base_dir(self):
+    def test_load_allows_symlink_within_base_dir(self):
         # Create a real file inside base_dir
         real_file = os.path.join(self.base_path, "real_data.bin")
         with open(real_file, "wb") as f:
@@ -604,9 +604,9 @@ class ExternalTensorTest(unittest.TestCase):
             name="input",
             shape=_core.Shape(list(self.data.shape)),
         )
-        # Should raise even though the symlink points within base_dir
-        with self.assertRaisesRegex(ValueError, "symbolic link"):
-            tensor.numpy()
+        # Should succeed: the symlink resolves within base_dir
+        result = tensor.numpy()
+        np.testing.assert_array_equal(result, self.data)
 
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
