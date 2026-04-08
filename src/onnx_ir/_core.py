@@ -754,22 +754,33 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         return self._shape
 
     def _check_path_realpath(self) -> None:
-        """Check the resolved (symlink-following) path stays within base_dir.
+        """Check that the path does not contain symbolic links.
 
         This check complements the string-based check in ``__init__`` by resolving
         symbolic links at load time, when the file is expected to exist on disk.
+        Symbolic links are disallowed to prevent path traversal attacks.
         It is a no-op when ``base_dir`` is empty.
         """
         if not self._base_dir:
             return
-        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
-        resolved_real = os.path.normcase(os.path.realpath(self.path))
-        sep_base = base_real if base_real.endswith(os.sep) else base_real + os.sep
-        if resolved_real != base_real and not resolved_real.startswith(sep_base):
+        path = self.path
+        # os.path.realpath resolves symlinks; os.path.abspath does not.
+        # If the two differ, a symbolic link exists somewhere in the path.
+        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+        path_real = os.path.normcase(os.path.realpath(path))
+        if path_abs != path_real:
             raise ValueError(
-                f"External data path '{self.path}' resolves via symlinks to '{resolved_real}' "
+                f"External data path '{path}' contains a symbolic link. "
+                "Symbolic links are not allowed for security reasons."
+            )
+        # Also verify the resolved path stays within base_dir (defense in depth).
+        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
+        sep_base = base_real if base_real.endswith(os.sep) else base_real + os.sep
+        if path_real != base_real and not path_real.startswith(sep_base):
+            raise ValueError(
+                f"External data path '{path}' resolves to '{path_real}' "
                 f"which is outside the base directory '{base_real}'. "
-                "This may indicate a path traversal attack via symbolic links."
+                "This may indicate a path traversal attack."
             )
 
     def _load(self):
