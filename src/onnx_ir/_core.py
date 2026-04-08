@@ -682,23 +682,6 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
                 raise ValueError(
                     "The location must be a relative path. Please specify base_dir as well."
                 )
-        if base_dir:
-            # Validate that location doesn't escape the base directory (path traversal protection).
-            # os.path.normcase handles case-insensitive file systems (e.g. Windows).
-            base_abs = os.path.normcase(
-                os.path.normpath(os.path.abspath(os.fspath(base_dir)))
-            )
-            resolved = os.path.normcase(
-                os.path.normpath(os.path.join(base_abs, os.fspath(location)))
-            )
-            # Ensure the separator suffix is correct even when base_abs is the root directory
-            sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
-            if resolved != base_abs and not resolved.startswith(sep_base):
-                raise ValueError(
-                    f"External data location '{location}' resolves to '{resolved}' "
-                    f"which is outside the base directory '{base_abs}'. "
-                    "This may indicate a path traversal attack."
-                )
         self._location = location
         self._base_dir = base_dir
         self._offset: int | None = offset
@@ -754,33 +737,41 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         return self._shape
 
     def _check_path_realpath(self) -> None:
-        """Check that the path does not contain symbolic links.
+        """Check the path for security violations at load time.
 
-        This check complements the string-based check in ``__init__`` by resolving
-        symbolic links at load time, when the file is expected to exist on disk.
-        Symbolic links are disallowed to prevent path traversal attacks.
+        Performs two checks when ``base_dir`` is non-empty:
+
+        1. String-based containment: the normalized path must stay within ``base_dir``.
+           This catches path traversal sequences like ``../../etc/passwd``.
+        2. Symlink detection: ``os.path.realpath()`` and ``os.path.abspath()`` must agree.
+           Any difference means a symbolic link exists in the path, which is disallowed.
+
         It is a no-op when ``base_dir`` is empty.
         """
         if not self._base_dir:
             return
         path = self.path
+        # Check 1: string-based path traversal (no filesystem access required).
+        # os.path.normcase handles case-insensitive file systems (e.g. Windows).
+        base_abs = os.path.normcase(
+            os.path.normpath(os.path.abspath(os.fspath(self._base_dir)))
+        )
+        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+        sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
+        if path_abs != base_abs and not path_abs.startswith(sep_base):
+            raise ValueError(
+                f"External data location '{self._location}' resolves to '{path_abs}' "
+                f"which is outside the base directory '{base_abs}'. "
+                "This may indicate a path traversal attack."
+            )
+        # Check 2: symlink detection (requires the path to exist on disk).
         # os.path.realpath resolves symlinks; os.path.abspath does not.
         # If the two differ, a symbolic link exists somewhere in the path.
-        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
         path_real = os.path.normcase(os.path.realpath(path))
         if path_abs != path_real:
             raise ValueError(
                 f"External data path '{path}' contains a symbolic link. "
                 "Symbolic links are not allowed for security reasons."
-            )
-        # Also verify the resolved path stays within base_dir (defense in depth).
-        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
-        sep_base = base_real if base_real.endswith(os.sep) else base_real + os.sep
-        if path_real != base_real and not path_real.startswith(sep_base):
-            raise ValueError(
-                f"External data path '{path}' resolves to '{path_real}' "
-                f"which is outside the base directory '{base_real}'. "
-                "This may indicate a path traversal attack."
             )
 
     def _load(self):

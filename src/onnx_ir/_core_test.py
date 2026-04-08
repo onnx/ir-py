@@ -510,29 +510,31 @@ class ExternalTensorTest(unittest.TestCase):
         # Ensure repeated reads are consistent
         np.testing.assert_equal(tensor, self.data)
 
-    def test_initialize_raises_on_path_traversal(self):
+    def test_load_raises_on_path_traversal(self):
+        tensor = _core.ExternalTensor(
+            "../../etc/passwd",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape([1]),
+        )
         with self.assertRaisesRegex(ValueError, "path traversal"):
-            _core.ExternalTensor(
-                "../../etc/passwd",
-                offset=0,
-                length=None,
-                dtype=ir.DataType.FLOAT,
-                base_dir=self.base_path,
-                name="input",
-                shape=_core.Shape([1]),
-            )
+            tensor.numpy()
 
-    def test_initialize_raises_on_path_traversal_with_subdir(self):
+    def test_load_raises_on_path_traversal_with_subdir(self):
+        tensor = _core.ExternalTensor(
+            "subdir/../../../etc/passwd",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape([1]),
+        )
         with self.assertRaisesRegex(ValueError, "path traversal"):
-            _core.ExternalTensor(
-                "subdir/../../../etc/passwd",
-                offset=0,
-                length=None,
-                dtype=ir.DataType.FLOAT,
-                base_dir=self.base_path,
-                name="input",
-                shape=_core.Shape([1]),
-            )
+            tensor.numpy()
 
     def test_initialize_allows_subdir_location(self):
         # A location inside a subdirectory should be allowed
