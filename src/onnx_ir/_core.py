@@ -790,12 +790,14 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         # Check 3: hardlink detection — reject files with multiple hard links.
         # An attacker with write access could hard-link a sensitive file into the
         # model directory so it passes the containment checks above.
-        if os.path.exists(path_real) and os.stat(path_real).st_nlink > 1:
-            raise ValueError(
-                f"External data path '{path}' has multiple hard links "
-                f"(nlink={os.stat(path_real).st_nlink}). "
-                "This may indicate a hard link attack."
-            )
+        if os.path.exists(path_real):
+            nlink = os.stat(path_real).st_nlink
+            if nlink > 1:
+                raise ValueError(
+                    f"External data path '{path}' has multiple hard links "
+                    f"(nlink={nlink}). "
+                    "This may indicate a hard link attack."
+                )
 
     def _load(self):
         self._check_validity()
