@@ -634,6 +634,46 @@ class ExternalTensorTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path traversal"):
             tensor.numpy()
 
+    def test_load_raises_on_hardlink(self):
+        # Create a real data file inside base_dir
+        real_file = os.path.join(self.base_path, "real_data.bin")
+        with open(real_file, "wb") as f:
+            f.write(self.data.tobytes())
+        # Create a hard link to the same file (also inside base_dir)
+        hardlink_path = os.path.join(self.base_path, "hardlinked.bin")
+        os.link(real_file, hardlink_path)
+        tensor = _core.ExternalTensor(
+            "hardlinked.bin",
+            offset=0,
+            length=len(self.data.tobytes()),
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(list(self.data.shape)),
+        )
+        with self.assertRaisesRegex(ValueError, "hard link"):
+            tensor.numpy()
+
+    def test_tofile_raises_on_hardlink(self):
+        # Create a real data file inside base_dir
+        real_file = os.path.join(self.base_path, "real_data.bin")
+        with open(real_file, "wb") as f:
+            f.write(self.data.tobytes())
+        # Create a hard link to the same file (also inside base_dir)
+        hardlink_path = os.path.join(self.base_path, "hardlinked.bin")
+        os.link(real_file, hardlink_path)
+        tensor = _core.ExternalTensor(
+            "hardlinked.bin",
+            offset=0,
+            length=len(self.data.tobytes()),
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(list(self.data.shape)),
+        )
+        with self.assertRaisesRegex(ValueError, "hard link"):
+            tensor.tofile(io.BytesIO())
+
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
         external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
