@@ -608,6 +608,32 @@ class ExternalTensorTest(unittest.TestCase):
         result = tensor.numpy()
         np.testing.assert_array_equal(result, self.data)
 
+    def test_tofile_raises_on_path_traversal(self):
+        tensor = _core.ExternalTensor(
+            "../../etc/passwd",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape([1]),
+        )
+        with self.assertRaisesRegex(ValueError, "path traversal"):
+            tensor.tofile(io.BytesIO())
+
+    def test_load_raises_on_absolute_location_outside_base_dir(self):
+        tensor = _core.ExternalTensor(
+            "/etc/passwd",
+            offset=0,
+            length=None,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape([1]),
+        )
+        with self.assertRaisesRegex(ValueError, "path traversal"):
+            tensor.numpy()
+
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
         external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)

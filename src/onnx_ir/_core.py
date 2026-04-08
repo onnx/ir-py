@@ -736,7 +736,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         # Immutable
         return self._shape
 
-    def _check_path_realpath(self) -> None:
+    def _check_path_containment(self) -> None:
         """Check the path for security violations at load time.
 
         Performs two checks when ``base_dir`` is non-empty:
@@ -781,7 +781,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
     def _load(self):
         self._check_validity()
-        self._check_path_realpath()
+        self._check_path_containment()
         assert self._array is None, "Bug: The array should be loaded only once."
         if self.size == 0:
             # When the size is 0, mmap is impossible and meaningless
@@ -867,6 +867,9 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         """Return the bytes of the tensor.
 
         This will load the tensor into memory.
+
+        Security: file access is gated by _load() which calls
+        _check_path_containment() to enforce path containment.
         """
         self._check_validity()
         if self.raw is None:
@@ -878,7 +881,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
     def tofile(self, file) -> None:
         self._check_validity()
-        self._check_path_realpath()
+        self._check_path_containment()
         with open(self.path, "rb") as src:
             if self._offset is not None:
                 src.seek(self._offset)
