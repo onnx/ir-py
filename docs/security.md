@@ -19,7 +19,7 @@ read arbitrary files on the host. The main attack vectors are:
 
 ## Implemented defenses
 
-`ExternalTensor._check_path_containment()` enforces a two-layer check
+`ExternalTensor._check_path_containment()` enforces a three-layer check
 whenever a non-empty `base_dir` is set:
 
 | Layer | What it does |
@@ -28,9 +28,9 @@ whenever a non-empty `base_dir` is set:
 | **2. Realpath containment** | Resolves all symlinks via `os.path.realpath()` and re-checks containment. Catches symlinks whose target is outside `base_dir`. Symlinks that resolve *within* `base_dir` are allowed. |
 | **3. Hardlink detection** | Rejects files with more than one hard link (`st_nlink > 1`). Prevents an attacker from hard-linking a sensitive file into the model directory to bypass the containment boundary. |
 
-All three checks run at **load time** — when `numpy()`, `tobytes()`, or
-`tofile()` is called — not at construction time. This allows safe
-deserialization of untrusted protos without triggering I/O.
+All three checks run at **load time** — when `numpy()`, `tofile()`, or
+`tobytes()` (indirectly, via `_load()`) is called — not at construction time.
+This allows safe deserialization of untrusted protos without triggering I/O.
 
 ## `base_dir=""` bypass (by design)
 
@@ -53,21 +53,24 @@ implements a four-layer defense:
 
 | Layer | onnx/onnx | onnx-ir | Notes |
 |---|---|---|---|
-| 1. String-based containment | ✅ | ✅ | Equivalent |
-| 2. Realpath containment | ✅ | ✅ | Equivalent |
-| 3. `O_NOFOLLOW` on open | ✅ | ❌ | See *Future hardening* |
-| 4. Allowlist for filenames | ✅ | ❌ | Not applicable — ir-py is a library, not a runtime |
+| 1. Canonical path containment | ✅ | ✅ | Equivalent |
+| 2. Symlink handling | ✅ reject all | ✅ allow within base | Different policy — see rationale below |
+| 3. `O_NOFOLLOW` on open | ✅ | ❌ | Planned — see *Future hardening* |
+| 4. Hardlink count check | ✅ | ✅ | Equivalent (added in this PR) |
 
-### Why the difference?
+### Why the differences?
 
 * **onnx-ir is a library**, not a runtime. It focuses on safe loading of model
   data for inspection and transformation, not sandboxed execution.
+* **Symlink policy** — onnx/onnx rejects all final-component symlinks.
+  onnx-ir allows symlinks whose resolved target stays within `base_dir`. This
+  is more permissive but still prevents escape from the containment boundary,
+  and avoids breaking legitimate workflows that use symlinks within the model
+  directory (e.g. shared weight files).
 * **`O_NOFOLLOW`** closes a TOCTOU (time-of-check-to-time-of-use) race between
   the containment check and the `open()` call. This is a valuable defense-in-depth
   measure but requires platform-specific code (`os.O_NOFOLLOW` is not available
   on Windows). It is planned for a future release.
-* **Filename allowlisting** is a policy decision better left to the application
-  layer that consumes onnx-ir.
 
 ## Known limitations
 
@@ -81,6 +84,11 @@ implements a four-layer defense:
   hard links at the time of the check. It cannot prevent hard links created
   after the check. On some filesystems or operating systems, `st_nlink` may
   not accurately reflect the number of hard links.
+* **Hardlink collateral** — When an attacker creates a hard link to a
+  legitimate data file, both the original and the link get `st_nlink=2`.
+  This means the *original* file also becomes un-loadable until the extra
+  link is removed. This is fail-closed behavior (safe by default), but
+  operators should be aware of it when diagnosing unexpected load failures.
 
 ## Future hardening
 
