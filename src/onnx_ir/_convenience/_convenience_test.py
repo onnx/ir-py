@@ -138,7 +138,9 @@ class RenameValuesTest(unittest.TestCase):
             name="test_graph",
         )
 
-        with self.assertRaisesRegex(ValueError, "an initializer with that name already exists"):
+        with self.assertRaisesRegex(
+            ValueError, "an initializer with that name already exists"
+        ):
             _convenience.rename_values(first, "const_1")
 
         self.assertIs(graph.initializers["const_0"], first)

@@ -429,7 +429,10 @@ def rename_values(
             seen_targets[name] = value
             if name in graph.initializers:
                 existing_initializer = graph.initializers[name]
-                if existing_initializer is not value and existing_initializer not in renamed_initializers:
+                if (
+                    existing_initializer is not value
+                    and existing_initializer not in renamed_initializers
+                ):
                     raise ValueError(
                         f"Cannot rename initializer '{value}' to '{name}': "
                         "an initializer with that name already exists."
