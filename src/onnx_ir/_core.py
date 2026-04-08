@@ -753,8 +753,28 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         # Immutable
         return self._shape
 
+    def _check_path_realpath(self) -> None:
+        """Check the resolved (symlink-following) path stays within base_dir.
+
+        This check complements the string-based check in ``__init__`` by resolving
+        symbolic links at load time, when the file is expected to exist on disk.
+        It is a no-op when ``base_dir`` is empty.
+        """
+        if not self._base_dir:
+            return
+        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
+        resolved_real = os.path.normcase(os.path.realpath(self.path))
+        sep_base = base_real if base_real.endswith(os.sep) else base_real + os.sep
+        if resolved_real != base_real and not resolved_real.startswith(sep_base):
+            raise ValueError(
+                f"External data path '{self.path}' resolves via symlinks to '{resolved_real}' "
+                f"which is outside the base directory '{base_real}'. "
+                "This may indicate a path traversal attack via symbolic links."
+            )
+
     def _load(self):
         self._check_validity()
+        self._check_path_realpath()
         assert self._array is None, "Bug: The array should be loaded only once."
         if self.size == 0:
             # When the size is 0, mmap is impossible and meaningless
@@ -851,6 +871,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
     def tofile(self, file) -> None:
         self._check_validity()
+        self._check_path_realpath()
         with open(self.path, "rb") as src:
             if self._offset is not None:
                 src.seek(self._offset)

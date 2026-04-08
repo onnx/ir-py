@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import io
+import os
 import pathlib
 import tempfile
 import unittest
@@ -558,6 +559,51 @@ class ExternalTensorTest(unittest.TestCase):
             shape=_core.Shape([1]),
         )
         self.assertEqual(tensor.location, "../../some/path.bin")
+
+    def test_load_raises_on_symlink_pointing_outside_base_dir(self):
+        # Create a separate base_dir (subdirectory) so the "outside" file is truly outside
+        inner_base = os.path.join(self.temp_dir.name, "inner_base")
+        os.makedirs(inner_base, exist_ok=True)
+        # Create a file outside inner_base (but inside temp_dir)
+        outside_file = os.path.join(self.temp_dir.name, "outside.bin")
+        with open(outside_file, "wb") as f:
+            f.write(self.data.tobytes())
+        # Create a symlink inside inner_base pointing to the outside file
+        symlink_path = os.path.join(inner_base, "evil_link.bin")
+        os.symlink(outside_file, symlink_path)
+        # Init should succeed (string-based check passes — symlink name is within base)
+        tensor = _core.ExternalTensor(
+            "evil_link.bin",
+            offset=0,
+            length=len(self.data.tobytes()),
+            dtype=ir.DataType.FLOAT,
+            base_dir=inner_base,
+            name="input",
+            shape=_core.Shape(list(self.data.shape)),
+        )
+        # Load should raise because realpath of the symlink escapes inner_base
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            tensor.numpy()
+
+    def test_load_allows_symlink_within_base_dir(self):
+        # Create a real file inside base_dir
+        real_file = os.path.join(self.base_path, "real_data.bin")
+        with open(real_file, "wb") as f:
+            f.write(self.data.tobytes())
+        # Create a symlink inside base_dir pointing to the real file (also inside base_dir)
+        symlink_path = os.path.join(self.base_path, "link_to_real.bin")
+        os.symlink(real_file, symlink_path)
+        tensor = _core.ExternalTensor(
+            "link_to_real.bin",
+            offset=0,
+            length=len(self.data.tobytes()),
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(list(self.data.shape)),
+        )
+        # Should load successfully
+        np.testing.assert_array_equal(tensor.numpy(), self.data)
 
     def test_release_does_not_invalidate_tensor(self):
         external_tensor = self.model.graph.initializer[0]
