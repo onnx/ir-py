@@ -36,6 +36,14 @@ class NameAuthority:
         self._value_names: set[str] = set()
         self._node_names: set[str] = set()
 
+    def has_value_name(self, name: str) -> bool:
+        """Check if a value name is already tracked."""
+        return name in self._value_names
+
+    def register_value_name(self, name: str) -> None:
+        """Register a value name as used, preventing future duplicates."""
+        self._value_names.add(name)
+
     def _unique_value_name(self) -> str:
         """Generate a unique name for a value."""
         while True:

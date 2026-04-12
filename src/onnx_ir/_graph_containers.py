@@ -218,9 +218,10 @@ class GraphOutputs(_GraphIO):
 class GraphInitializers:
     """The initializers of a Graph, stored by identity with backward-compatible dict-like API.
 
-    Internal storage uses ``list[Value]`` for ordered iteration and ``set[int]``
-    (using ``id()``) for O(1) identity-based membership checks. A lazy
-    ``_name_cache`` (``dict[str, Value]``) is rebuilt on demand for name-based access.
+    Internal storage uses ``list[Value]`` for ordered iteration and ``set[Value]``
+    for O(1) identity-based membership checks (Value uses default identity-based
+    ``__hash__``/``__eq__``). A lazy ``_name_cache`` (``dict[str, Value]``) is
+    rebuilt on demand for name-based access.
 
     Primary mutation API (identity-based):
         - ``add(value)`` — add a Value by identity
@@ -238,7 +239,7 @@ class GraphInitializers:
     def __init__(self, graph: _core.Graph, dict=None, /, **kwargs):
         self._graph = graph
         self._values: list[_core.Value] = []
-        self._identity_set: set[int] = set()
+        self._identity_set: set[_core.Value] = set()
         self._name_cache: dict[str, _core.Value] | None = None
 
         # Collect initial data from dict and kwargs
@@ -254,10 +255,9 @@ class GraphInitializers:
 
         for value in initial_values:
             self._maybe_set_graph(value)
-            value_id = id(value)
-            if value_id not in self._identity_set:
+            if value not in self._identity_set:
                 self._values.append(value)
-                self._identity_set.add(value_id)
+                self._identity_set.add(value)
 
     def _invalidate_name_cache(self) -> None:
         """Invalidate the lazy name cache. Must be called on any mutation."""
@@ -303,21 +303,19 @@ class GraphInitializers:
 
     def remove(self, value: _core.Value) -> None:
         """Remove an initializer by identity. Raises ValueError if not present."""
-        value_id = id(value)
-        if value_id not in self._identity_set:
+        if value not in self._identity_set:
             raise ValueError(f"Value '{value}' is not an initializer of this graph")
         self._maybe_unset_graph(value)
-        self._identity_set.discard(value_id)
+        self._identity_set.discard(value)
         self._values.remove(value)
         self._invalidate_name_cache()
 
     def discard(self, value: _core.Value) -> None:
         """Remove an initializer by identity if present. No-op if not present."""
-        value_id = id(value)
-        if value_id not in self._identity_set:
+        if value not in self._identity_set:
             return
         self._maybe_unset_graph(value)
-        self._identity_set.discard(value_id)
+        self._identity_set.discard(value)
         self._values.remove(value)
         self._invalidate_name_cache()
 
@@ -348,16 +346,14 @@ class GraphInitializers:
             old_value = cache[key]
             if old_value is not value:
                 self._maybe_unset_graph(old_value)
-                old_id = id(old_value)
-                self._identity_set.discard(old_id)
+                self._identity_set.discard(old_value)
                 self._values.remove(old_value)
 
         # Add the new value by identity (no-op if already present)
-        value_id = id(value)
-        if value_id not in self._identity_set:
+        if value not in self._identity_set:
             self._maybe_set_graph(value)
             self._values.append(value)
-            self._identity_set.add(value_id)
+            self._identity_set.add(value)
         else:
             # Value already present by identity — ensure graph is set
             self._maybe_set_graph(value)
@@ -370,8 +366,7 @@ class GraphInitializers:
             raise KeyError(key)
         value = cache[key]
         self._maybe_unset_graph(value)
-        value_id = id(value)
-        self._identity_set.discard(value_id)
+        self._identity_set.discard(value)
         self._values.remove(value)
         self._invalidate_name_cache()
 
@@ -385,7 +380,7 @@ class GraphInitializers:
     def __contains__(self, key: object) -> bool:
         """Check membership. Accepts str (name lookup) or Value (identity check)."""
         if isinstance(key, _core.Value):
-            return id(key) in self._identity_set
+            return key in self._identity_set
         if isinstance(key, str):
             return key in self._build_name_cache()
         return False
@@ -436,8 +431,7 @@ class GraphInitializers:
             raise KeyError(key)
         value = cache[key]
         self._maybe_unset_graph(value)
-        value_id = id(value)
-        self._identity_set.discard(value_id)
+        self._identity_set.discard(value)
         self._values.remove(value)
         self._invalidate_name_cache()
         return value

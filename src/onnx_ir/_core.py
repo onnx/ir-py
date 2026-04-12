@@ -2855,6 +2855,10 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         # to prevent the value from being in an inconsistent state.
         is_initializer = self.is_initializer()
         if is_initializer:
+            # Phase 1 safety constraint: prohibit setting initializer names to None.
+            # create_initializer() always generates names, so this only affects
+            # direct .name = None assignments. Can be relaxed in a future change
+            # when NameFixPass integration for unnamed initializers is validated.
             if value is None:
                 raise ValueError(
                     "Initializer value cannot have name set to None. Please pop() the value from initializers first to do so."
@@ -3330,8 +3334,8 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         while True:
             candidate = f"{prefix}_{counter}"
             counter += 1
-            if candidate not in self._name_authority._value_names:
-                self._name_authority._value_names.add(candidate)
+            if not self._name_authority.has_value_name(candidate):
+                self._name_authority.register_value_name(candidate)
                 return candidate
 
     @property
