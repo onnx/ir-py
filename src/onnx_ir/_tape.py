@@ -192,16 +192,46 @@ class Tape:
         return node.outputs
 
     def initializer(self, tensor: ir.TensorProtocol, name: str | None = None) -> ir.Value:
+        """Create an initializer Value from a tensor and record it on the tape.
+
+        Args:
+            tensor: The tensor data for the initializer.
+            name: Optional name for the initializer. If ``None``, the tensor's
+                name is used. If neither is available and the tape has a
+                :class:`Graph` context, :meth:`Graph.create_initializer` generates
+                a unique name. If there is no graph context, the Value is created
+                unnamed and will receive a name from :class:`NameFixPass` at
+                serialization time.
+
+        Returns:
+            The created :class:`Value`, registered as an initializer if a graph
+            context is available.
+        """
         name = name or tensor.name
-        if name is None:
-            raise ValueError("Name must be provided for initializer.")
+
+        # With a graph context, delegate to create_initializer for safe naming
+        if isinstance(self.graph_like, ir.Graph):
+            if name is None:
+                value = self.graph_like.create_initializer(tensor)
+                self._initializers.append(value)
+                return value
+            # Named initializer with graph context — create and register
+            shape = ir.Shape(
+                (d if isinstance(d, int) else d.value) for d in tensor.shape.dims
+            )
+            value = ir.Value(
+                name=name, shape=shape, type=ir.TensorType(tensor.dtype), const_value=tensor
+            )
+            self._initializers.append(value)
+            self.graph_like.register_initializer(value)
+            return value
+
+        # No graph context (detached tape, e.g. rewrite rules)
         shape = ir.Shape((d if isinstance(d, int) else d.value) for d in tensor.shape.dims)
         value = ir.Value(
             name=name, shape=shape, type=ir.TensorType(tensor.dtype), const_value=tensor
         )
         self._initializers.append(value)
-        if isinstance(self.graph_like, ir.Graph):
-            self.graph_like.register_initializer(value)
         return value
 
 
