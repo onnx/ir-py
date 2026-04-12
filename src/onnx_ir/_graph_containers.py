@@ -264,11 +264,23 @@ class GraphInitializers:
         self._name_cache = None
 
     def _build_name_cache(self) -> dict[str, _core.Value]:
-        """Build and return the name cache from current values."""
+        """Build and return the name cache from current values.
+
+        When multiple Values share the same name, the last one in insertion
+        order wins and a warning is logged.
+        """
         if self._name_cache is None:
             cache: dict[str, _core.Value] = {}
             for value in self._values:
                 if value.name:
+                    if value.name in cache:
+                        logger.warning(
+                            "Duplicate initializer name '%s': %r shadows %r. "
+                            "Run NameFixPass to resolve.",
+                            value.name,
+                            value,
+                            cache[value.name],
+                        )
                     cache[value.name] = value
             self._name_cache = cache
         return self._name_cache
@@ -296,9 +308,17 @@ class GraphInitializers:
         """Add an initializer to the graph by identity.
 
         If the value is already present (by identity), this is a no-op.
-        For backward compatibility, this validates the value's name via ``__setitem__``.
+        Named values are validated via ``__setitem__`` for backward compatibility.
+
+        Note:
+            For unnamed initializers, use :meth:`Graph.create_initializer` which
+            generates a unique name via the graph's :class:`NameAuthority`.
         """
-        # Delegate to __setitem__ for full validation (name checks, type checks)
+        if value in self._identity_set:
+            return  # Already present by identity
+        # Delegate to __setitem__ for full validation (name checks, type checks).
+        # This will raise TypeError for name=None and ValueError for name=""
+        # which is the expected backward-compatible behavior.
         self[value.name] = value  # type: ignore[index]
 
     def remove(self, value: _core.Value) -> None:
@@ -390,7 +410,8 @@ class GraphInitializers:
         return iter(self._build_name_cache())
 
     def __len__(self) -> int:
-        return len(self._values)
+        """Return the number of named initializers (consistent with __iter__)."""
+        return len(self._build_name_cache())
 
     def __bool__(self) -> bool:
         return len(self._values) > 0

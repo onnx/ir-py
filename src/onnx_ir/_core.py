@@ -3320,7 +3320,13 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         """
         prefix = name_hint or "init"
         name = self._generate_unique_value_name(prefix)
-        value = Value(name=name, const_value=const_value)
+        shape = Shape((d if isinstance(d, int) else d.value) for d in const_value.shape.dims)
+        value = Value(
+            name=name,
+            shape=shape,
+            type=TensorType(const_value.dtype),
+            const_value=const_value,
+        )
         self._initializers.add(value)
         return value
 
