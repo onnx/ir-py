@@ -2871,17 +2871,14 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             self._const_value.name = value
 
         # Rename self
-        old_name = self._name
         self._name = value
 
         if is_initializer:
-            # Rename the initializer entry in the graph
-            assert value is not None, "debug: Should be guarded above"
+            # Invalidate the name cache so it rebuilds with the new name.
+            # No dict surgery needed — the Value stays in identity-based storage.
             graph = self._graph
             assert graph is not None
-            assert old_name is not None
-            graph.initializers.pop(old_name)
-            graph.initializers[value] = self
+            graph.initializers._invalidate_name_cache()
 
     @property
     def type(self) -> _protocols.TypeProtocol | None:
