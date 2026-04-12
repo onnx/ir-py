@@ -43,14 +43,20 @@ def call_onnx_api(func: Callable[[onnx.ModelProto], _R], model: ir.Model) -> _R:
     # to limit the model size
     for initializer in initializer_values:
         # Make sure the initializer has its shape/type set
-        assert initializer.const_value is not None
-        if initializer.shape is None:
-            initializer.shape = initializer.const_value.shape  # type: ignore[assignment]
-        if initializer.dtype is None:
-            initializer.dtype = initializer.const_value.dtype
+        if initializer.const_value is not None:
+            if initializer.shape is None:
+                initializer.shape = initializer.const_value.shape  # type: ignore[assignment]
+            if initializer.dtype is None:
+                initializer.dtype = initializer.const_value.dtype
         if initializer not in model.graph.inputs:
             model.graph.inputs.append(initializer)
-        if initializer.const_value.nbytes > _BIG_TENSOR_SIZE_LIMIT:
+        if initializer.const_value is None:
+            # Initializer has no data (e.g. weights not loaded yet).
+            # Remove it from initializers so serialization doesn't fail,
+            # but keep it as an input so shape inference can use its type/shape.
+            assert initializer.name is not None
+            model.graph.initializers.pop(initializer.name)
+        elif initializer.const_value.nbytes > _BIG_TENSOR_SIZE_LIMIT:
             # Temporarily remove the initializer value to reduce model size
             # for onnx.shape_inference
             initializer.const_value = None
@@ -66,7 +72,13 @@ def call_onnx_api(func: Callable[[onnx.ModelProto], _R], model: ir.Model) -> _R:
         # Restore the original initializer values so the model is unchanged
         for initializer in initializer_values:
             initializer.const_value = tensors[initializer.name]
-            model.graph.register_initializer(initializer)
+            if initializer.const_value is not None:
+                model.graph.register_initializer(initializer)
+            else:
+                # register_initializer requires const_value to be set.
+                # Directly add to the initializers dict to restore unloaded
+                # initializers that have no data.
+                model.graph.initializers.add(initializer)
 
         # Restore the original inputs
         inputs = model.graph.inputs[:original_inputs_len]
