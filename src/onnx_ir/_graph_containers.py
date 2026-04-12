@@ -13,7 +13,7 @@ __all__ = [
 
 import collections
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import SupportsIndex, TypeVar
 
 import onnx_ir
@@ -215,23 +215,65 @@ class GraphOutputs(_GraphIO):
         value._graph = None
 
 
-class GraphInitializers(collections.UserDict[str, "_core.Value"]):
-    """The initializers of a Graph as ``dict[str, Value]`` with additional mutation methods."""
+class GraphInitializers:
+    """The initializers of a Graph, stored by identity with backward-compatible dict-like API.
+
+    Internal storage uses ``list[Value]`` for ordered iteration and ``set[int]``
+    (using ``id()``) for O(1) identity-based membership checks. A lazy
+    ``_name_cache`` (``dict[str, Value]``) is rebuilt on demand for name-based access.
+
+    Primary mutation API (identity-based):
+        - ``add(value)`` — add a Value by identity
+        - ``remove(value)`` — remove a Value by identity (raises if absent)
+        - ``discard(value)`` — remove a Value by identity if present
+
+    Backward-compatible dict-like API (name-based):
+        - ``__getitem__(name)``, ``__setitem__(name, value)``, ``__delitem__(name)``
+        - ``__contains__(key)`` — accepts both ``str`` (name) and ``Value`` (identity)
+        - ``__iter__``, ``keys()``, ``values()``, ``items()``, ``__len__``
+        - ``pop(name)``, ``get(name)``, ``update(dict)``
+        - ``clear()``
+    """
 
     def __init__(self, graph: _core.Graph, dict=None, /, **kwargs):
-        # Perform checks first in _set_graph before modifying the data structure with super().__init__()
-        data = {}
-        if dict is not None:
-            data.update(dict)
-        if kwargs:
-            data.update(kwargs)
         self._graph = graph
-        for value in data.values():
-            self._set_graph(value)
+        self._values: list[_core.Value] = []
+        self._identity_set: set[int] = set()
+        self._name_cache: dict[str, _core.Value] | None = None
 
-        super().__init__(data)
+        # Collect initial data from dict and kwargs
+        initial_values: list[_core.Value] = []
+        if dict is not None:
+            if isinstance(dict, Iterable) and not isinstance(dict, Mapping):
+                raise TypeError(
+                    f"Expected a mapping, not {type(dict)}"
+                )
+            initial_values.extend(dict.values() if isinstance(dict, Mapping) else dict)
+        if kwargs:
+            initial_values.extend(kwargs.values())
 
-    def _set_graph(self, value: _core.Value) -> None:
+        for value in initial_values:
+            self._maybe_set_graph(value)
+            value_id = id(value)
+            if value_id not in self._identity_set:
+                self._values.append(value)
+                self._identity_set.add(value_id)
+
+    def _invalidate_name_cache(self) -> None:
+        """Invalidate the lazy name cache. Must be called on any mutation."""
+        self._name_cache = None
+
+    def _build_name_cache(self) -> dict[str, _core.Value]:
+        """Build and return the name cache from current values."""
+        if self._name_cache is None:
+            cache: dict[str, _core.Value] = {}
+            for value in self._values:
+                if value.name:
+                    cache[value.name] = value
+            self._name_cache = cache
+        return self._name_cache
+
+    def _maybe_set_graph(self, value: _core.Value) -> None:
         """Set the graph for the value."""
         if value._graph is not None and value._graph is not self._graph:
             raise ValueError(
@@ -245,9 +287,41 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
         assert value._graph is self._graph, "Bug: value does not belong to the graph"
         value._is_initializer = False
         if value._owned_by_graph():
-            # Keep the graph reference if the value is still an input or an initializer
             return
         value._graph = None
+
+    # === Identity-based mutation API ===
+
+    def add(self, value: _core.Value) -> None:
+        """Add an initializer to the graph by identity.
+
+        If the value is already present (by identity), this is a no-op.
+        For backward compatibility, this validates the value's name via ``__setitem__``.
+        """
+        # Delegate to __setitem__ for full validation (name checks, type checks)
+        self[value.name] = value  # type: ignore[index]
+
+    def remove(self, value: _core.Value) -> None:
+        """Remove an initializer by identity. Raises ValueError if not present."""
+        value_id = id(value)
+        if value_id not in self._identity_set:
+            raise ValueError(f"Value '{value}' is not an initializer of this graph")
+        self._maybe_unset_graph(value)
+        self._identity_set.discard(value_id)
+        self._values.remove(value)
+        self._invalidate_name_cache()
+
+    def discard(self, value: _core.Value) -> None:
+        """Remove an initializer by identity if present. No-op if not present."""
+        value_id = id(value)
+        if value_id not in self._identity_set:
+            return
+        self._maybe_unset_graph(value)
+        self._identity_set.discard(value_id)
+        self._values.remove(value)
+        self._invalidate_name_cache()
+
+    # === Backward-compatible dict-like API ===
 
     def __setitem__(self, key: str, value: _core.Value) -> None:
         """Set an initializer for the graph."""
@@ -268,26 +342,158 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
             raise ValueError(
                 f"Value '{value}' is produced by a node and cannot be a graph initializer"
             )
-        if key in self.data:
-            # If the key already exists, unset the old value
-            old_value = self.data[key]
-            self._maybe_unset_graph(old_value)
-        # Must call _set_graph before super().__setitem__ so that when there is an error,
-        # the dictionary is not modified
-        self._set_graph(value)
-        super().__setitem__(key, value)
+        # If a different value with the same name already exists, remove it
+        cache = self._build_name_cache()
+        if key in cache:
+            old_value = cache[key]
+            if old_value is not value:
+                self._maybe_unset_graph(old_value)
+                old_id = id(old_value)
+                self._identity_set.discard(old_id)
+                self._values.remove(old_value)
+
+        # Add the new value by identity (no-op if already present)
+        value_id = id(value)
+        if value_id not in self._identity_set:
+            self._maybe_set_graph(value)
+            self._values.append(value)
+            self._identity_set.add(value_id)
+        else:
+            # Value already present by identity — ensure graph is set
+            self._maybe_set_graph(value)
+        self._invalidate_name_cache()
 
     def __delitem__(self, key: str) -> None:
-        """Delete an initializer from the graph."""
-        value = self.data[key]
-        # Must call _maybe_unset_graph before super().__delitem__ so that when there is an error,
-        # the dictionary is not modified
+        """Delete an initializer from the graph by name."""
+        cache = self._build_name_cache()
+        if key not in cache:
+            raise KeyError(key)
+        value = cache[key]
         self._maybe_unset_graph(value)
-        super().__delitem__(key)
+        value_id = id(value)
+        self._identity_set.discard(value_id)
+        self._values.remove(value)
+        self._invalidate_name_cache()
 
-    def add(self, value: _core.Value) -> None:
-        """Add an initializer to the graph."""
-        self[value.name] = value  # type: ignore[index]
+    def __getitem__(self, key: str) -> _core.Value:
+        """Get an initializer by name."""
+        cache = self._build_name_cache()
+        if key not in cache:
+            raise KeyError(key)
+        return cache[key]
+
+    def __contains__(self, key: object) -> bool:
+        """Check membership. Accepts str (name lookup) or Value (identity check)."""
+        if isinstance(key, _core.Value):
+            return id(key) in self._identity_set
+        if isinstance(key, str):
+            return key in self._build_name_cache()
+        return False
+
+    def __iter__(self):
+        """Iterate over initializer names (for backward compat with dict interface)."""
+        return iter(self._build_name_cache())
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __bool__(self) -> bool:
+        return len(self._values) > 0
+
+    def __repr__(self) -> str:
+        return f"GraphInitializers({self._build_name_cache()!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, GraphInitializers):
+            return self._values == other._values
+        if isinstance(other, dict):
+            return self._build_name_cache() == other
+        return NotImplemented
+
+    def keys(self):
+        """Return initializer names."""
+        return self._build_name_cache().keys()
+
+    def values(self):
+        """Return initializer Values in insertion order."""
+        return _GraphInitializerValues(self._values)
+
+    def items(self):
+        """Return (name, Value) pairs."""
+        return self._build_name_cache().items()
+
+    def get(self, key: str, default=None):
+        """Get an initializer by name, with optional default."""
+        cache = self._build_name_cache()
+        return cache.get(key, default)
+
+    def pop(self, key: str, *args):
+        """Remove and return an initializer by name."""
+        cache = self._build_name_cache()
+        if key not in cache:
+            if args:
+                return args[0]
+            raise KeyError(key)
+        value = cache[key]
+        self._maybe_unset_graph(value)
+        value_id = id(value)
+        self._identity_set.discard(value_id)
+        self._values.remove(value)
+        self._invalidate_name_cache()
+        return value
+
+    def update(self, dict=None, /, **kwargs):
+        """Update initializers from a dict and/or keyword arguments."""
+        if dict is not None:
+            if isinstance(dict, Mapping):
+                for key, value in dict.items():
+                    self[key] = value
+            elif isinstance(dict, Iterable):
+                for key, value in dict:
+                    self[key] = value
+            else:
+                raise TypeError(f"Expected a mapping or iterable, not {type(dict)}")
+        for key, value in kwargs.items():
+            self[key] = value
+
+    def clear(self) -> None:
+        """Remove all initializers from the graph."""
+        for value in list(self._values):
+            self._maybe_unset_graph(value)
+        self._values.clear()
+        self._identity_set.clear()
+        self._invalidate_name_cache()
+
+    def setdefault(self, key: str, default: _core.Value | None = None) -> _core.Value:
+        """Get initializer by name; if absent, set and return default."""
+        cache = self._build_name_cache()
+        if key in cache:
+            return cache[key]
+        if default is None:
+            raise KeyError(key)
+        self[key] = default
+        return default
+
+
+class _GraphInitializerValues:
+    """A view over the initializer Values list, behaving like dict_values."""
+
+    def __init__(self, values: list[_core.Value]):
+        self._values = values
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, _core.Value):
+            return item in self._values
+        return False
+
+    def __repr__(self) -> str:
+        return f"GraphInitializerValues({list(self._values)!r})"
 
 
 class Attributes(collections.UserDict[str, "_core.Attr"]):
