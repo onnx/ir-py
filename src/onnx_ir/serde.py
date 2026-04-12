@@ -1566,6 +1566,15 @@ def serialize_graph_into(
             # Annotations for initializers will be added below to avoid double adding
             _maybe_add_quantization_annotation(graph_proto, input_)
     input_names = {input_.name for input_ in from_.inputs}
+    # Validate that all initializers have names before serialization.
+    # NameFixPass should assign names to unnamed initializers before this point.
+    for value in from_.initializers.values():
+        if value.name is None:
+            raise ValueError(
+                "Cannot serialize an initializer with name=None. "
+                "Run NameFixPass before serialization to assign names to all initializers. "
+                f"Initializer value: {value!r}"
+            )
     # TODO(justinchuby): Support sparse_initializer
     for value in from_.initializers.values():
         _maybe_add_quantization_annotation(graph_proto, value)

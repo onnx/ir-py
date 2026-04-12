@@ -47,10 +47,17 @@ class NameFixPass(ir.passes.InPlacePass):
     This pass ensures that:
     1. Graph inputs and outputs have unique names (take precedence)
     2. All intermediate values have unique names (assign names to unnamed values)
-    3. All values in subgraphs have unique names within their graph and parent graphs
-    4. All nodes have unique names within their graph
+    3. All initializers have unique names (including previously unnamed initializers)
+    4. All values in subgraphs have unique names within their graph and parent graphs
+    5. All nodes have unique names within their graph
 
     The pass maintains global uniqueness across the entire model.
+
+    Initializer naming: This pass handles unnamed initializers by assigning them
+    unique names via the same scope-aware mechanism used for other values. This is
+    important because the ONNX serialization format requires all initializers to
+    have names. Run this pass before serialization to ensure all initializers are
+    properly named.
 
     You can customize the name generation functions for nodes and values by passing
     a subclass of :class:`NameGenerator`.
@@ -133,7 +140,9 @@ class NameFixPass(ir.passes.InPlacePass):
                     modified = True
 
             if isinstance(graph_like, ir.Graph):
-                # For graphs, also fix initializers
+                # Step 2b: Fix initializer names — assign names to unnamed initializers
+                # and resolve duplicates, using the same scope-aware uniqueness mechanism.
+                # This ensures all initializers have valid names before serialization.
                 for initializer in tuple(graph_like.initializers.values()):
                     if self._process_value(
                         initializer, scoped_used_value_names[-1], seen_values, value_counter
