@@ -3269,19 +3269,21 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
                 It must have its ``.const_value`` set.
 
         Raises:
-            ValueError: If a value of the same name that is not this value
-                is already registered.
+            ValueError: If a different value with the same name is already registered.
             ValueError: If the value does not have a name.
             ValueError: If the initializer is produced by a node.
             ValueError: If the value does not have its ``.const_value`` set.
         """
+        if value in self._initializers:
+            return  # Already registered by identity — no-op
         if not value.name:
             raise ValueError(f"Initializer must have a name: {value!r}")
         if value.name in self._initializers:
-            if self._initializers[value.name] is not value:
+            existing = self._initializers[value.name]
+            if existing is not value:
                 raise ValueError(
                     f"Initializer '{value.name}' is already registered, but"
-                    " it is not the same object: existing={self._initializers[value.name]!r},"
+                    f" it is not the same object: existing={existing!r},"
                     f" new={value!r}"
                 )
         if value.const_value is None:
@@ -3289,6 +3291,48 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
                 f"Value '{value!r}' must have its const_value set to be an initializer."
             )
         self._initializers.add(value)
+
+    def create_initializer(
+        self,
+        const_value: _protocols.TensorProtocol,
+        name_hint: str | None = None,
+    ) -> Value:
+        """Create and register a new initializer Value for this graph.
+
+        This is the recommended way to create initializers during graph
+        transformations. It uses the graph's :class:`NameAuthority` to generate
+        a unique name, avoiding conflicts with existing values.
+
+        Args:
+            const_value: The tensor data for the initializer.
+            name_hint: Optional prefix for the generated name. When provided,
+                the name authority uses it to create a readable, unique name
+                (e.g. ``"bias"`` → ``"bias_0"``). When ``None``, a generic
+                ``"init_"`` prefix is used.
+
+        Returns:
+            The newly created :class:`Value`, already registered as an
+            initializer of this graph.
+        """
+        prefix = name_hint or "init"
+        name = self._generate_unique_value_name(prefix)
+        value = Value(name=name, const_value=const_value)
+        self._initializers.add(value)
+        return value
+
+    def _generate_unique_value_name(self, prefix: str) -> str:
+        """Generate a unique value name using the graph's name authority.
+
+        The generated name is registered with the name authority so subsequent
+        calls will not produce duplicates.
+        """
+        counter = 0
+        while True:
+            candidate = f"{prefix}_{counter}"
+            counter += 1
+            if candidate not in self._name_authority._value_names:
+                self._name_authority._value_names.add(candidate)
+                return candidate
 
     @property
     def doc_string(self) -> str | None:
