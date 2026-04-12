@@ -432,7 +432,7 @@ class GraphInitializers:
 
     def values(self):
         """Return initializer Values in insertion order."""
-        return _GraphInitializerValues(self._values)
+        return _GraphInitializerValues(self._values, self._identity_set)
 
     def items(self):
         """Return (name, Value) pairs."""
@@ -493,8 +493,9 @@ class GraphInitializers:
 class _GraphInitializerValues:
     """A view over the initializer Values list, behaving like dict_values."""
 
-    def __init__(self, values: list[_core.Value]):
+    def __init__(self, values: list[_core.Value], identity_set: set[_core.Value]):
         self._values = values
+        self._identity_set = identity_set
 
     def __iter__(self):
         return iter(self._values)
@@ -504,7 +505,7 @@ class _GraphInitializerValues:
 
     def __contains__(self, item: object) -> bool:
         if isinstance(item, _core.Value):
-            return item in self._values
+            return item in self._identity_set
         return False
 
     def __repr__(self) -> str:
