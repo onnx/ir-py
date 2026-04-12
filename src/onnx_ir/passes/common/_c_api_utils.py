@@ -54,8 +54,7 @@ def call_onnx_api(func: Callable[[onnx.ModelProto], _R], model: ir.Model) -> _R:
             # Temporarily remove the initializer value to reduce model size
             # for onnx.shape_inference
             initializer.const_value = None
-            assert initializer.name is not None
-            model.graph.initializers.pop(initializer.name)
+            model.graph.initializers.remove(initializer)
 
     proto = ir.serde.serialize_model(model)
 

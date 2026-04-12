@@ -126,8 +126,7 @@ class RemoveUnusedNodesPass(ir.passes.InPlacePass):
         initializers = model.graph.initializers
         for init in list(initializers.values()):
             if not (init.uses() or init in graph_outputs or init in graph_inputs):
-                assert init.name is not None
-                del initializers[init.name]
+                initializers.remove(init)
                 count += 1
         for function in model.functions.values():
             count += _remove_unused_nodes_in_graph_like(function)

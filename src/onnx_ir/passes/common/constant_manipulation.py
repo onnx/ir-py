@@ -162,9 +162,9 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
         for graph in model.graphs():
             if graph is model.graph:
                 continue
-            for name in tuple(graph.initializers):
+            for initializer in tuple(graph.initializers.values()):
+                name = initializer.name
                 assert name is not None
-                initializer = graph.initializers[name]
                 if initializer.is_graph_input():
                     # Skip the ones that are also graph inputs
                     logger.debug(
@@ -179,7 +179,7 @@ class LiftSubgraphInitializersToMainGraphPass(ir.passes.InPlacePass):
                     )
                     continue
                 # Remove the initializer from the subgraph
-                graph.initializers.pop(name)
+                graph.initializers.remove(initializer)
                 # To avoid name conflicts, we need to rename the initializer
                 # to a unique name in the main graph that doesn't conflict with
                 # existing initializers, node outputs, or graph inputs

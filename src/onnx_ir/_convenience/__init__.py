@@ -443,7 +443,7 @@ def rename_values(
     for graph, initializer_values in initializer_values_by_graph.items():
         for value in initializer_values:
             assert value.name is not None, "Initializer values must have names"
-            graph.initializers.pop(value.name)
+            graph.initializers.remove(value)
 
     for value, name in ordered_pairs:
         value.name = name
