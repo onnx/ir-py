@@ -2647,6 +2647,34 @@ class GraphTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already registered"):
             self.graph.register_initializer(other_value)
 
+    def test_default_value_initializer_removal_preserves_graph_input(self):
+        """Test that removing an initializer that is also a graph input preserves the input role.
+
+        When a Value is both a graph input and an initializer (default-value
+        pattern), removing it from initializers should clear the initializer
+        flag but keep the graph input flag and graph reference intact via
+        _owned_by_graph().
+        """
+        self.v0.const_value = ir.tensor([1.0, 2.0])
+        self.graph.register_initializer(self.v0)
+
+        # Confirm dual role
+        self.assertTrue(self.v0.is_graph_input())
+        self.assertTrue(self.v0.is_initializer())
+        self.assertIs(self.v0.graph, self.graph)
+
+        # Remove from initializers
+        del self.graph.initializers[self.v0.name]
+
+        # Initializer role is gone
+        self.assertFalse(self.v0.is_initializer())
+        self.assertNotIn(self.v0.name, self.graph.initializers)
+
+        # Graph input role is preserved — graph reference stays
+        self.assertTrue(self.v0.is_graph_input())
+        self.assertIs(self.v0.graph, self.graph)
+        self.assertIn(self.v0, self.graph.inputs)
+
     # TODO(justinchuby): Test graph mutation methods
 
     # Test topological sort.
