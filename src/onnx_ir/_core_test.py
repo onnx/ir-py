@@ -2583,6 +2583,70 @@ class GraphTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.graph.register_initializer(self.v1)
 
+    def test_default_value_initializer_pattern(self):
+        """Test that a graph input can also serve as an initializer (default-value pattern).
+
+        In ONNX, when an initializer shares its name with a graph input, it acts
+        as a default value for that input. This is done by using the SAME Value
+        object for both.
+        """
+        # self.v0 is already a graph input (from setUp)
+        tensor = ir.tensor([1.0, 2.0, 3.0])
+        self.v0.const_value = tensor
+
+        self.graph.register_initializer(self.v0)
+
+        # Value appears in both inputs and initializers
+        self.assertIn(self.v0, self.graph.inputs)
+        self.assertIn(self.v0.name, self.graph.initializers)
+
+        # Same object identity in both
+        self.assertIs(self.graph.initializers[self.v0.name], self.v0)
+
+        # Name is preserved
+        self.assertEqual(self.v0.name, "v0")
+
+        # Value flags reflect dual role
+        self.assertTrue(self.v0.is_graph_input())
+        self.assertTrue(self.v0.is_initializer())
+        self.assertIs(self.v0.graph, self.graph)
+
+    def test_default_value_initializer_idempotent(self):
+        """Test that registering the same input as initializer twice is a no-op."""
+        self.v0.const_value = ir.tensor([1.0])
+        self.graph.register_initializer(self.v0)
+        self.graph.register_initializer(self.v0)  # Should not raise
+
+        self.assertEqual(len(self.graph.initializers), 1)
+        self.assertIs(self.graph.initializers["v0"], self.v0)
+
+    def test_default_value_initializer_survives_name_fix_pass(self):
+        """Test that NameFixPass preserves the shared name for default-value initializers."""
+        from onnx_ir.passes.common.naming import NameFixPass
+
+        self.v0.const_value = ir.tensor([1.0, 2.0])
+        self.graph.register_initializer(self.v0)
+        original_name = self.v0.name
+
+        model = ir.Model(self.graph, ir_version=10)
+        name_fix_pass = NameFixPass()
+        name_fix_pass(model)
+
+        # Name should be preserved (not renamed) since it's already unique
+        self.assertEqual(self.v0.name, original_name)
+        self.assertIn(original_name, self.graph.initializers)
+        self.assertIs(self.graph.initializers[original_name], self.v0)
+
+    def test_default_value_initializer_different_value_same_name_raises(self):
+        """Test that registering a DIFFERENT Value with the same name as a graph input raises."""
+        self.v0.const_value = ir.tensor([1.0])
+        self.graph.register_initializer(self.v0)
+
+        # Create a different Value with the same name
+        other_value = _core.Value(name="v0", const_value=ir.tensor([2.0]))
+        with self.assertRaisesRegex(ValueError, "already registered"):
+            self.graph.register_initializer(other_value)
+
     # TODO(justinchuby): Test graph mutation methods
 
     # Test topological sort.

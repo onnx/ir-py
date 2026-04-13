@@ -3268,6 +3268,23 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
         This is a convenience method to register an initializer to the graph with
         checks.
 
+        **Default-value pattern:** In ONNX, when an initializer shares its name
+        with a graph input, it acts as a **default value** for that input. To
+        create this pattern, use the *same* :class:`Value` object that is already
+        a graph input::
+
+            input_value = graph.inputs[i]
+            input_value.const_value = some_tensor
+            graph.register_initializer(input_value)
+
+        The Value will then appear in both ``graph.inputs`` and
+        ``graph.initializers`` under the same name.
+
+        .. note::
+            :meth:`create_initializer` is **not** for this pattern — it creates
+            new Values with unique names. Use ``register_initializer`` with an
+            existing input Value for the default-value pattern.
+
         Args:
             value: The :class:`Value` to register as an initializer of the graph.
                 It must have its ``.const_value`` set.
