@@ -736,8 +736,52 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         # Immutable
         return self._shape
 
+    def _check_path_containment(self) -> None:
+        """Check the path for security violations at load time.
+
+        Performs two checks when ``base_dir`` is non-empty:
+
+        1. String-based containment: the normalized path (without resolving symlinks)
+           must stay within ``base_dir``. This catches path traversal sequences like
+           ``../../etc/passwd`` without requiring the file to exist.
+        2. Realpath containment: the fully-resolved path (symlinks followed) must also
+           stay within the fully-resolved ``base_dir``. This catches symlinks that point
+           outside ``base_dir``.
+
+        Symlinks whose target resolves within ``base_dir`` are permitted.
+        It is a no-op when ``base_dir`` is empty.
+        """
+        if not self._base_dir:
+            return
+        path = self.path
+        # Check 1: string-based path traversal (no filesystem access required).
+        # os.path.normcase handles case-insensitive file systems (e.g. Windows).
+        base_abs = os.path.normcase(
+            os.path.normpath(os.path.abspath(os.fspath(self._base_dir)))
+        )
+        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+        sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
+        if path_abs != base_abs and not path_abs.startswith(sep_base):
+            raise ValueError(
+                f"External data location '{self._location}' resolves to '{path_abs}' "
+                f"which is outside the base directory '{base_abs}'. "
+                "This may indicate a path traversal attack."
+            )
+        # Check 2: realpath containment — resolve all symlinks and re-validate.
+        # This catches symlinks inside base_dir that point outside it.
+        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
+        path_real = os.path.normcase(os.path.realpath(path))
+        sep_base_real = base_real if base_real.endswith(os.sep) else base_real + os.sep
+        if path_real != base_real and not path_real.startswith(sep_base_real):
+            raise ValueError(
+                f"External data path '{path}' resolves via symlink to '{path_real}' "
+                f"which is outside the base directory '{base_real}'. "
+                "This may indicate a path traversal attack via a symbolic link."
+            )
+
     def _load(self):
         self._check_validity()
+        self._check_path_containment()
         assert self._array is None, "Bug: The array should be loaded only once."
         if self.size == 0:
             # When the size is 0, mmap is impossible and meaningless
@@ -823,6 +867,9 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         """Return the bytes of the tensor.
 
         This will load the tensor into memory.
+
+        Security: file access is gated by _load() which calls
+        _check_path_containment() to enforce path containment.
         """
         self._check_validity()
         if self.raw is None:
@@ -834,6 +881,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
     def tofile(self, file) -> None:
         self._check_validity()
+        self._check_path_containment()
         with open(self.path, "rb") as src:
             if self._offset is not None:
                 src.seek(self._offset)
