@@ -134,7 +134,7 @@ class NameFixPass(ir.passes.InPlacePass):
 
             if isinstance(graph_like, ir.Graph):
                 # For graphs, also fix initializers
-                for initializer in graph_like.initializers.values():
+                for initializer in tuple(graph_like.initializers.values()):
                     if self._process_value(
                         initializer, scoped_used_value_names[-1], seen_values, value_counter
                     ):

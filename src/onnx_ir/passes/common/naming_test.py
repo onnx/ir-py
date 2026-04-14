@@ -400,6 +400,32 @@ class TestNameFixPass(unittest.TestCase):
         self.assertNotEqual(add_node.outputs[0].name, "important_input")
         self.assertTrue(add_node.outputs[0].name.startswith("important_input_"))
 
+    def test_initializer_collision_does_not_mutate_dict_during_iteration(self):
+        """Test NameFixPass handles collisions with initializer names safely."""
+        input_value = ir.val(
+            "input", shape=ir.Shape([1]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        initializer = ir.Value(name="weights", const_value=ir.tensor([1.0], name="weights"))
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[input_value],
+            nodes=(),
+            initializers=[initializer],
+            name="test_graph",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        input_value.name = "weights"
+
+        result = naming.NameFixPass()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(input_value.name, "weights")
+        self.assertEqual(initializer.name, "weights_1")
+        self.assertEqual(initializer.const_value.name, "weights_1")
+        self.assertEqual(list(graph.initializers), ["weights_1"])
+        self.assertIs(graph.initializers["weights_1"], initializer)
+
 
 if __name__ == "__main__":
     unittest.main()

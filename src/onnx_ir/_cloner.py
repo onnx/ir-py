@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import copy
 import functools
 import typing
 from collections.abc import Callable, Mapping
@@ -78,7 +79,7 @@ class Cloner:
         return self._value_map[value]
 
     @_capture_error_context
-    def _clone_or_get_value(self, value: _core.Value) -> _core.Value:
+    def _clone_or_get_value(self, value: _core.Value, deep_copy: bool = False) -> _core.Value:
         if value in self._value_map:
             known_value = self._value_map[value]
             assert known_value is not None, f"BUG: Value {value} mapped to None in value map"
@@ -95,20 +96,24 @@ class Cloner:
         if value.metadata_props:
             new_value.metadata_props.update(value.metadata_props)
         if value.meta:
-            new_value.meta.update(value.meta)
+            self.clone_meta(value.meta, new_value.meta, deep_copy=deep_copy)
         self._value_map[value] = new_value
         return new_value
 
     @_capture_error_context
-    def clone_attr(self, key: str, attr: _core.Attr) -> _core.Attr | None:
+    def clone_attr(
+        self, key: str, attr: _core.Attr, deep_copy: bool = False
+    ) -> _core.Attr | None:
         if not attr.is_ref():
             if attr.type == _enums.AttributeType.GRAPH:
-                graph = self.clone_graph(attr.as_graph())
+                graph = self.clone_graph(attr.as_graph(), deep_copy=deep_copy)
                 return _core.Attr(
                     key, _enums.AttributeType.GRAPH, graph, doc_string=attr.doc_string
                 )
             elif attr.type == _enums.AttributeType.GRAPHS:
-                graphs = [self.clone_graph(graph) for graph in attr.as_graphs()]
+                graphs = [
+                    self.clone_graph(graph, deep_copy=deep_copy) for graph in attr.as_graphs()
+                ]
                 return _core.Attr(
                     key, _enums.AttributeType.GRAPHS, graphs, doc_string=attr.doc_string
                 )
@@ -140,7 +145,20 @@ class Cloner:
         return None
 
     @_capture_error_context
-    def clone_node(self, node: _core.Node) -> _core.Node:
+    def clone_meta(
+        self,
+        old_meta: _core._metadata.MetadataStore,
+        new_meta: _core._metadata.MetadataStore,
+        deep_copy: bool = False,
+    ) -> None:
+        for key, value in old_meta.items():
+            new_meta[key] = copy.deepcopy(value) if deep_copy else value
+
+        for key in old_meta._invalid_keys:
+            new_meta.invalidate(key)
+
+    @_capture_error_context
+    def clone_node(self, node: _core.Node, deep_copy: bool = False) -> _core.Node:
         new_inputs: list[_core.Value | None] = []
         for input in node.inputs:
             if input is None:
@@ -164,7 +182,7 @@ class Cloner:
         new_attributes = [
             new_value
             for key, value in node.attributes.items()
-            if (new_value := self.clone_attr(key, value)) is not None
+            if (new_value := self.clone_attr(key, value, deep_copy=deep_copy)) is not None
         ]
 
         new_metadata = {**self._metadata_props, **node.metadata_props}
@@ -184,7 +202,7 @@ class Cloner:
             metadata_props=new_metadata,
         )
         if node.meta:
-            new_node.meta.update(node.meta)
+            self.clone_meta(node.meta, new_node.meta, deep_copy=deep_copy)
 
         # Copy output properties
         for output, new_output in zip(node.outputs, new_node.outputs):
@@ -197,17 +215,22 @@ class Cloner:
             if output.metadata_props:
                 new_output.metadata_props.update(output.metadata_props)
             if output.meta:
-                new_output.meta.update(output.meta)
+                self.clone_meta(output.meta, new_output.meta, deep_copy=deep_copy)
 
         self._post_process(new_node)
         return new_node
 
     @_capture_error_context
-    def clone_graph(self, graph: _core.Graph | _core.GraphView) -> _core.Graph:
+    def clone_graph(
+        self, graph: _core.Graph | _core.GraphView, deep_copy: bool = False
+    ) -> _core.Graph:
         """Clones a graph with shared TensorProtocols."""
-        input_values = [self._clone_or_get_value(v) for v in graph.inputs]
-        initializers = [self._clone_or_get_value(v) for v in graph.initializers.values()]
-        nodes = [self.clone_node(node) for node in graph]
+        input_values = [self._clone_or_get_value(v, deep_copy=deep_copy) for v in graph.inputs]
+        initializers = [
+            self._clone_or_get_value(v, deep_copy=deep_copy)
+            for v in graph.initializers.values()
+        ]
+        nodes = [self.clone_node(node, deep_copy=deep_copy) for node in graph]
         # Looks up already cloned values. Here we know graph outputs will not be None
         output_values = typing.cast(
             list["_core.Value"], [self._get_value(v) for v in graph.outputs]
@@ -225,5 +248,5 @@ class Cloner:
         if graph.metadata_props:
             new_graph.metadata_props.update(graph.metadata_props)
         if graph.meta:
-            new_graph.meta.update(graph.meta)
+            self.clone_meta(graph.meta, new_graph.meta, deep_copy=deep_copy)
         return new_graph
