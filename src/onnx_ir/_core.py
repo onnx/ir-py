@@ -736,8 +736,52 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         # Immutable
         return self._shape
 
+    def _check_path_containment(self) -> None:
+        """Check the path for security violations at load time.
+
+        Performs two checks when ``base_dir`` is non-empty:
+
+        1. String-based containment: the normalized path (without resolving symlinks)
+           must stay within ``base_dir``. This catches path traversal sequences like
+           ``../../etc/passwd`` without requiring the file to exist.
+        2. Realpath containment: the fully-resolved path (symlinks followed) must also
+           stay within the fully-resolved ``base_dir``. This catches symlinks that point
+           outside ``base_dir``.
+
+        Symlinks whose target resolves within ``base_dir`` are permitted.
+        It is a no-op when ``base_dir`` is empty.
+        """
+        if not self._base_dir:
+            return
+        path = self.path
+        # Check 1: string-based path traversal (no filesystem access required).
+        # os.path.normcase handles case-insensitive file systems (e.g. Windows).
+        base_abs = os.path.normcase(
+            os.path.normpath(os.path.abspath(os.fspath(self._base_dir)))
+        )
+        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+        sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
+        if path_abs != base_abs and not path_abs.startswith(sep_base):
+            raise ValueError(
+                f"External data location '{self._location}' resolves to '{path_abs}' "
+                f"which is outside the base directory '{base_abs}'. "
+                "This may indicate a path traversal attack."
+            )
+        # Check 2: realpath containment — resolve all symlinks and re-validate.
+        # This catches symlinks inside base_dir that point outside it.
+        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
+        path_real = os.path.normcase(os.path.realpath(path))
+        sep_base_real = base_real if base_real.endswith(os.sep) else base_real + os.sep
+        if path_real != base_real and not path_real.startswith(sep_base_real):
+            raise ValueError(
+                f"External data path '{path}' resolves via symlink to '{path_real}' "
+                f"which is outside the base directory '{base_real}'. "
+                "This may indicate a path traversal attack via a symbolic link."
+            )
+
     def _load(self):
         self._check_validity()
+        self._check_path_containment()
         assert self._array is None, "Bug: The array should be loaded only once."
         if self.size == 0:
             # When the size is 0, mmap is impossible and meaningless
@@ -823,6 +867,9 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         """Return the bytes of the tensor.
 
         This will load the tensor into memory.
+
+        Security: file access is gated by _load() which calls
+        _check_path_containment() to enforce path containment.
         """
         self._check_validity()
         if self.raw is None:
@@ -834,6 +881,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
     def tofile(self, file) -> None:
         self._check_validity()
+        self._check_path_containment()
         with open(self.path, "rb") as src:
             if self._offset is not None:
                 src.seek(self._offset)
@@ -3371,7 +3419,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             pass
         yield from seen_graphs.keys()
 
-    def clone(self, allow_outer_scope_values: bool = False) -> Graph:
+    def clone(self, allow_outer_scope_values: bool = False, deep_copy: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3391,6 +3439,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
                 when cloning subgraphs that reference values from the outer graph.
                 When False (default), values from outer scopes will cause an error if they
                 are referenced in the cloned graph.
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this graph.
@@ -3408,7 +3457,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
             resolve_ref_attrs=False,
             allow_outer_scope_values=allow_outer_scope_values,
         )
-        return cloner.clone_graph(self)
+        return cloner.clone_graph(self, deep_copy=deep_copy)
 
     # Mutation methods
     def append(self, node: Node, /) -> None:
@@ -3816,7 +3865,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
     def __repr__(self) -> str:
         return _graph_repr(self)
 
-    def clone(self) -> Graph:
+    def clone(self, deep_copy: bool = False) -> Graph:
         """Create a deep copy of this graph in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned graph will have
@@ -3826,6 +3875,9 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this graph.
@@ -3838,7 +3890,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
             metadata_props={},
             resolve_ref_attrs=False,
         )
-        return cloner.clone_graph(self)
+        return cloner.clone_graph(self, deep_copy=deep_copy)
 
 
 class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
@@ -3968,7 +4020,7 @@ Model(
         yield self.graph
         yield from self.graph.subgraphs()
 
-    def clone(self) -> Model:
+    def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
 
         All graphs, nodes, values, and subgraphs are cloned. The cloned model will have
@@ -3979,11 +4031,14 @@ Model(
 
         .. versionadded:: 0.1.14
 
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
+
         Returns:
             A deep copy of this model.
         """
-        new_graph = self.graph.clone()
-        new_functions = [func.clone() for func in self.functions.values()]
+        new_graph = self.graph.clone(deep_copy=deep_copy)
+        new_functions = [func.clone(deep_copy=deep_copy) for func in self.functions.values()]
         new_model = Model(
             new_graph,
             ir_version=self.ir_version,
@@ -4185,7 +4240,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
             pass
         yield from seen_graphs.keys()
 
-    def clone(self) -> Function:
+    def clone(self, deep_copy: bool = False) -> Function:
         """Create a deep copy of this function in O(#nodes + #values) time.
 
         All nodes, values, and subgraphs are cloned. The cloned function will have
@@ -4195,6 +4250,9 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         Tensors in initializers and constant values will be shared.
 
         .. versionadded:: 0.1.14
+
+        Args:
+            deep_copy: When True, performs a deep copy of the meta data stores.
 
         Returns:
             A deep copy of this function.
@@ -4207,9 +4265,10 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
             metadata_props={},
             resolve_ref_attrs=False,
         )
-        new_graph = cloner.clone_graph(self._graph)
+        new_graph = cloner.clone_graph(self._graph, deep_copy=deep_copy)
         new_attributes = [
-            cloner.clone_attr(attr.name, attr) for attr in self._attributes.values()
+            cloner.clone_attr(attr.name, attr, deep_copy=deep_copy)
+            for attr in self._attributes.values()
         ]
         return Function(
             domain=self._domain,
