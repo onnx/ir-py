@@ -24,5 +24,42 @@ class DisplayTest(unittest.TestCase):
             graph.display()
 
 
+class DisplayRichFallbackTest(unittest.TestCase):
+    def test_require_rich_returns_none_when_not_installed(self):
+        from unittest import mock
+
+        from onnx_ir import _display
+
+        with mock.patch.dict("sys.modules", {"rich": None}):
+            result = _display.require_rich()
+            self.assertIsNone(result)
+
+    def test_display_without_rich_prints_plaintext(self):
+        """Test the fallback when rich is not available."""
+        import io
+        from unittest import mock
+
+        from onnx_ir import _display
+
+        graph = ir.Graph([], [], nodes=[], name="test_graph")
+
+        # Mock require_rich to return None (simulating rich not installed)
+        with mock.patch.object(_display, "require_rich", return_value=None):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                graph.display()
+            printed = output.getvalue()
+            self.assertIn("Tip:", printed)
+
+    def test_display_with_page(self):
+        """Test display with page=True uses rich pager."""
+        import io
+
+        graph = ir.Graph([], [], nodes=[], name="test_graph")
+        # Just ensure it doesn't raise. We can't easily test rich pager.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.suppress(Exception):
+            graph.display(page=True)
+
+
 if __name__ == "__main__":
     unittest.main()

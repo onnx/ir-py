@@ -393,5 +393,227 @@ class FunctionalizeTest(unittest.TestCase):
         self.assertEqual(result.model.graph.inputs[0].name, "modified_name")
 
 
+def _empty_model(ir_version: int = 10) -> ir.Model:
+    return ir.Model(graph=ir.Graph([], [], nodes=[]), ir_version=ir_version)
+
+
+class PassBaseErrorHandlingTest(unittest.TestCase):
+    def test_precondition_wraps_generic_exception(self):
+        """Non-PreconditionError from requires() is wrapped in PreconditionError."""
+
+        class BadPrecondition(_pass_infra.InPlacePass):
+            def requires(self, model: ir.Model) -> None:
+                raise RuntimeError("something went wrong")
+
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        with self.assertRaises(_pass_infra.PreconditionError) as cm:
+            BadPrecondition()(_empty_model())
+        self.assertIsInstance(cm.exception.__cause__, RuntimeError)
+
+    def test_precondition_reraises_precondition_error(self):
+        """PreconditionError from requires() is re-raised directly."""
+
+        class DirectPrecondition(_pass_infra.InPlacePass):
+            def requires(self, model: ir.Model) -> None:
+                raise _pass_infra.PreconditionError("direct")
+
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        with self.assertRaisesRegex(_pass_infra.PreconditionError, "direct"):
+            DirectPrecondition()(_empty_model())
+
+    def test_call_returning_non_pass_result_raises_post_or_type_error(self):
+        """call() returning something other than PassResult raises error.
+
+        PostconditionError is raised because ensures is called on result.model
+        which fails first, or TypeError.
+        """
+
+        class BadReturn(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model):
+                return model  # Wrong: should return PassResult
+
+        with self.assertRaises((_pass_infra.PostconditionError, TypeError)):
+            BadReturn()(_empty_model())
+
+    def test_in_place_pass_returning_different_model_raises(self):
+        """In-place pass returning a different model object raises PassError."""
+
+        class BadInPlace(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                new_model = _empty_model()
+                return _pass_infra.PassResult(new_model, modified=True)
+
+        with self.assertRaises(_pass_infra.PassError):
+            BadInPlace()(_empty_model())
+
+    def test_not_in_place_pass_returning_same_model_raises(self):
+        """Not-in-place pass returning the same model object raises PassError."""
+
+        class BadFunctional(_pass_infra.FunctionalPass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        with self.assertRaises(_pass_infra.PassError):
+            BadFunctional()(_empty_model())
+
+    def test_destructive_property(self):
+        """A pass that is not in_place but changes_input is destructive."""
+
+        class Destructive(_pass_infra.PassBase):
+            @property
+            def in_place(self) -> bool:
+                return False
+
+            @property
+            def changes_input(self) -> bool:
+                return True
+
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(_empty_model(), modified=True)
+
+        p = Destructive()
+        self.assertTrue(p.destructive)
+
+    def test_non_destructive_in_place(self):
+        class ConcreteInPlace(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        p = ConcreteInPlace()
+        self.assertFalse(p.destructive)
+
+
+class SequentialTest(unittest.TestCase):
+    def test_sequential_empty_raises(self):
+        with self.assertRaises(ValueError):
+            _pass_infra.Sequential()
+
+    def test_sequential_runs_passes_in_order(self):
+        call_order = []
+
+        class Pass1(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                call_order.append(1)
+                return _pass_infra.PassResult(model, modified=True)
+
+        class Pass2(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                call_order.append(2)
+                return _pass_infra.PassResult(model, modified=False)
+
+        seq = _pass_infra.Sequential(Pass1(), Pass2())
+        result = seq(_empty_model())
+        self.assertEqual(call_order, [1, 2])
+        self.assertTrue(result.modified)
+
+    def test_sequential_propagates_errors(self):
+        """Error in a pass within Sequential is wrapped in PassError."""
+
+        class GoodPass(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        class BadPass(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                raise RuntimeError("pass failed")
+
+        seq = _pass_infra.Sequential(GoodPass(), BadPass())
+        with self.assertRaises(_pass_infra.PassError):
+            seq(_empty_model())
+
+    def test_sequential_in_place_when_all_in_place(self):
+        class P(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        seq = _pass_infra.Sequential(P(), P())
+        self.assertTrue(seq.in_place)
+        self.assertTrue(seq.changes_input)
+
+    def test_sequential_not_in_place_when_mixed(self):
+        class InP(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        class FunP(_pass_infra.FunctionalPass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(_empty_model(), modified=False)
+
+        seq = _pass_infra.Sequential(InP(), FunP())
+        self.assertFalse(seq.in_place)
+
+    def test_sequential_changes_input_follows_first_pass(self):
+        class FunP(_pass_infra.FunctionalPass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(_empty_model(), modified=False)
+
+        class InP(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                return _pass_infra.PassResult(model, modified=False)
+
+        # Functional first => doesn't change input
+        seq = _pass_infra.Sequential(FunP(), InP())
+        self.assertFalse(seq.changes_input)
+
+
+class PassManagerTest(unittest.TestCase):
+    def test_pass_manager_runs_multiple_steps(self):
+        call_count = 0
+
+        class CountPass(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                nonlocal call_count
+                call_count += 1
+                return _pass_infra.PassResult(model, modified=True)
+
+        pm = _pass_infra.PassManager([CountPass()], steps=3, early_stop=False)
+        pm(_empty_model())
+        self.assertEqual(call_count, 3)
+
+    def test_pass_manager_early_stop_when_no_modification(self):
+        call_count = 0
+
+        class OncePass(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                nonlocal call_count
+                call_count += 1
+                # Only modify on first call
+                return _pass_infra.PassResult(model, modified=(call_count == 1))
+
+        pm = _pass_infra.PassManager([OncePass()], steps=10, early_stop=True)
+        result = pm(_empty_model())
+        self.assertEqual(
+            call_count, 2
+        )  # Ran twice: first modified, second not modified => stop
+        self.assertTrue(result.modified)
+
+    def test_pass_manager_wraps_error_with_step_info(self):
+        class FailPass(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                raise RuntimeError("boom")
+
+        pm = _pass_infra.PassManager([FailPass()], steps=2)
+        with self.assertRaises(_pass_infra.PassError) as cm:
+            pm(_empty_model())
+        self.assertIn("step", str(cm.exception).lower())
+
+    def test_pass_manager_overall_modified_is_true_if_any_step_modifies(self):
+        step = 0
+
+        class SometimesModify(_pass_infra.InPlacePass):
+            def call(self, model: ir.Model) -> _pass_infra.PassResult:
+                nonlocal step
+                step += 1
+                return _pass_infra.PassResult(model, modified=(step == 1))
+
+        pm = _pass_infra.PassManager([SometimesModify()], steps=3, early_stop=False)
+        result = pm(_empty_model())
+        self.assertTrue(result.modified)
+
+
 if __name__ == "__main__":
     unittest.main()

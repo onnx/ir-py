@@ -154,5 +154,187 @@ class AttributeTypeTest(unittest.TestCase):
         self.assertEqual(_enums.AttributeType.UNDEFINED, onnx.AttributeProto.UNDEFINED)
 
 
+# All floating point types that have finfo
+_FLOAT_TYPES = [
+    ("FLOAT", _enums.DataType.FLOAT),
+    ("FLOAT16", _enums.DataType.FLOAT16),
+    ("DOUBLE", _enums.DataType.DOUBLE),
+    ("BFLOAT16", _enums.DataType.BFLOAT16),
+    ("FLOAT8E4M3FN", _enums.DataType.FLOAT8E4M3FN),
+    ("FLOAT8E4M3FNUZ", _enums.DataType.FLOAT8E4M3FNUZ),
+    ("FLOAT8E5M2", _enums.DataType.FLOAT8E5M2),
+    ("FLOAT8E5M2FNUZ", _enums.DataType.FLOAT8E5M2FNUZ),
+    ("FLOAT4E2M1", _enums.DataType.FLOAT4E2M1),
+]
+
+_INT_TYPES = [
+    ("INT8", _enums.DataType.INT8),
+    ("INT16", _enums.DataType.INT16),
+    ("INT32", _enums.DataType.INT32),
+    ("INT64", _enums.DataType.INT64),
+    ("UINT8", _enums.DataType.UINT8),
+    ("UINT16", _enums.DataType.UINT16),
+    ("UINT32", _enums.DataType.UINT32),
+    ("UINT64", _enums.DataType.UINT64),
+    ("INT4", _enums.DataType.INT4),
+    ("UINT4", _enums.DataType.UINT4),
+    ("INT2", _enums.DataType.INT2),
+    ("UINT2", _enums.DataType.UINT2),
+]
+
+
+class DataTypeExponentMantissaTest(unittest.TestCase):
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_exponent_bitwidth_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).nexp
+        self.assertEqual(dtype.exponent_bitwidth, expected)
+
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_mantissa_bitwidth_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).nmant
+        self.assertEqual(dtype.mantissa_bitwidth, expected)
+
+    def test_exponent_bitwidth_raises_for_integer(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.INT32.exponent_bitwidth
+
+    def test_mantissa_bitwidth_raises_for_integer(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.INT32.mantissa_bitwidth
+
+
+class DataTypeEpsTest(unittest.TestCase):
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_eps_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).eps
+        self.assertEqual(dtype.eps, expected)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_eps_returns_1_for_integer_types(self, _: str, dtype: _enums.DataType):
+        self.assertEqual(dtype.eps, 1)
+
+    def test_eps_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.eps
+
+
+class DataTypeTinyTest(unittest.TestCase):
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_tiny_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).tiny
+        self.assertEqual(dtype.tiny, expected)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_tiny_returns_1_for_integer_types(self, _: str, dtype: _enums.DataType):
+        self.assertEqual(dtype.tiny, 1)
+
+    def test_tiny_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.tiny
+
+
+class DataTypeMinMaxTest(unittest.TestCase):
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_min_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).min
+        self.assertEqual(dtype.min, expected)
+
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_max_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).max
+        self.assertEqual(dtype.max, expected)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_min_for_integer_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.iinfo(dtype.numpy()).min
+        self.assertEqual(dtype.min, expected)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_max_for_integer_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.iinfo(dtype.numpy()).max
+        self.assertEqual(dtype.max, expected)
+
+    def test_min_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.min
+
+    def test_max_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.max
+
+
+class DataTypePrecisionResolutionTest(unittest.TestCase):
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_precision_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).precision
+        self.assertEqual(dtype.precision, expected)
+
+    @parameterized.parameterized.expand(_FLOAT_TYPES)
+    def test_resolution_for_float_types(self, _: str, dtype: _enums.DataType):
+        expected = ml_dtypes.finfo(dtype.numpy()).resolution
+        self.assertEqual(dtype.resolution, expected)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_precision_returns_0_for_integer_types(self, _: str, dtype: _enums.DataType):
+        self.assertEqual(dtype.precision, 0)
+
+    @parameterized.parameterized.expand(_INT_TYPES)
+    def test_resolution_returns_1_for_integer_types(self, _: str, dtype: _enums.DataType):
+        self.assertEqual(dtype.resolution, 1)
+
+    def test_precision_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.precision
+
+    def test_resolution_raises_for_string(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.STRING.resolution
+
+
+class DataTypeClassificationTest(unittest.TestCase):
+    def test_is_floating_point(self):
+        self.assertTrue(_enums.DataType.FLOAT.is_floating_point())
+        self.assertTrue(_enums.DataType.DOUBLE.is_floating_point())
+        self.assertTrue(_enums.DataType.BFLOAT16.is_floating_point())
+        self.assertFalse(_enums.DataType.INT32.is_floating_point())
+        self.assertFalse(_enums.DataType.STRING.is_floating_point())
+
+    def test_is_integer(self):
+        self.assertTrue(_enums.DataType.INT32.is_integer())
+        self.assertTrue(_enums.DataType.UINT4.is_integer())
+        self.assertTrue(_enums.DataType.INT2.is_integer())
+        self.assertFalse(_enums.DataType.FLOAT.is_integer())
+        self.assertFalse(_enums.DataType.STRING.is_integer())
+
+    def test_is_signed(self):
+        self.assertTrue(_enums.DataType.INT32.is_signed())
+        self.assertTrue(_enums.DataType.FLOAT.is_signed())
+        self.assertFalse(_enums.DataType.UINT8.is_signed())
+        self.assertFalse(_enums.DataType.BOOL.is_signed())
+
+    def test_is_string(self):
+        self.assertTrue(_enums.DataType.STRING.is_string())
+        self.assertFalse(_enums.DataType.FLOAT.is_string())
+
+    def test_from_short_name_raises_for_unknown(self):
+        with self.assertRaises(TypeError):
+            _enums.DataType.from_short_name("nonexistent")
+
+    def test_bitwidth_raises_for_undefined(self):
+        with self.assertRaises(TypeError):
+            _ = _enums.DataType.UNDEFINED.bitwidth
+
+    def test_numpy_raises_for_unsupported(self):
+        with self.assertRaises(TypeError):
+            _enums.DataType.UNDEFINED.numpy()
+
+    def test_short_name_returns_correct_name(self):
+        self.assertEqual(_enums.DataType.STRING.short_name(), "s")
+
+    def test_from_numpy_raises_for_unsupported_dtype(self):
+        with self.assertRaises(TypeError):
+            _enums.DataType.from_numpy(np.dtype("datetime64"))
+
+
 if __name__ == "__main__":
     unittest.main()
