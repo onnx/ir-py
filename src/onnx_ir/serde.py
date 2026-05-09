@@ -289,7 +289,9 @@ def to_proto(ir_object: object) -> object:
         assert ir_object.is_ref()
         return serialize_reference_attribute(ir_object)
     if isinstance(ir_object, _protocols.TypeProtocol):
-        return serialize_type_into(onnx.TypeProto(), ir_object)
+        type_proto = onnx.TypeProto()
+        serialize_type_into(type_proto, ir_object)
+        return type_proto
     if isinstance(ir_object, _protocols.GraphViewProtocol):
         return serialize_graph(ir_object)
     if isinstance(ir_object, _protocols.FunctionProtocol):

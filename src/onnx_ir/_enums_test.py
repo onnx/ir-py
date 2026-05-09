@@ -165,6 +165,7 @@ _FLOAT_TYPES = [
     ("FLOAT8E5M2", _enums.DataType.FLOAT8E5M2),
     ("FLOAT8E5M2FNUZ", _enums.DataType.FLOAT8E5M2FNUZ),
     ("FLOAT4E2M1", _enums.DataType.FLOAT4E2M1),
+    ("FLOAT8E8M0", _enums.DataType.FLOAT8E8M0),
 ]
 
 _INT_TYPES = [

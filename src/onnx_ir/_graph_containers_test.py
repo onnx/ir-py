@@ -31,7 +31,8 @@ class GraphContainersTest(unittest.TestCase):
         graph.initializers["w"] = v
         self.assertIs(v._graph, graph)
         del graph.initializers["w"]
-        # Value graph should be None after removal (if not still owned)
+        self.assertNotIn("w", graph.initializers)
+        self.assertIsNone(v._graph)
 
     def test_graph_initializers_reject_node_output(self):
         """A value produced by a node cannot be an initializer."""

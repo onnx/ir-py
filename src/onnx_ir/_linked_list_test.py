@@ -402,7 +402,7 @@ class LinkedListGraphTest(unittest.TestCase):
         n3 = ir.Node("", "C", [])
         graph = ir.Graph([], [], nodes=[n1, n2, n3])
         sliced = graph[0:2]
-        self.assertEqual(len(sliced), 2)
+        self.assertEqual(list(sliced), [n1, n2])
 
 
 if __name__ == "__main__":

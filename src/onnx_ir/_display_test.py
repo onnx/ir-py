@@ -53,12 +53,14 @@ class DisplayRichFallbackTest(unittest.TestCase):
 
     def test_display_with_page(self):
         """Test display with page=True uses rich pager."""
-        import io
+        from unittest import mock
 
         graph = ir.Graph([], [], nodes=[], name="test_graph")
-        # Just ensure it doesn't raise. We can't easily test rich pager.
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.suppress(Exception):
+        mock_console = mock.MagicMock()
+        with mock.patch("rich.console.Console", return_value=mock_console):
             graph.display(page=True)
+        mock_console.pager.assert_called_once()
+        mock_console.print.assert_called_once()
 
 
 if __name__ == "__main__":

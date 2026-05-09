@@ -30,7 +30,8 @@ class ConvenienceFunctionsTest(unittest.TestCase):
         ]
     )
     def test_from_proto(self, _: str, proto):
-        serde.from_proto(proto)
+        result = serde.from_proto(proto)
+        self.assertIsNotNone(result)
 
     @parameterized.parameterized.expand(
         [
@@ -54,7 +55,8 @@ class ConvenienceFunctionsTest(unittest.TestCase):
         ]
     )
     def test_to_proto(self, _: str, ir_object):
-        serde.to_proto(ir_object)
+        result = serde.to_proto(ir_object)
+        self.assertIsNotNone(result)
 
     def test_from_to_onnx_text(self):
         model_text = """\
@@ -440,7 +442,9 @@ class TensorProtoTensorTest(unittest.TestCase):
     def test_round_trip_numpy_conversion_from_raw_data(
         self, _: str, onnx_dtype: ir.DataType, original_array: np.ndarray
     ):
-        original_array = original_array.astype(onnx_dtype.numpy())
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            original_array = original_array.astype(onnx_dtype.numpy())
         ir_tensor = ir.Tensor(original_array, name="test_tensor")
         proto = serde.to_proto(ir_tensor)
         if original_array.size > 0:
@@ -973,7 +977,10 @@ class FunctionSerializationCoverageTest(unittest.TestCase):
 
         # Serialize and check
         result_proto = serde.serialize_model(model)
-        self.assertIsNotNone(result_proto)
+        # Verify function value_info entries are present in the serialized proto
+        self.assertGreater(len(result_proto.functions), 0)
+        func_proto = result_proto.functions[0]
+        self.assertGreater(len(func_proto.value_info), 0)
 
     def test_function_with_ref_attr(self):
         """Test serialization of functions with reference attributes."""
@@ -1031,6 +1038,12 @@ class ExperimentalFunctionValueInfoIR9Test(unittest.TestCase):
         # Serialize back - should use experimental format for IR9
         result_proto = serde.serialize_model(model)
         self.assertEqual(result_proto.ir_version, 9)
+        # Verify experimental function value_info entries in main graph
+        vi_names = [vi.name for vi in result_proto.graph.value_info]
+        self.assertTrue(
+            any(name.startswith("pkg::my_func/") for name in vi_names),
+            f"Expected 'pkg::my_func/' prefixed value_info in graph, got: {vi_names}",
+        )
 
 
 class ModelWithMetadataPropsTest(unittest.TestCase):
@@ -1160,7 +1173,7 @@ class ValueInfoSerializationTest(unittest.TestCase):
         value.metadata_props["key"] = "val"
         proto = onnx.ValueInfoProto()
         serde.serialize_value_into(proto, value)
-        self.assertTrue(len(proto.metadata_props) > 0)
+        self.assertGreater(len(proto.metadata_props), 0)
 
 
 if __name__ == "__main__":

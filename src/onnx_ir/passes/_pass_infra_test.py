@@ -425,18 +425,14 @@ class PassBaseErrorHandlingTest(unittest.TestCase):
         with self.assertRaisesRegex(_pass_infra.PreconditionError, "direct"):
             DirectPrecondition()(_empty_model())
 
-    def test_call_returning_non_pass_result_raises_post_or_type_error(self):
-        """call() returning something other than PassResult raises error.
-
-        PostconditionError is raised because ensures is called on result.model
-        which fails first, or TypeError.
-        """
+    def test_call_returning_non_pass_result_raises_type_error(self):
+        """call() returning something other than PassResult raises TypeError."""
 
         class BadReturn(_pass_infra.InPlacePass):
             def call(self, model: ir.Model):
                 return model  # Wrong: should return PassResult
 
-        with self.assertRaises((_pass_infra.PostconditionError, TypeError)):
+        with self.assertRaises(TypeError):
             BadReturn()(_empty_model())
 
     def test_in_place_pass_returning_different_model_raises(self):
