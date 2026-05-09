@@ -3,11 +3,14 @@
 """Test display() methods in various classes."""
 
 import contextlib
+import io
 import unittest
+from unittest import mock
 
 import numpy as np
 
 import onnx_ir as ir
+from onnx_ir import _display
 
 
 class DisplayTest(unittest.TestCase):
@@ -26,21 +29,12 @@ class DisplayTest(unittest.TestCase):
 
 class DisplayRichFallbackTest(unittest.TestCase):
     def test_require_rich_returns_none_when_not_installed(self):
-        from unittest import mock
-
-        from onnx_ir import _display
-
         with mock.patch.dict("sys.modules", {"rich": None}):
             result = _display.require_rich()
             self.assertIsNone(result)
 
     def test_display_without_rich_prints_plaintext(self):
         """Test the fallback when rich is not available."""
-        import io
-        from unittest import mock
-
-        from onnx_ir import _display
-
         graph = ir.Graph([], [], nodes=[], name="test_graph")
 
         # Mock require_rich to return None (simulating rich not installed)
@@ -53,8 +47,6 @@ class DisplayRichFallbackTest(unittest.TestCase):
 
     def test_display_with_page(self):
         """Test display with page=True uses rich pager."""
-        from unittest import mock
-
         graph = ir.Graph([], [], nodes=[], name="test_graph")
         mock_console = mock.MagicMock()
         with mock.patch("rich.console.Console", return_value=mock_console):
