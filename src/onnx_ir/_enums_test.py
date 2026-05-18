@@ -184,6 +184,18 @@ _INT_TYPES = [
 ]
 
 
+class DataTypeClassificationExhaustivenessTest(unittest.TestCase):
+    def test_floating_point_classification_is_exhaustive(self):
+        expected = {dtype for _, dtype in _FLOAT_TYPES}
+        actual = {dtype for dtype in _enums.DataType if dtype.is_floating_point()}
+        self.assertEqual(actual, expected)
+
+    def test_integer_classification_is_exhaustive(self):
+        expected = {dtype for _, dtype in _INT_TYPES}
+        actual = {dtype for dtype in _enums.DataType if dtype.is_integer()}
+        self.assertEqual(actual, expected)
+
+
 class DataTypeExponentMantissaTest(unittest.TestCase):
     @parameterized.parameterized.expand(_FLOAT_TYPES)
     def test_exponent_bitwidth_for_float_types(self, _: str, dtype: _enums.DataType):

@@ -4,6 +4,7 @@
 
 import contextlib
 import io
+import types
 import unittest
 from unittest import mock
 
@@ -49,7 +50,21 @@ class DisplayRichFallbackTest(unittest.TestCase):
         """Test display with page=True uses rich pager."""
         graph = ir.Graph([], [], nodes=[], name="test_graph")
         mock_console = mock.MagicMock()
-        with mock.patch("rich.console.Console", return_value=mock_console):
+        mock_console.pager.return_value = contextlib.nullcontext()
+        fake_rich = types.ModuleType("rich")
+        fake_rich.print = mock.MagicMock()
+        fake_rich.console = types.SimpleNamespace(
+            Console=mock.MagicMock(return_value=mock_console)
+        )
+        fake_rich.markup = types.SimpleNamespace(escape=lambda text: text)
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "rich": fake_rich,
+                "rich.markup": fake_rich.markup,
+                "rich.console": fake_rich.console,
+            },
+        ):
             graph.display(page=True)
         mock_console.pager.assert_called_once()
         mock_console.print.assert_called_once()

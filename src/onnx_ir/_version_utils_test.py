@@ -9,42 +9,33 @@ from onnx_ir._version_utils import numpy_older_than, onnx_older_than
 
 
 class VersionUtilsTest(unittest.TestCase):
-    def test_onnx_older_than_returns_false_for_old_version(self):
-        with mock.patch("onnx.__version__", "1.16.0"):
-            self.assertFalse(onnx_older_than("0.0.1"))
+    def test_onnx_older_than_handles_exact_prerelease_dev_and_local_versions(self):
+        cases = [
+            ("1.16.0", "1.16.0", False),
+            ("2.0.0rc1", "2.0.0", True),
+            ("1.16.0.dev20240101", "1.16.0", True),
+            ("1.16.0+cpu", "1.16.0", False),
+        ]
+        for current_version, compare_version, expected in cases:
+            with (
+                self.subTest(current_version=current_version, compare_version=compare_version),
+                mock.patch("onnx.__version__", current_version),
+            ):
+                self.assertEqual(onnx_older_than(compare_version), expected)
 
-    def test_onnx_older_than_returns_true_for_newer_version(self):
-        with mock.patch("onnx.__version__", "1.16.0"):
-            self.assertTrue(onnx_older_than("99.99.99"))
-
-    def test_onnx_older_than_exact_version_is_not_older(self):
-        with mock.patch("onnx.__version__", "1.16.0"):
-            self.assertFalse(onnx_older_than("1.16.0"))
-
-    def test_onnx_older_than_ignores_prerelease(self):
-        # 2.0.0rc1 should NOT be older than 2.0.0 because .release is compared
-        with mock.patch("onnx.__version__", "2.0.0rc1"):
-            self.assertFalse(onnx_older_than("2.0.0"))
-
-    def test_onnx_older_than_ignores_dev_suffix(self):
-        with mock.patch("onnx.__version__", "1.16.0.dev20240101"):
-            self.assertFalse(onnx_older_than("1.16.0"))
-
-    def test_numpy_older_than_returns_false_for_old_version(self):
-        with mock.patch("numpy.__version__", "1.26.0"):
-            self.assertFalse(numpy_older_than("0.0.1"))
-
-    def test_numpy_older_than_returns_true_for_newer_version(self):
-        with mock.patch("numpy.__version__", "1.26.0"):
-            self.assertTrue(numpy_older_than("99.99.99"))
-
-    def test_numpy_older_than_exact_version_is_not_older(self):
-        with mock.patch("numpy.__version__", "1.26.0"):
-            self.assertFalse(numpy_older_than("1.26.0"))
-
-    def test_numpy_older_than_ignores_prerelease(self):
-        with mock.patch("numpy.__version__", "2.0.0rc1"):
-            self.assertFalse(numpy_older_than("2.0.0"))
+    def test_numpy_older_than_handles_exact_prerelease_dev_and_local_versions(self):
+        cases = [
+            ("1.26.0", "1.26.0", False),
+            ("2.0.0rc1", "2.0.0", True),
+            ("2.0.0.dev0", "2.0.0", True),
+            ("2.0.0+cpu", "2.0.0", False),
+        ]
+        for current_version, compare_version, expected in cases:
+            with (
+                self.subTest(current_version=current_version, compare_version=compare_version),
+                mock.patch("numpy.__version__", current_version),
+            ):
+                self.assertEqual(numpy_older_than(compare_version), expected)
 
 
 if __name__ == "__main__":

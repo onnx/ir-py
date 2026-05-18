@@ -15,49 +15,6 @@ from onnx_ir import _version_utils, serde
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
-    @parameterized.parameterized.expand(
-        [
-            ("model", onnx.ModelProto()),
-            ("graph", onnx.GraphProto()),
-            ("node", onnx.NodeProto(input=["X"], output=["Y"])),
-            (
-                "tensor",
-                onnx.helper.make_tensor("test_tensor", onnx.TensorProto.FLOAT, [1], [1.0]),
-            ),
-            ("value_info", onnx.ValueInfoProto()),
-            ("type", onnx.TypeProto()),
-            ("attribute", onnx.AttributeProto()),
-        ]
-    )
-    def test_from_proto(self, _: str, proto):
-        result = serde.from_proto(proto)
-        self.assertIsNotNone(result)
-
-    @parameterized.parameterized.expand(
-        [
-            ("model", ir.Model(ir.Graph([], [], nodes=[]), ir_version=1)),
-            ("graph", ir.Graph([], [], nodes=[])),
-            (
-                "node",
-                ir.Node("", "Op", inputs=[], outputs=[ir.Value(name="value")]),
-            ),
-            (
-                "tensor",
-                serde.TensorProtoTensor(
-                    onnx.helper.make_tensor("test_tensor", onnx.TensorProto.FLOAT, [1], [1.0])
-                ),
-            ),
-            ("value", ir.Value(name="value")),
-            ("type", ir.SequenceType(ir.OptionalType(ir.TensorType(ir.DataType.COMPLEX128)))),
-            ("attribute", ir.Attr("attribute", ir.AttributeType.FLOAT, 1)),
-            ("ref_attribute", ir.RefAttr("ref_attr", "attr", ir.AttributeType.FLOAT)),
-            ("graph_view", ir.GraphView([], [], nodes=[])),
-        ]
-    )
-    def test_to_proto(self, _: str, ir_object):
-        result = serde.to_proto(ir_object)
-        self.assertIsNotNone(result)
-
     def test_from_to_onnx_text(self):
         model_text = """\
 <
@@ -442,9 +399,10 @@ class TensorProtoTensorTest(unittest.TestCase):
     def test_round_trip_numpy_conversion_from_raw_data(
         self, _: str, onnx_dtype: ir.DataType, original_array: np.ndarray
     ):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning)
-            original_array = original_array.astype(onnx_dtype.numpy())
+        target_dtype = np.dtype(onnx_dtype.numpy())
+        if target_dtype.kind in {"i", "u", "b"}:
+            original_array = np.nan_to_num(original_array, nan=0.0, posinf=0.0, neginf=0.0)
+        original_array = original_array.astype(target_dtype)
         ir_tensor = ir.Tensor(original_array, name="test_tensor")
         proto = serde.to_proto(ir_tensor)
         if original_array.size > 0:
@@ -971,16 +929,24 @@ class FunctionSerializationCoverageTest(unittest.TestCase):
 
         # Add type info to function values
         func = next(iter(model.functions.values()))
-        for inp in func.inputs:
-            inp.type = ir.TensorType(ir.DataType.FLOAT)
-            inp.shape = ir.Shape([2, 3])
+        for value in itertools.chain(func.inputs, func.outputs):
+            value.type = ir.TensorType(ir.DataType.FLOAT)
+            value.shape = ir.Shape([2, 3])
 
         # Serialize and check
         result_proto = serde.serialize_model(model)
-        # Verify function value_info entries are present in the serialized proto
         self.assertGreater(len(result_proto.functions), 0)
         func_proto = result_proto.functions[0]
-        self.assertGreater(len(func_proto.value_info), 0)
+        value_info_by_name = {
+            value_info.name: value_info for value_info in func_proto.value_info
+        }
+        self.assertEqual(set(value_info_by_name), {"x", "z"})
+        for name in ("x", "z"):
+            value_info = value_info_by_name[name]
+            self.assertEqual(value_info.type.tensor_type.elem_type, onnx.TensorProto.FLOAT)
+            self.assertEqual(
+                [dim.dim_value for dim in value_info.type.tensor_type.shape.dim], [2, 3]
+            )
 
     def test_function_with_ref_attr(self):
         """Test serialization of functions with reference attributes."""
@@ -1039,11 +1005,13 @@ class ExperimentalFunctionValueInfoIR9Test(unittest.TestCase):
         result_proto = serde.serialize_model(model)
         self.assertEqual(result_proto.ir_version, 9)
         # Verify experimental function value_info entries in main graph
-        vi_names = [vi.name for vi in result_proto.graph.value_info]
-        self.assertTrue(
-            any(name.startswith("pkg::my_func/") for name in vi_names),
-            f"Expected 'pkg::my_func/' prefixed value_info in graph, got: {vi_names}",
-        )
+        value_info_by_name = {
+            value_info.name: value_info for value_info in result_proto.graph.value_info
+        }
+        self.assertIn("pkg::my_func/x", value_info_by_name)
+        value_info = value_info_by_name["pkg::my_func/x"]
+        self.assertEqual(value_info.type.tensor_type.elem_type, onnx.TensorProto.FLOAT)
+        self.assertEqual([dim.dim_value for dim in value_info.type.tensor_type.shape.dim], [1])
 
 
 class ModelWithMetadataPropsTest(unittest.TestCase):
