@@ -3288,6 +3288,58 @@ class GraphContainersTest(unittest.TestCase):
         self.assertTrue(initializers[0].is_initializer())
         self.assertEqual(initializers[0].graph, self.graph)
 
+    def test_tensors_yields_const_values(self):
+        self.graph.initializers.add(self.value3)
+        other = _core.Value(name="initializer2", const_value=ir.tensor([4, 5]))
+        self.graph.initializers.add(other)
+
+        tensors = list(self.graph.initializers.tensors())
+        self.assertEqual(len(tensors), 2)
+        self.assertIs(tensors[0], self.value3.const_value)
+        self.assertIs(tensors[1], other.const_value)
+
+    def test_tensor_items_yields_name_tensor_pairs(self):
+        self.graph.initializers.add(self.value3)
+
+        items = list(self.graph.initializers.tensor_items())
+        self.assertEqual(len(items), 1)
+        name, tensor = items[0]
+        self.assertEqual(name, "initializer1")
+        self.assertIs(tensor, self.value3.const_value)
+
+    def test_tensors_raises_when_const_value_missing(self):
+        pending = _core.Value(name="pending")  # no const_value
+        self.graph.initializers.add(pending)
+
+        with self.assertRaisesRegex(ValueError, "no const_value"):
+            list(self.graph.initializers.tensors())
+        with self.assertRaisesRegex(ValueError, "no const_value"):
+            list(self.graph.initializers.tensor_items())
+
+    def test_get_tensor_returns_const_value(self):
+        self.graph.initializers.add(self.value3)
+        self.assertIs(
+            self.graph.initializers.get_tensor("initializer1"),
+            self.value3.const_value,
+        )
+
+    def test_get_tensor_returns_default_when_missing(self):
+        self.assertIsNone(self.graph.initializers.get_tensor("non_existent"))
+        sentinel = object()
+        self.assertIs(
+            self.graph.initializers.get_tensor("non_existent", sentinel),
+            sentinel,
+        )
+
+    def test_get_tensor_returns_default_when_const_value_missing(self):
+        pending = _core.Value(name="pending")  # no const_value
+        self.graph.initializers.add(pending)
+        sentinel = object()
+        # get_tensor returns default for missing const_value (unlike
+        # tensors() / tensor_items() which raise).
+        self.assertIs(self.graph.initializers.get_tensor("pending", sentinel), sentinel)
+        self.assertIsNone(self.graph.initializers.get_tensor("pending"))
+
     def test_contains_initializer(self):
         self.graph.initializers["initializer1"] = self.value3
         self.assertIn("initializer1", self.graph.initializers)
