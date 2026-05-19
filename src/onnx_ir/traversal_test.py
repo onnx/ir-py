@@ -77,5 +77,36 @@ class RecursiveGraphIteratorTest(unittest.TestCase):
         self.assertEqual(tuple(node.op_type for node in nodes), expected)
 
 
+class RecursiveGraphIteratorGraphsAttrTest(unittest.TestCase):
+    def test_recursive_graph_iterator_with_graphs_attribute(self):
+        """Test iteration over nodes in GRAPHS (plural) attributes."""
+        inner_node1 = ir.Node("", "InnerOp1", [])
+        inner_node2 = ir.Node("", "InnerOp2", [])
+        sub_graph1 = ir.Graph([], [], nodes=[inner_node1], name="sub1")
+        sub_graph2 = ir.Graph([], [], nodes=[inner_node2], name="sub2")
+
+        outer_node = ir.Node(
+            "",
+            "If",
+            [],
+            attributes=[ir.AttrGraphs("branches", [sub_graph1, sub_graph2])],
+        )
+        main_graph = ir.Graph([], [], nodes=[outer_node], name="main")
+
+        all_nodes = list(traversal.RecursiveGraphIterator(main_graph))
+        op_types = [n.op_type for n in all_nodes]
+        self.assertIn("If", op_types)
+        self.assertIn("InnerOp1", op_types)
+        self.assertIn("InnerOp2", op_types)
+
+    def test_recursive_graph_iterator_reverse(self):
+        n1 = ir.Node("", "Op1", [])
+        n2 = ir.Node("", "Op2", [])
+        graph = ir.Graph([], [], nodes=[n1, n2], name="g")
+        nodes = list(traversal.RecursiveGraphIterator(graph, reverse=True))
+        self.assertEqual(nodes[0].op_type, "Op2")
+        self.assertEqual(nodes[1].op_type, "Op1")
+
+
 if __name__ == "__main__":
     unittest.main()
