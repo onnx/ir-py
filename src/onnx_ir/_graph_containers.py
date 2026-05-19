@@ -305,10 +305,12 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
         Mirrors :meth:`dict.values` but returns each initializer's
         ``const_value`` instead of its wrapping :class:`Value`.
 
+        .. versionadded:: 0.3.0
+
         Raises:
             ValueError: If any initializer has ``const_value=None``.
                 An initializer without a backing tensor is almost always
-                a graph-construction bug — surfacing it loudly here is
+                a graph-construction bug -- surfacing it loudly here is
                 preferable to silently yielding ``None``.
         """
         for value in self.data.values():
@@ -322,6 +324,8 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
 
     def tensor_items(self) -> Iterator[tuple[str, _protocols.TensorProtocol]]:
         """Iterate over ``(name, tensor)`` pairs. Mirrors :meth:`dict.items`.
+
+        .. versionadded:: 0.3.0
 
         Raises:
             ValueError: If any initializer has ``const_value=None``
@@ -344,6 +348,8 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
         Returns ``default`` both when ``name`` is not an initializer and
         when it is but its ``const_value`` is ``None``. Mirrors
         :meth:`dict.get` but at the tensor level.
+
+        .. versionadded:: 0.3.0
         """
         value = self.data.get(name)
         if value is None or value.const_value is None:
