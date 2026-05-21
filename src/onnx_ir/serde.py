@@ -762,15 +762,15 @@ def _deserialize_graph(
             # NOTE: For nested graphs (graph attributes), avoid inferring initializer
             # shape/type from the tensor value. Doing so can introduce extra
             # value_info entries when serializing round-trips.
-            infer_shape_and_type = len(scoped_values) == 1
+            is_top_level_graph = len(scoped_values) == 1
             initializer_value = _core.Value(
                 None,
                 index=None,
                 name=initializer_name,
                 # Include shape/type for top-level graph initializers even if the
                 # shape/type is not provided as ValueInfoProto.
-                type=_core.TensorType(tensor.dtype) if infer_shape_and_type else None,
-                shape=tensor.shape if infer_shape_and_type else None,  # type: ignore[arg-type]
+                type=_core.TensorType(tensor.dtype) if is_top_level_graph else None,
+                shape=tensor.shape if is_top_level_graph else None,  # type: ignore[arg-type]
                 const_value=tensor,
             )
             if initializer_name in value_info:
