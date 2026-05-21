@@ -45,29 +45,6 @@ def initialize_with_data(model: onnx.ModelProto) -> None:
         tensor_proto.raw_data = data
 
 
-def normalize_nested_graph_value_info(model: onnx.ModelProto) -> None:
-    def _visit(graph: onnx.GraphProto, is_nested_graph: bool) -> None:
-        if is_nested_graph:
-            value_info_names = {value_info.name for value_info in graph.value_info}
-            for initializer in graph.initializer:
-                if initializer.name in value_info_names:
-                    continue
-                graph.value_info.append(
-                    onnx.helper.make_tensor_value_info(
-                        initializer.name, initializer.data_type, initializer.dims
-                    )
-                )
-        for node in graph.node:
-            for attr in node.attribute:
-                if attr.type == onnx.AttributeProto.GRAPH:
-                    _visit(attr.g, True)
-                elif attr.type == onnx.AttributeProto.GRAPHS:
-                    for subgraph in attr.graphs:
-                        _visit(subgraph, True)
-
-    _visit(model.graph, False)
-
-
 class SerdeTest(unittest.TestCase):
     @parameterized.parameterized.expand(test_args)
     def test_serialization_deserialization_produces_same_model(
@@ -82,10 +59,10 @@ class SerdeTest(unittest.TestCase):
         # Profile the serialization and deserialization process
         ir_model = ir.serde.deserialize_model(model)
         serialized = ir.serde.serialize_model(ir_model)
-        normalize_nested_graph_value_info(model)
-        normalize_nested_graph_value_info(serialized)
 
-        onnx_ir.testing.assert_onnx_proto_equal(serialized, model)
+        onnx_ir.testing.assert_onnx_proto_equal(
+            serialized, model, ignore_initializer_value_proto=True
+        )
         onnx.checker.check_model(serialized)
 
 
