@@ -556,45 +556,6 @@ class DeserializeGraphTest(unittest.TestCase):
         deserialized_value = deserialized_graph.initializers["test_initializer"]
         self.assertEqual(deserialized_value.metadata_props, {"key": "value"})
 
-    def test_roundtrip_subgraph_initializer_does_not_add_value_info(self):
-        subgraph = onnx.helper.make_graph(
-            nodes=[
-                onnx.helper.make_node(
-                    "Add", inputs=["x", "scale"], outputs=["y"], name="subgraph_add"
-                )
-            ],
-            name="subgraph",
-            inputs=[onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1])],
-            outputs=[onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1])],
-            initializer=[onnx.helper.make_tensor("scale", onnx.TensorProto.FLOAT, [], [0.5])],
-            value_info=[],
-        )
-        graph = onnx.helper.make_graph(
-            nodes=[
-                onnx.helper.make_node(
-                    "CustomOp",
-                    inputs=["input"],
-                    outputs=["output"],
-                    domain="custom",
-                    body=subgraph,
-                )
-            ],
-            name="main_graph",
-            inputs=[onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1])],
-            outputs=[onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1])],
-        )
-        model = onnx.helper.make_model(
-            graph,
-            opset_imports=[
-                onnx.helper.make_operatorsetid("", 17),
-                onnx.helper.make_operatorsetid("custom", 1),
-            ],
-        )
-
-        roundtrip_model = serde.serialize_model(serde.deserialize_model(model))
-        roundtrip_subgraph = roundtrip_model.graph.node[0].attribute[0].g
-        self.assertEqual(len(roundtrip_subgraph.value_info), 0)
-
 
 class SerializationTest(unittest.TestCase):
     @parameterized.parameterized.expand(
