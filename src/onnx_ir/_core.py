@@ -3014,7 +3014,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                 )
 
         # Rename the backing constant tensor
-        if self._const_value is not None and hasattr(self._const_value, "name"):
+        if isinstance(self._const_value, (_protocols.TensorProtocol, _protocols.SparseTensorProtocol)):
             self._const_value.name = value
 
         # Rename self

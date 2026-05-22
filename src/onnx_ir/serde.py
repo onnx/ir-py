@@ -1645,8 +1645,7 @@ def serialize_graph_into(
         # Make sure the tensor's name is the same as the value's name
         if isinstance(value.const_value, _protocols.SparseTensorProtocol):
             # Serialize sparse initializers into sparse_initializer
-            if hasattr(value.const_value, "name"):
-                value.const_value.name = value.name  # type: ignore[assignment]
+            value.const_value.name = value.name
             serialize_sparse_tensor_into(graph_proto.sparse_initializer.add(), from_=value.const_value)
         else:
             value.const_value.name = value.name
