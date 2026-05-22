@@ -44,6 +44,7 @@ def save(
     format: str | None = None,
     external_data: str | os.PathLike | None = None,
     size_threshold_bytes: int = 256,
+    max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
 ) -> None:
@@ -92,6 +93,13 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
             Effective only when ``external_data`` is set.
+        max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
+            When ``None`` (the default) all external tensors are written to the single file
+            given by ``external_data``. When set, tensors are distributed across numbered shard
+            files (e.g. ``model-00001-of-00003.data``). Because the ONNX format stores
+            ``location``, ``offset``, and ``length`` per tensor, no separate index file is
+            created — the saved ONNX proto itself encodes which shard each tensor lives in.
+            Effective only when ``external_data`` is set.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes.
 
@@ -118,6 +126,7 @@ def save(
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
+                max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
             )
             proto = serde.serialize_model(model)

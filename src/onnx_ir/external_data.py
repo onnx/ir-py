@@ -118,6 +118,65 @@ def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
             tensor.base_dir = base_dir
 
 
+def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
+    """Generate a filename for a shard of external data.
+
+    Args:
+        base_name: The base filename (e.g., 'model.data').
+        shard_idx: The index of this shard (1-indexed).
+        total_shards: The total number of shards.
+
+    Returns:
+        The shard filename (e.g., 'model-00001-of-00003.data').
+    """
+    if total_shards == 1:
+        return base_name
+
+    # Extract extension
+    if "." in base_name:
+        name, ext = base_name.rsplit(".", 1)
+        ext = f".{ext}"
+    else:
+        name = base_name
+        ext = ""
+
+    # Always use 5 digits to follow transformers convention
+    return f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
+
+
+def _shard_tensors(
+    tensors: Sequence[_protocols.TensorProtocol],
+    max_shard_size_bytes: int,
+) -> list[list[_protocols.TensorProtocol]]:
+    """Shard tensors into multiple groups based on max_shard_size_bytes.
+
+    Each tensor is always placed in exactly one shard. A new shard is started when
+    adding the next tensor would exceed the limit (unless the current shard is empty,
+    in which case the tensor is added regardless of size to avoid infinite loops).
+
+    Args:
+        tensors: The tensors to shard.
+        max_shard_size_bytes: Maximum cumulative size in bytes for each shard.
+
+    Returns:
+        A list of tensor groups, one per shard.
+    """
+    shards: list[list[_protocols.TensorProtocol]] = [[]]
+    current_shard_size = 0
+
+    for tensor in tensors:
+        tensor_size = tensor.nbytes
+        # Start a new shard when the current one would be exceeded (but never leave a shard empty)
+        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
+            shards.append([])
+            current_shard_size = 0
+
+        shards[-1].append(tensor)
+        current_shard_size += tensor_size
+
+    return shards
+
+
 def _external_tensor_to_memory_tensor(
     tensor: _protocols.TensorProtocol,
 ) -> _protocols.TensorProtocol:
@@ -390,9 +449,10 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
+    max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
 ) -> _core.Model:
-    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to a single data file.
+    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
 
     It should only replace the initializers in the model with external tensors
     and not make any other modifications to the model.
@@ -405,12 +465,22 @@ def unload_from_model(
 
     All initializers in the main graph and subgraphs are handled.
 
+    When ``max_shard_size_bytes`` is set, tensors are distributed across multiple
+    shard files named like ``model-00001-of-00003.data``. Because each ONNX tensor
+    already carries its own ``location``, ``offset``, and ``length`` fields, no
+    separate index file is required — the ONNX proto itself encodes the routing.
+
     Args:
         model: Model to process.
         base_dir: Path the directory where the ONNX model file is.
         relative_path: Path to which external data is to be stored, relative to the ONNX file.
-            E.g. "model.data"
+            E.g. "model.data". When sharding is enabled this becomes the base name used to
+            generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
+            When ``None`` (the default) all tensors are written to a single file given by
+            ``relative_path``.  When set, tensors are written to multiple numbered shard
+            files.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes.
 
@@ -437,12 +507,69 @@ def unload_from_model(
     memory_tensors = convert_tensors_from_external(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
     )
-    external_tensors = convert_tensors_to_external(
-        [v.const_value for v in initializers_to_become_external],  # type: ignore[misc]
-        base_dir=base_dir,
-        relative_path=relative_path,
-        callback=callback,
-    )
+
+    if max_shard_size_bytes is None:
+        # No sharding: write all tensors to the single destination file
+        external_tensors = convert_tensors_to_external(
+            [v.const_value for v in initializers_to_become_external],  # type: ignore[misc]
+            base_dir=base_dir,
+            relative_path=relative_path,
+            callback=callback,
+        )
+    else:
+        # Sharding: distribute tensors across multiple numbered shard files
+        tensors_to_externalize: list[_protocols.TensorProtocol] = [
+            v.const_value  # type: ignore[misc]
+            for v in initializers_to_become_external
+        ]
+        tensor_shards = _shard_tensors(tensors_to_externalize, max_shard_size_bytes)
+        total_shards = len(tensor_shards)
+        total_tensors = len(tensors_to_externalize)
+
+        external_tensors_list: list[_core.ExternalTensor] = []
+        global_index = 0
+
+        for shard_idx, shard_tensor_list in enumerate(tensor_shards, start=1):
+            shard_relative_path = _get_shard_filename(str(relative_path), shard_idx, total_shards)
+
+            # Wrap the callback so that index/total reflect the global position across shards
+            shard_callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None
+            if callback is not None:
+
+                def _make_shard_callback(
+                    _cb: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
+                    _total: int,
+                    _offset: int,
+                ) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
+                    def _shard_cb(
+                        tensor: _protocols.TensorProtocol,
+                        info: CallbackInfo,
+                    ) -> None:
+                        _cb(
+                            tensor,
+                            CallbackInfo(
+                                total=_total,
+                                index=_offset + info.index,
+                                offset=info.offset,
+                                filename=info.filename,
+                            ),
+                        )
+
+                    return _shard_cb
+
+                shard_callback = _make_shard_callback(callback, total_tensors, global_index)
+
+            shard_external_tensors = convert_tensors_to_external(
+                shard_tensor_list,
+                base_dir=base_dir,
+                relative_path=shard_relative_path,
+                callback=shard_callback,
+            )
+
+            external_tensors_list.extend(shard_external_tensors)
+            global_index += len(shard_tensor_list)
+
+        external_tensors = external_tensors_list
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(

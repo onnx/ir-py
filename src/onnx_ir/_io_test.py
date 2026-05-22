@@ -101,7 +101,69 @@ class IOFunctionsTest(unittest.TestCase):
         np.testing.assert_array_equal(initializer_tensor.numpy(), np.array([0.0]))
         np.testing.assert_array_equal(const_attr_tensor.numpy(), np.array([1.0]))
 
-    def test_save_raise_when_external_data_is_not_relative_path(self):
+    def test_save_with_sharding_creates_multiple_shard_files(self):
+        """Test that max_shard_size_bytes creates multiple numbered shard files."""
+        # Build a model with 3 tensors, each ~400 bytes (100 float32 elements)
+        def make_init(name: str, n: int) -> ir.Value:
+            arr = np.zeros(n, dtype=np.float32)
+            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
+            return ir.Value(name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype))
+
+        inits = [make_init(f"w{i}", 100) for i in range(3)]
+        node = ir.Node("", "Identity", inputs=(inits[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+        graph = ir.Graph(
+            inputs=inits, outputs=list(node.outputs), nodes=[node], initializers=inits, name="g"
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            # 400-byte limit forces each 400-byte tensor into its own shard
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=400,
+            )
+
+            self.assertTrue(os.path.exists(path))
+            shard_files = sorted(
+                f for f in os.listdir(tmpdir) if f.startswith("model-") and f.endswith(".data")
+            )
+            self.assertGreater(len(shard_files), 1, "Expected multiple shard files")
+
+            # Load back and verify data integrity
+            loaded = _io.load(path)
+            for i, init in enumerate(inits):
+                loaded_tensor = loaded.graph.initializers[f"w{i}"].const_value
+                self.assertIsInstance(loaded_tensor, ir.ExternalTensor)
+                np.testing.assert_array_equal(loaded_tensor.numpy(), init.const_value.numpy())
+
+        # Original model must be unchanged (in-memory tensors)
+        for init in inits:
+            self.assertIsInstance(init.const_value, ir.Tensor)
+            self.assertNotIsInstance(init.const_value, ir.ExternalTensor)
+
+    def test_save_with_sharding_single_shard_uses_base_name(self):
+        """When tensors fit in one shard the file keeps its original name."""
+        model = _create_simple_model_with_initializers()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=10_000_000,
+            )
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "model.data")))
+            shard_files = [f for f in os.listdir(tmpdir) if "of-" in f]
+            self.assertEqual(shard_files, [], "Should not create numbered shard files")
+
+
         model = _create_simple_model_with_initializers()
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")

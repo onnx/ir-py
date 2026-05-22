@@ -498,5 +498,217 @@ class OffloadExternalTensorTest(unittest.TestCase):
                 self.assertEqual(tensor_data, expected_tensor_order[i])
 
 
+class ShardFilenameTest(unittest.TestCase):
+    """Test the shard filename generation helper."""
+
+    def test_single_shard_returns_original_name(self):
+        self.assertEqual(external_data._get_shard_filename("model.data", 1, 1), "model.data")
+
+    def test_multiple_shards_generates_numbered_filename(self):
+        self.assertEqual(
+            external_data._get_shard_filename("model.data", 1, 3),
+            "model-00001-of-00003.data",
+        )
+        self.assertEqual(
+            external_data._get_shard_filename("model.data", 2, 3),
+            "model-00002-of-00003.data",
+        )
+        self.assertEqual(
+            external_data._get_shard_filename("model.data", 3, 3),
+            "model-00003-of-00003.data",
+        )
+
+    def test_filename_without_extension(self):
+        self.assertEqual(
+            external_data._get_shard_filename("model", 2, 5),
+            "model-00002-of-00005",
+        )
+
+    def test_five_digit_padding(self):
+        result = external_data._get_shard_filename("weights.bin", 42, 100)
+        self.assertEqual(result, "weights-00042-of-00100.bin")
+
+
+class ShardTensorsTest(unittest.TestCase):
+    """Test the tensor sharding helper."""
+
+    def _make_tensor(self, name: str, nbytes: int) -> ir.TensorProtocol:
+        """Create a float32 tensor with the requested byte size."""
+        n_floats = max(1, nbytes // 4)
+        data = np.zeros(n_floats, dtype=np.float32)
+        return ir.Tensor(data, dtype=ir.DataType.FLOAT, name=name)
+
+    def test_no_tensors(self):
+        shards = external_data._shard_tensors([], 1000)
+        self.assertEqual(shards, [[]])
+
+    def test_single_tensor_below_limit(self):
+        t = self._make_tensor("t0", 400)
+        shards = external_data._shard_tensors([t], 1000)
+        self.assertEqual(len(shards), 1)
+        self.assertIs(shards[0][0], t)
+
+    def test_tensors_fit_in_one_shard(self):
+        tensors = [self._make_tensor(f"t{i}", 200) for i in range(4)]
+        shards = external_data._shard_tensors(tensors, 1000)
+        self.assertEqual(len(shards), 1)
+        self.assertEqual(len(shards[0]), 4)
+
+    def test_tensors_split_into_multiple_shards(self):
+        tensors = [self._make_tensor(f"t{i}", 400) for i in range(5)]
+        # limit = 800: shards of 2, 2, 1
+        shards = external_data._shard_tensors(tensors, 800)
+        self.assertEqual(len(shards), 3)
+        self.assertEqual([len(s) for s in shards], [2, 2, 1])
+
+    def test_tensor_larger_than_limit_gets_its_own_shard(self):
+        t_big = self._make_tensor("big", 2000)
+        t_small = self._make_tensor("small", 100)
+        shards = external_data._shard_tensors([t_big, t_small], 500)
+        self.assertEqual(len(shards), 2)
+        self.assertIs(shards[0][0], t_big)
+        self.assertIs(shards[1][0], t_small)
+
+
+class ShardedExternalDataTest(unittest.TestCase):
+    """Integration tests for sharded ONNX external data via unload_from_model."""
+
+    def setUp(self):
+        if sys.version_info[:2] >= (3, 10):
+            self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        else:
+            self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_path = self.temp_dir.name
+
+    def tearDown(self) -> None:
+        try:
+            self.temp_dir.cleanup()
+        except (PermissionError, FileNotFoundError) as e:
+            print(f"Cleanup error: {e}")
+
+    def _make_model(self, sizes: list[int]) -> tuple[ir.Model, list[np.ndarray]]:
+        """Build a simple model with float32 initializers of the given byte sizes."""
+        arrays = [np.random.rand(max(1, s // 4)).astype(np.float32) for s in sizes]
+        initializers = []
+        for i, arr in enumerate(arrays):
+            t = ir.Tensor(arr, dtype=ir.DataType.FLOAT, name=f"w{i}")
+            v = ir.Value(name=f"w{i}", const_value=t)
+            initializers.append(v)
+
+        node = ir.Node("", "Identity", inputs=(initializers[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+
+        graph = ir.Graph(
+            inputs=initializers,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=initializers,
+            name="g",
+        )
+        return ir.Model(graph, ir_version=10), arrays
+
+    def test_sharding_creates_multiple_files(self):
+        model, arrays = self._make_model([400, 400, 400])
+        # max_shard=500 bytes forces a new shard after each ~400-byte tensor
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=500,
+        )
+        shard_files = sorted(
+            f for f in os.listdir(self.base_path) if f.startswith("model-")
+        )
+        self.assertGreater(len(shard_files), 1, "Expected multiple shard files")
+        # Check that each initializer points to a shard file
+        for value in model.graph.initializers.values():
+            t = value.const_value
+            self.assertIsInstance(t, ir.ExternalTensor)
+            self.assertIn("-of-", t.location)
+
+    def test_sharding_data_is_correct(self):
+        model, arrays = self._make_model([400, 800, 400, 800])
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=1000,
+        )
+        for i, arr in enumerate(arrays):
+            ext = model.graph.initializers[f"w{i}"].const_value
+            np.testing.assert_array_equal(ext.numpy(), arr)
+
+    def test_no_sharding_when_limit_not_set(self):
+        model, _ = self._make_model([400, 400, 400])
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+        )
+        for value in model.graph.initializers.values():
+            t = value.const_value
+            self.assertIsInstance(t, ir.ExternalTensor)
+            self.assertEqual(t.location, "model.data")
+
+    def test_single_shard_uses_original_filename(self):
+        # When all tensors fit in one shard the file should keep its original name
+        model, _ = self._make_model([100, 100])
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=10_000,
+        )
+        for value in model.graph.initializers.values():
+            t = value.const_value
+            self.assertIsInstance(t, ir.ExternalTensor)
+            self.assertEqual(t.location, "model.data")
+
+    def test_model_unchanged_after_unload_and_load(self):
+        model, arrays = self._make_model([400, 400, 400])
+        # Store originals before mutating model
+        originals = {
+            name: val.const_value.numpy().copy()
+            for name, val in model.graph.initializers.items()
+        }
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=500,
+        )
+        for name, orig in originals.items():
+            np.testing.assert_array_equal(
+                model.graph.initializers[name].const_value.numpy(), orig
+            )
+
+    def test_callback_receives_global_indices_and_total(self):
+        model, _ = self._make_model([400, 400, 400])
+        infos: list[external_data.CallbackInfo] = []
+
+        def cb(tensor: ir.TensorProtocol, info: external_data.CallbackInfo) -> None:
+            infos.append(info)
+
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=500,
+            callback=cb,
+        )
+        self.assertEqual(len(infos), 3)
+        # total should always equal the total number of tensors (3)
+        self.assertTrue(all(i.total == 3 for i in infos))
+        # indices should be 0, 1, 2 across all shards
+        self.assertEqual(sorted(i.index for i in infos), [0, 1, 2])
+
+
 if __name__ == "__main__":
     unittest.main()
