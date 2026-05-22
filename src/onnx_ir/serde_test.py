@@ -1144,5 +1144,145 @@ class ValueInfoSerializationTest(unittest.TestCase):
         self.assertGreater(len(proto.metadata_props), 0)
 
 
+class SparseTensorTest(unittest.TestCase):
+    """Tests for SparseTensor serialization and deserialization."""
+
+    def _make_sparse_tensor_proto(self, name: str = "my_sparse") -> onnx.SparseTensorProto:
+        """Create a simple SparseTensorProto for testing."""
+        values_proto = onnx.helper.make_tensor("", onnx.TensorProto.FLOAT, [3], [1.0, 2.0, 3.0])
+        indices_proto = onnx.helper.make_tensor("", onnx.TensorProto.INT64, [3], [0, 2, 5])
+        sparse_proto = onnx.helper.make_sparse_tensor(values_proto, indices_proto, [6])
+        sparse_proto.values.name = name
+        return sparse_proto
+
+    def test_deserialize_sparse_tensor(self):
+        proto = self._make_sparse_tensor_proto()
+        result = serde.deserialize_sparse_tensor(proto)
+        self.assertIsInstance(result, ir.SparseTensor)
+        self.assertEqual(result.name, "my_sparse")
+        self.assertEqual(result.dims, [6])
+        self.assertEqual(result.values.size, 3)
+        self.assertEqual(result.indices.size, 3)
+
+    def test_serialize_sparse_tensor(self):
+        proto = self._make_sparse_tensor_proto()
+        sparse = serde.deserialize_sparse_tensor(proto)
+        result_proto = serde.serialize_sparse_tensor(sparse)
+        self.assertIsInstance(result_proto, onnx.SparseTensorProto)
+        self.assertEqual(list(result_proto.dims), [6])
+        self.assertEqual(result_proto.values.name, "my_sparse")
+
+    def test_sparse_tensor_roundtrip(self):
+        proto = self._make_sparse_tensor_proto()
+        sparse = serde.deserialize_sparse_tensor(proto)
+        result_proto = serde.serialize_sparse_tensor(sparse)
+        # Check that values are preserved
+        np.testing.assert_array_equal(
+            onnx.numpy_helper.to_array(result_proto.values), [1.0, 2.0, 3.0]
+        )
+        np.testing.assert_array_equal(
+            onnx.numpy_helper.to_array(result_proto.indices), [0, 2, 5]
+        )
+        self.assertEqual(list(result_proto.dims), [6])
+
+    def test_from_proto_sparse_tensor(self):
+        proto = self._make_sparse_tensor_proto()
+        result = ir.from_proto(proto)
+        self.assertIsInstance(result, ir.SparseTensor)
+        self.assertEqual(result.name, "my_sparse")
+
+    def test_to_proto_sparse_tensor(self):
+        proto = self._make_sparse_tensor_proto()
+        sparse = serde.deserialize_sparse_tensor(proto)
+        result = ir.to_proto(sparse)
+        self.assertIsInstance(result, onnx.SparseTensorProto)
+        self.assertEqual(list(result.dims), [6])
+
+    def test_sparse_tensor_attribute_roundtrip(self):
+        proto = self._make_sparse_tensor_proto()
+        sparse = serde.deserialize_sparse_tensor(proto)
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrSparseTensor("sparse_attr", sparse)])
+        node_proto = serde.serialize_node(node)
+        restored = serde.deserialize_node(node_proto)
+        attr = restored.attributes["sparse_attr"]
+        self.assertEqual(attr.type, ir.AttributeType.SPARSE_TENSOR)
+        restored_sparse = attr.value
+        self.assertIsInstance(restored_sparse, ir.SparseTensor)
+        self.assertEqual(restored_sparse.dims, [6])
+
+    def test_sparse_tensors_attribute_roundtrip(self):
+        proto1 = self._make_sparse_tensor_proto("sparse1")
+        proto2 = self._make_sparse_tensor_proto("sparse2")
+        sparse1 = serde.deserialize_sparse_tensor(proto1)
+        sparse2 = serde.deserialize_sparse_tensor(proto2)
+        node = ir.Node(
+            "", "TestOp", [], attributes=[ir.AttrSparseTensors("sparse_attrs", [sparse1, sparse2])]
+        )
+        node_proto = serde.serialize_node(node)
+        restored = serde.deserialize_node(node_proto)
+        attr = restored.attributes["sparse_attrs"]
+        self.assertEqual(attr.type, ir.AttributeType.SPARSE_TENSORS)
+        self.assertEqual(len(attr.value), 2)
+
+    def test_graph_with_sparse_initializer_deserialization(self):
+        model_proto = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [],
+                "test_graph",
+                [],
+                [onnx.helper.make_tensor_value_info("sparse_val", onnx.TensorProto.FLOAT, None)],
+            ),
+            opset_imports=[onnx.helper.make_opsetid("", 17)],
+        )
+        sparse_proto = self._make_sparse_tensor_proto("sparse_val")
+        model_proto.graph.sparse_initializer.append(sparse_proto)
+
+        model = serde.deserialize_model(model_proto)
+        self.assertIn("sparse_val", model.graph.initializers)
+        sparse_init = model.graph.initializers["sparse_val"]
+        self.assertIsInstance(sparse_init.const_value, ir.SparseTensor)
+        self.assertEqual(sparse_init.const_value.dims, [6])
+
+    def test_graph_with_sparse_initializer_serialization(self):
+        model_proto = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [],
+                "test_graph",
+                [],
+                [onnx.helper.make_tensor_value_info("sparse_val", onnx.TensorProto.FLOAT, None)],
+            ),
+            opset_imports=[onnx.helper.make_opsetid("", 17)],
+        )
+        sparse_proto = self._make_sparse_tensor_proto("sparse_val")
+        model_proto.graph.sparse_initializer.append(sparse_proto)
+
+        model = serde.deserialize_model(model_proto)
+        result_proto = serde.serialize_model(model)
+        self.assertEqual(len(result_proto.graph.sparse_initializer), 1)
+        sp = result_proto.graph.sparse_initializer[0]
+        self.assertEqual(sp.values.name, "sparse_val")
+        self.assertEqual(list(sp.dims), [6])
+
+    def test_sparse_tensor_name_property(self):
+        sparse_proto = self._make_sparse_tensor_proto("test_name")
+        sparse = serde.deserialize_sparse_tensor(sparse_proto)
+        self.assertEqual(sparse.name, "test_name")
+        # Test name setter
+        sparse.name = "new_name"
+        self.assertEqual(sparse.name, "new_name")
+        self.assertEqual(sparse.values.name, "new_name")
+
+    def test_sparse_tensor_is_sparse_tensor_protocol(self):
+        sparse_proto = self._make_sparse_tensor_proto()
+        sparse = serde.deserialize_sparse_tensor(sparse_proto)
+        self.assertIsInstance(sparse, ir.SparseTensorProtocol)
+
+    def test_value_with_sparse_const_value(self):
+        sparse_proto = self._make_sparse_tensor_proto("w")
+        sparse = serde.deserialize_sparse_tensor(sparse_proto)
+        value = ir.Value(name="w", const_value=sparse)
+        self.assertIsInstance(value.const_value, ir.SparseTensor)
+
+
 if __name__ == "__main__":
     unittest.main()

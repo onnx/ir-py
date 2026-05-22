@@ -1312,6 +1312,127 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             file.write(self.tobytes())
 
 
+class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
+    """A sparse tensor in COO (Coordinate) format.
+
+    A sparse tensor stores only the non-zero values and their indices, along with
+    the dense shape (``dims``). This follows the ONNX ``SparseTensorProto`` format.
+
+    Attributes:
+        values: A :class:`TensorProtocol` containing the non-zero values. The shape
+            is ``[nnz]`` or ``[nnz, ...]`` depending on the storage format.
+        indices: A :class:`TensorProtocol` of ``INT64`` containing the linear or
+            multi-dimensional indices of the non-zero values.
+        dims: The dense shape of the sparse tensor as a list of integers.
+        name: Optional name for the sparse tensor. When used as an initializer, this
+            name must match the corresponding graph value name. It is stored as the
+            name of the ``values`` tensor to match the ONNX specification.
+        doc_string: Optional documentation string.
+        metadata_props: Optional metadata properties that will be serialized to the
+            ONNX proto.
+        meta: Metadata store for graph transform passes (not serialized).
+    """
+
+    __slots__ = (
+        "_dims",
+        "_doc_string",
+        "_indices",
+        "_metadata",
+        "_metadata_props",
+        "_values",
+    )
+
+    def __init__(
+        self,
+        values: _protocols.TensorProtocol,
+        indices: _protocols.TensorProtocol,
+        dims: Sequence[int],
+        *,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize a sparse tensor.
+
+        Args:
+            values: A tensor containing the non-zero values. The name of this tensor
+                is used as the name of the sparse tensor (per the ONNX specification).
+            indices: A tensor of ``INT64`` containing the indices of the non-zero values.
+            dims: The dense shape of the sparse tensor.
+            doc_string: Optional documentation string.
+            metadata_props: Optional metadata properties.
+        """
+        self._values = values
+        self._indices = indices
+        self._dims: list[int] = list(dims)
+        self._doc_string = doc_string
+        self._metadata: _metadata.MetadataStore | None = None
+        self._metadata_props: dict[str, str] | None = metadata_props
+
+    @property
+    def name(self) -> str | None:
+        """The name of the sparse tensor.
+
+        Per the ONNX specification, the name of a sparse tensor is the name of its
+        ``values`` tensor.
+        """
+        return self._values.name
+
+    @name.setter
+    def name(self, value: str | None) -> None:
+        self._values.name = value
+
+    @property
+    def values(self) -> _protocols.TensorProtocol:
+        """The non-zero values of the sparse tensor."""
+        return self._values
+
+    @property
+    def indices(self) -> _protocols.TensorProtocol:
+        """The indices of the non-zero values."""
+        return self._indices
+
+    @property
+    def dims(self) -> list[int]:
+        """The dense shape of the sparse tensor."""
+        return self._dims
+
+    @property
+    def doc_string(self) -> str | None:
+        """The documentation string."""
+        return self._doc_string
+
+    @doc_string.setter
+    def doc_string(self, value: str | None) -> None:
+        self._doc_string = value
+
+    @property
+    def metadata_props(self) -> dict[str, str]:
+        """The metadata properties of the sparse tensor."""
+        if self._metadata_props is None:
+            self._metadata_props = {}
+        return self._metadata_props
+
+    @property
+    def meta(self) -> _metadata.MetadataStore:
+        """The metadata store for intermediate analysis.
+
+        Write to the :attr:`metadata_props` if you would like the metadata to be serialized
+        to the ONNX proto.
+        """
+        if self._metadata is None:
+            self._metadata = _metadata.MetadataStore()
+        return self._metadata
+
+    def __repr__(self) -> str:
+        return (
+            f"SparseTensor("
+            f"name={self.name!r}, "
+            f"dims={self._dims!r}, "
+            f"nnz={self._values.size!r}"
+            f")"
+        )
+
+
 class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
     """Immutable symbolic dimension that can be shared across multiple shapes.
 
@@ -2713,7 +2834,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         shape: Shape | None = None,
         type: _protocols.TypeProtocol | None = None,
         doc_string: str | None = None,
-        const_value: _protocols.TensorProtocol | None = None,
+        const_value: _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None = None,
         metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a value.
@@ -2794,6 +2915,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         """Display string for the constant tensor attached to str of Value."""
         if self.const_value is not None:
             # Only display when the const value is small
+            if isinstance(self.const_value, _protocols.SparseTensorProtocol):
+                return f"{{{self.const_value.__class__.__name__}(...)}}"
             if self.const_value.size <= 10:
                 return f"{{{self.const_value}}}"
             else:
@@ -2891,7 +3014,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                 )
 
         # Rename the backing constant tensor
-        if self._const_value is not None:
+        if self._const_value is not None and hasattr(self._const_value, "name"):
             self._const_value.name = value
 
         # Rename self
@@ -2958,30 +3081,35 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     @property
     def const_value(
         self,
-    ) -> _protocols.TensorProtocol | None:
+    ) -> _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None:
         """The backing constant tensor for the value.
 
         If the ``Value`` has a ``const_value`` and is part of a graph initializers
         dictionary, the value is an initialized value. Its ``const_value``
-        will appear as an ``initializer`` in the GraphProto when serialized.
+        will appear as an ``initializer`` (for dense tensors) or ``sparse_initializer``
+        (for sparse tensors) in the GraphProto when serialized.
 
         If the ``Value`` is not part of a graph initializers dictionary, the ``const_value``
         field will be ignored during serialization.
 
-        ``const_value`` can be backed by different raw data types, such as numpy arrays.
-        The only guarantee is that it conforms TensorProtocol.
+        ``const_value`` can be backed by different raw data types, such as numpy arrays,
+        or a :class:`SparseTensor` for sparse initializers.
+        The only guarantee is that it conforms to :class:`TensorProtocol` or
+        :class:`SparseTensorProtocol`.
         """
         return self._const_value
 
     @const_value.setter
     def const_value(
         self,
-        value: _protocols.TensorProtocol | None,
+        value: _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None,
     ) -> None:
         if onnx_ir.DEBUG:
-            if value is not None and not isinstance(value, _protocols.TensorProtocol):
+            if value is not None and not isinstance(
+                value, (_protocols.TensorProtocol, _protocols.SparseTensorProtocol)
+            ):
                 raise TypeError(
-                    f"Expected value to be a TensorProtocol or None, got '{type(value)}'"
+                    f"Expected value to be a TensorProtocol, SparseTensorProtocol, or None, got '{type(value)}'"
                 )
         self._const_value = value
 
