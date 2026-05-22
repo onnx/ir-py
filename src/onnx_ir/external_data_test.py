@@ -569,6 +569,15 @@ class ShardTensorsTest(unittest.TestCase):
         self.assertIs(shards[0][0], t_big)
         self.assertIs(shards[1][0], t_small)
 
+    def test_sharding_accounts_for_alignment(self):
+        t0 = self._make_tensor("t0", external_data._ALIGN_THRESHOLD + 4)
+        t1 = self._make_tensor("t1", external_data._ALIGN_THRESHOLD + 4)
+        # Naively this would fit in one shard by nbytes sum, but alignment padding
+        # when writing forces a split.
+        shards = external_data._shard_tensors([t0, t1], t0.nbytes + t1.nbytes)
+        self.assertEqual(len(shards), 2)
+        self.assertEqual([len(s) for s in shards], [1, 1])
+
 
 class ShardedExternalDataTest(unittest.TestCase):
     """Integration tests for sharded ONNX external data via unload_from_model."""
@@ -609,7 +618,7 @@ class ShardedExternalDataTest(unittest.TestCase):
         return ir.Model(graph, ir_version=10), arrays
 
     def test_sharding_creates_multiple_files(self):
-        model, arrays = self._make_model([400, 400, 400])
+        model, _ = self._make_model([400, 400, 400])
         # max_shard=500 bytes forces a new shard after each ~400-byte tensor
         external_data.unload_from_model(
             model,
@@ -670,7 +679,7 @@ class ShardedExternalDataTest(unittest.TestCase):
             self.assertEqual(t.location, "model.data")
 
     def test_model_unchanged_after_unload_and_load(self):
-        model, arrays = self._make_model([400, 400, 400])
+        model, _ = self._make_model([400, 400, 400])
         # Store originals before mutating model
         originals = {
             name: val.const_value.numpy().copy()

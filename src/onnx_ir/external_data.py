@@ -151,8 +151,9 @@ def _shard_tensors(
     """Shard tensors into multiple groups based on max_shard_size_bytes.
 
     Each tensor is always placed in exactly one shard. A new shard is started when
-    adding the next tensor would exceed the limit (unless the current shard is empty,
-    in which case the tensor is added regardless of size to avoid infinite loops).
+    adding the next tensor would exceed the limit once the shard is written using
+    the same layout as :func:`convert_tensors_to_external` (size-sorted write order
+    plus offset alignment).
 
     Args:
         tensors: The tensors to shard.
@@ -165,14 +166,15 @@ def _shard_tensors(
     current_shard_size = 0
 
     for tensor in tensors:
-        tensor_size = tensor.nbytes
-        # Start a new shard when the current one would be exceeded (but never leave a shard empty)
-        if current_shard_size + tensor_size > max_shard_size_bytes and current_shard_size > 0:
+        projected_shard_size = _estimate_shard_size_bytes([*shards[-1], tensor])
+        # Start a new shard when the current one would be exceeded
+        # (but never leave a shard empty).
+        if projected_shard_size > max_shard_size_bytes and current_shard_size > 0:
             shards.append([])
-            current_shard_size = 0
+            projected_shard_size = _estimate_shard_size_bytes([tensor])
 
         shards[-1].append(tensor)
-        current_shard_size += tensor_size
+        current_shard_size = projected_shard_size
 
     return shards
 
@@ -221,6 +223,16 @@ def _compute_new_offset(
         alignment_factor = max(4096, allocation_granularity)
         # Align to the next page or alloc granularity
         return (current_offset + alignment_factor - 1) // alignment_factor * alignment_factor
+    return current_offset
+
+
+def _estimate_shard_size_bytes(tensors: Sequence[_protocols.TensorProtocol]) -> int:
+    """Estimate the shard file size in bytes for tensors written to one file."""
+    current_offset = 0
+    sorted_tensors = sorted(tensors, key=lambda tensor: tensor.nbytes)
+    for tensor in sorted_tensors:
+        current_offset = _compute_new_offset(current_offset, tensor.nbytes)
+        current_offset += tensor.nbytes
     return current_offset
 
 
