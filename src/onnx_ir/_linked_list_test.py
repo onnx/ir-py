@@ -8,6 +8,7 @@ import unittest
 
 import parameterized
 
+import onnx_ir as ir
 from onnx_ir import _linked_list
 
 
@@ -381,6 +382,27 @@ class DoublyLinkedSetTest(unittest.TestCase):
         linked_list = _linked_list.DoublyLinkedSet(elems)
         self.assertEqual(len(linked_list), 5)
         self.assertEqual(list(linked_list[start:stop:step]), elems[start:stop:step])
+
+
+class LinkedListGraphTest(unittest.TestCase):
+    """Test linked list access through Graph nodes."""
+
+    def test_getitem_negative_index(self):
+        n1 = ir.Node("", "A", [])
+        n2 = ir.Node("", "B", [])
+        n3 = ir.Node("", "C", [])
+        graph = ir.Graph([], [], nodes=[n1, n2, n3])
+        self.assertIs(graph[-1], n3)
+        self.assertIs(graph[-2], n2)
+        self.assertIs(graph[0], n1)
+
+    def test_getitem_slice(self):
+        n1 = ir.Node("", "A", [])
+        n2 = ir.Node("", "B", [])
+        n3 = ir.Node("", "C", [])
+        graph = ir.Graph([], [], nodes=[n1, n2, n3])
+        sliced = graph[0:2]
+        self.assertEqual(list(sliced), [n1, n2])
 
 
 if __name__ == "__main__":
