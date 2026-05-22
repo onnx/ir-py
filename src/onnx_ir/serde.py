@@ -83,6 +83,8 @@ _FUNCTION_VALUE_INFO_SUPPORTED_VERSION = (
     10  # ONNX IR version where value info in functions was introduced
 )
 _QUANT_PARAMETER_TENSOR_NAMES_FIELD = "quant_parameter_tensor_names"
+_MODEL_CONFIGURATION_FIELD = "model_configuration_protos"
+_NODE_DEVICE_CONFIGURATIONS_FIELD = "node_device_configuration_protos"
 _T = typing.TypeVar("_T", bound=Callable[..., Any])
 
 
@@ -629,6 +631,10 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
         functions=functions,
         metadata_props=deserialize_metadata_props(proto.metadata_props),
     )
+    if hasattr(proto, "configuration") and proto.configuration:
+        model.meta[_MODEL_CONFIGURATION_FIELD] = tuple(
+            configuration.SerializeToString() for configuration in proto.configuration
+        )
 
     # Handle experimental value info for functions created by the dynamo exporter in IR version 9
     if model.ir_version < _FUNCTION_VALUE_INFO_SUPPORTED_VERSION:
@@ -1331,7 +1337,7 @@ def _deserialize_node(
         )
         value = current_scope[output_name]
         node_outputs.append(value)
-    return _core.Node(
+    node = _core.Node(
         proto.domain,
         proto.op_type,
         node_inputs,
@@ -1342,6 +1348,12 @@ def _deserialize_node(
         doc_string=_get_field(proto, "doc_string"),
         metadata_props=deserialize_metadata_props(proto.metadata_props),
     )
+    if hasattr(proto, "device_configurations") and proto.device_configurations:
+        node.meta[_NODE_DEVICE_CONFIGURATIONS_FIELD] = tuple(
+            device_configuration.SerializeToString()
+            for device_configuration in proto.device_configurations
+        )
+    return node
 
 
 # Serialization
@@ -1384,6 +1396,7 @@ def serialize_model_into(
     _serialize_opset_imports_into(model_proto.opset_import, from_.opset_imports)
     if from_.metadata_props:
         _serialize_metadata_props_into(model_proto.metadata_props, from_.metadata_props)
+    _serialize_model_configurations_into(model_proto, from_)
     serialize_graph_into(model_proto.graph, from_.graph)
 
     create_value_info_in_functions = from_.ir_version >= _FUNCTION_VALUE_INFO_SUPPORTED_VERSION
@@ -1397,6 +1410,28 @@ def serialize_model_into(
             # Create them in the main graph instead
             _serialize_experimental_value_info_for_function_ir9_into(model_proto.graph, func)
     return model_proto
+
+
+def _serialize_model_configurations_into(
+    model_proto: onnx.ModelProto, from_: _protocols.ModelProtocol
+) -> None:
+    if not hasattr(model_proto, "configuration"):
+        return
+    model_configurations = from_.meta.get(_MODEL_CONFIGURATION_FIELD)
+    if model_configurations is None:
+        return
+    for model_configuration in model_configurations:
+        configuration_proto = model_proto.configuration.add()
+        if isinstance(model_configuration, bytes):
+            configuration_proto.ParseFromString(model_configuration)
+            continue
+        if isinstance(model_configuration, onnx.DeviceConfigurationProto):
+            configuration_proto.CopyFrom(model_configuration)
+            continue
+        raise TypeError(
+            f"Expected bytes or DeviceConfigurationProto for '{_MODEL_CONFIGURATION_FIELD}', "
+            f"got {type(model_configuration)}"
+        )
 
 
 def _should_create_value_info_for_value(value: _protocols.ValueProtocol) -> bool:
@@ -1739,6 +1774,29 @@ def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtoc
             serialize_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
         else:
             serialize_reference_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
+    _serialize_node_device_configurations_into(node_proto, from_)
+
+
+def _serialize_node_device_configurations_into(
+    node_proto: onnx.NodeProto, from_: _protocols.NodeProtocol
+) -> None:
+    if not hasattr(node_proto, "device_configurations"):
+        return
+    node_device_configurations = from_.meta.get(_NODE_DEVICE_CONFIGURATIONS_FIELD)
+    if node_device_configurations is None:
+        return
+    for node_device_configuration in node_device_configurations:
+        device_configuration_proto = node_proto.device_configurations.add()
+        if isinstance(node_device_configuration, bytes):
+            device_configuration_proto.ParseFromString(node_device_configuration)
+            continue
+        if isinstance(node_device_configuration, onnx.NodeDeviceConfigurationProto):
+            device_configuration_proto.CopyFrom(node_device_configuration)
+            continue
+        raise TypeError(
+            "Expected bytes or NodeDeviceConfigurationProto for "
+            f"'{_NODE_DEVICE_CONFIGURATIONS_FIELD}', got {type(node_device_configuration)}"
+        )
 
 
 def serialize_tensor(tensor: _protocols.TensorProtocol) -> onnx.TensorProto:

@@ -1026,6 +1026,23 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
         self.assertEqual(deserialized.metadata_props["key"], "value")
         self.assertEqual(deserialized.metadata_props["author"], "test")
 
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration"),
+        "ModelProto.configuration is not available",
+    )
+    def test_model_configuration_roundtrip(self):
+        model_proto = onnx.helper.make_model(
+            onnx.helper.make_graph([], "test", [], []), ir_version=11
+        )
+        model_proto.configuration.add(name="conf0", num_devices=2, device=["CPU", "CUDA:0"])
+        model = serde.deserialize_model(model_proto)
+        serialized = serde.serialize_model(model)
+
+        self.assertEqual(len(serialized.configuration), 1)
+        self.assertEqual(serialized.configuration[0].name, "conf0")
+        self.assertEqual(serialized.configuration[0].num_devices, 2)
+        self.assertEqual(list(serialized.configuration[0].device), ["CPU", "CUDA:0"])
+
 
 class ShapeSerializationEdgeCaseTest(unittest.TestCase):
     def test_serialize_shape_with_denotation(self):
@@ -1084,6 +1101,33 @@ class NodeSerializationTest(unittest.TestCase):
         node = ir.Node("", "Op", [x, None, x])
         proto = serde.serialize_node(node)
         self.assertEqual(list(proto.input), ["x", "", "x"])
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_node_device_configurations_roundtrip(self):
+        node_proto = onnx.helper.make_node("Relu", ["x"], ["y"], name="node")
+        node_device_configuration = node_proto.device_configurations.add()
+        node_device_configuration.configuration_id = "conf0"
+        node_device_configuration.pipeline_stage = 1
+        sharding_spec = node_device_configuration.sharding_spec.add()
+        sharding_spec.tensor_name = "x"
+        sharding_spec.device.extend([0, 1])
+        sharded_dim = sharding_spec.sharded_dim.add()
+        sharded_dim.axis = 0
+        sharded_dim.simple_sharding.add(dim_value=4, num_shards=2)
+
+        node = serde.deserialize_node(node_proto)
+        serialized = serde.serialize_node(node)
+
+        self.assertEqual(len(serialized.device_configurations), 1)
+        result = serialized.device_configurations[0]
+        self.assertEqual(result.configuration_id, "conf0")
+        self.assertEqual(result.pipeline_stage, 1)
+        self.assertEqual(len(result.sharding_spec), 1)
+        self.assertEqual(result.sharding_spec[0].tensor_name, "x")
+        self.assertEqual(list(result.sharding_spec[0].device), [0, 1])
 
 
 class StringTensorSerializationTest(unittest.TestCase):
