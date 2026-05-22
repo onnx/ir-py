@@ -805,7 +805,14 @@ def _deserialize_graph(
         if initializer_name in values:
             # The sparse initializer is for an existing value (e.g., an input)
             initializer_value = values[initializer_name]
-            initializer_value.const_value = sparse_tensor
+            initializer_value.const_sparse_value = sparse_tensor
+            if initializer_name in value_info:
+                deserialize_value_info_proto(value_info[initializer_name], initializer_value)
+            if initializer_value.name in quantization_annotations:
+                _deserialize_quantization_annotation(
+                    quantization_annotations[initializer_value.name], initializer_value
+                )
+            values[initializer_name] = initializer_value
         else:
             # The sparse initializer is for a new value. Create the value first
             initializer_value = _core.Value(
@@ -814,7 +821,7 @@ def _deserialize_graph(
                 name=initializer_name,
                 type=_core.SparseTensorType(_enums.DataType(sparse_tensor.values.dtype)),
                 shape=_core.Shape(sparse_tensor.dims),
-                const_value=sparse_tensor,
+                const_sparse_value=sparse_tensor,
             )
             if initializer_name in value_info:
                 deserialize_value_info_proto(value_info[initializer_name], initializer_value)
@@ -1638,18 +1645,17 @@ def serialize_graph_into(
             # Serialize information about all initializers into value_info,
             # except for those that are also graph inputs
             serialize_value_into(graph_proto.value_info.add(), value)
-        if value.const_value is None:
-            # Skip initializers without constant values
-            logger.warning("Initializer '%s' does not have a constant value set.", value.name)
-            continue
-        # Make sure the tensor's name is the same as the value's name
-        if isinstance(value.const_value, _protocols.SparseTensorProtocol):
+        if value.const_sparse_value is not None:
             # Serialize sparse initializers into sparse_initializer
-            value.const_value.name = value.name
-            serialize_sparse_tensor_into(graph_proto.sparse_initializer.add(), from_=value.const_value)
-        else:
+            value.const_sparse_value.name = value.name
+            serialize_sparse_tensor_into(graph_proto.sparse_initializer.add(), from_=value.const_sparse_value)
+        elif value.const_value is not None:
+            # Make sure the tensor's name is the same as the value's name
             value.const_value.name = value.name
             serialize_tensor_into(graph_proto.initializer.add(), from_=value.const_value)
+        else:
+            # Skip initializers without constant values
+            logger.warning("Initializer '%s' does not have a constant value set.", value.name)
     for node in from_:
         serialize_node_into(graph_proto.node.add(), from_=node)
         for node_output in node.outputs:

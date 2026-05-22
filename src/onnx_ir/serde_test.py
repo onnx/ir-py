@@ -1240,8 +1240,8 @@ class SparseTensorTest(unittest.TestCase):
         model = serde.deserialize_model(model_proto)
         self.assertIn("sparse_val", model.graph.initializers)
         sparse_init = model.graph.initializers["sparse_val"]
-        self.assertIsInstance(sparse_init.const_value, ir.SparseTensor)
-        self.assertEqual(sparse_init.const_value.dims, [6])
+        self.assertIsInstance(sparse_init.const_sparse_value, ir.SparseTensor)
+        self.assertEqual(sparse_init.const_sparse_value.dims, [6])
 
     def test_graph_with_sparse_initializer_serialization(self):
         model_proto = onnx.helper.make_model(
@@ -1280,8 +1280,8 @@ class SparseTensorTest(unittest.TestCase):
     def test_value_with_sparse_const_value(self):
         sparse_proto = self._make_sparse_tensor_proto("w")
         sparse = serde.deserialize_sparse_tensor(sparse_proto)
-        value = ir.Value(name="w", const_value=sparse)
-        self.assertIsInstance(value.const_value, ir.SparseTensor)
+        value = ir.Value(name="w", const_sparse_value=sparse)
+        self.assertIsInstance(value.const_sparse_value, ir.SparseTensor)
 
 
 if __name__ == "__main__":

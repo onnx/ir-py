@@ -176,7 +176,8 @@ class ValueProtocol(Protocol):
         metadata_props: Metadata that will be serialized to the ONNX file.
         meta: Metadata store for graph transform passes.
         doc_string: Documentation string.
-        const_value: The constant tensor is the value constant.
+        const_value: The constant dense tensor when the value is constant.
+        const_sparse_value: The constant sparse tensor when the value is a sparse constant.
     """
 
     name: str
@@ -185,7 +186,8 @@ class ValueProtocol(Protocol):
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
     doc_string: str | None
-    const_value: TensorProtocol | SparseTensorProtocol | None
+    const_value: TensorProtocol | None
+    const_sparse_value: SparseTensorProtocol | None
 
     def producer(self) -> NodeProtocol | None:
         """The node that produces this value."""

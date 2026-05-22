@@ -2809,6 +2809,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     """
 
     __slots__ = (
+        "_const_sparse_value",
         "_const_value",
         "_graph",
         "_index",
@@ -2834,7 +2835,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         shape: Shape | None = None,
         type: _protocols.TypeProtocol | None = None,
         doc_string: str | None = None,
-        const_value: _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None = None,
+        const_value: _protocols.TensorProtocol | None = None,
+        const_sparse_value: _protocols.SparseTensorProtocol | None = None,
         metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a value.
@@ -2855,7 +2857,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             shape: The shape of the value.
             type: The type of the value.
             doc_string: The documentation string.
-            const_value: The constant tensor if the value is constant.
+            const_value: The constant dense tensor if the value is constant.
+            const_sparse_value: The constant sparse tensor if the value is a sparse constant.
             metadata_props: Metadata that will be serialized to the ONNX file.
         """
         self._producer: Node | None = producer
@@ -2869,6 +2872,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         # TODO(justinchuby): Handle initialization when a const value is provided
         # We can get shape and type information from the const value
         self._const_value = const_value
+        self._const_sparse_value = const_sparse_value
         # Use a collection of (Node, int) to store uses. This is needed
         # because a single use can use the same value multiple times.
         # Use a dictionary to preserve insertion order so that the visiting order is deterministic
@@ -2913,10 +2917,10 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     def _constant_tensor_part(self) -> str:
         """Display string for the constant tensor attached to str of Value."""
+        if self._const_sparse_value is not None:
+            return f"{{{self._const_sparse_value.__class__.__name__}(...)}}"
         if self.const_value is not None:
             # Only display when the const value is small
-            if isinstance(self.const_value, _protocols.SparseTensorProtocol):
-                return f"{{{self.const_value.__class__.__name__}(...)}}"
             if self.const_value.size <= 10:
                 return f"{{{self.const_value}}}"
             else:
@@ -3014,8 +3018,10 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                 )
 
         # Rename the backing constant tensor
-        if isinstance(self._const_value, (_protocols.TensorProtocol, _protocols.SparseTensorProtocol)):
+        if isinstance(self._const_value, _protocols.TensorProtocol):
             self._const_value.name = value
+        if isinstance(self._const_sparse_value, _protocols.SparseTensorProtocol):
+            self._const_sparse_value.name = value
 
         # Rename self
         old_name = self._name
@@ -3081,37 +3087,61 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     @property
     def const_value(
         self,
-    ) -> _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None:
-        """The backing constant tensor for the value.
+    ) -> _protocols.TensorProtocol | None:
+        """The backing constant dense tensor for the value.
 
         If the ``Value`` has a ``const_value`` and is part of a graph initializers
         dictionary, the value is an initialized value. Its ``const_value``
-        will appear as an ``initializer`` (for dense tensors) or ``sparse_initializer``
-        (for sparse tensors) in the GraphProto when serialized.
+        will appear as an ``initializer`` in the GraphProto when serialized.
 
         If the ``Value`` is not part of a graph initializers dictionary, the ``const_value``
         field will be ignored during serialization.
 
-        ``const_value`` can be backed by different raw data types, such as numpy arrays,
-        or a :class:`SparseTensor` for sparse initializers.
-        The only guarantee is that it conforms to :class:`TensorProtocol` or
-        :class:`SparseTensorProtocol`.
+        ``const_value`` can be backed by different raw data types, such as numpy arrays.
+        The only guarantee is that it conforms to :class:`TensorProtocol`.
+
+        For sparse tensors, use :attr:`const_sparse_value` instead.
         """
         return self._const_value
 
     @const_value.setter
     def const_value(
         self,
-        value: _protocols.TensorProtocol | _protocols.SparseTensorProtocol | None,
+        value: _protocols.TensorProtocol | None,
     ) -> None:
         if onnx_ir.DEBUG:
-            if value is not None and not isinstance(
-                value, (_protocols.TensorProtocol, _protocols.SparseTensorProtocol)
-            ):
+            if value is not None and not isinstance(value, _protocols.TensorProtocol):
                 raise TypeError(
-                    f"Expected value to be a TensorProtocol, SparseTensorProtocol, or None, got '{type(value)}'"
+                    f"Expected value to be a TensorProtocol or None, got '{type(value)}'"
                 )
         self._const_value = value
+
+    @property
+    def const_sparse_value(
+        self,
+    ) -> _protocols.SparseTensorProtocol | None:
+        """The backing constant sparse tensor for the value.
+
+        If the ``Value`` has a ``const_sparse_value`` and is part of a graph initializers
+        dictionary, the value is an initialized sparse value. Its ``const_sparse_value``
+        will appear as a ``sparse_initializer`` in the GraphProto when serialized.
+
+        If the ``Value`` is not part of a graph initializers dictionary, the
+        ``const_sparse_value`` field will be ignored during serialization.
+        """
+        return self._const_sparse_value
+
+    @const_sparse_value.setter
+    def const_sparse_value(
+        self,
+        value: _protocols.SparseTensorProtocol | None,
+    ) -> None:
+        if onnx_ir.DEBUG:
+            if value is not None and not isinstance(value, _protocols.SparseTensorProtocol):
+                raise TypeError(
+                    f"Expected value to be a SparseTensorProtocol or None, got '{type(value)}'"
+                )
+        self._const_sparse_value = value
 
     @property
     def meta(self) -> _metadata.MetadataStore:
