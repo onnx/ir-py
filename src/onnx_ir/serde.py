@@ -289,7 +289,9 @@ def to_proto(ir_object: object) -> object:
         assert ir_object.is_ref()
         return serialize_reference_attribute(ir_object)
     if isinstance(ir_object, _protocols.TypeProtocol):
-        return serialize_type_into(onnx.TypeProto(), ir_object)
+        type_proto = onnx.TypeProto()
+        serialize_type_into(type_proto, ir_object)
+        return type_proto
     if isinstance(ir_object, _protocols.GraphViewProtocol):
         return serialize_graph(ir_object)
     if isinstance(ir_object, _protocols.FunctionProtocol):
@@ -761,7 +763,8 @@ def _deserialize_graph(
                 None,
                 index=None,
                 name=initializer_name,
-                # Include shape and type even if the shape or type is not provided as ValueInfoProto.
+                # Include shape and type for all initializers (both top-level and nested graphs)
+                # even if the shape or type is not provided as ValueInfoProto.
                 # Users expect initialized values to have shape and type information.
                 type=_core.TensorType(tensor.dtype),
                 shape=tensor.shape,  # type: ignore[arg-type]

@@ -246,5 +246,226 @@ class RemoveUnusedTest(unittest.TestCase):
         self.assertEqual(len(model.graph.node[0].attribute), 1)
 
 
+class RemoveUnusedFunctionsTest(unittest.TestCase):
+    def test_removes_unused_function(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = Relu(x)
+            }
+            <domain: "custom", opset_import: ["": 17]>
+            unused_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+        self.assertEqual(len(model.functions), 1)
+
+        result = onnx_ir.passes.common.RemoveUnusedFunctionsPass()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.functions), 0)
+
+    def test_keeps_used_function(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.used_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17]>
+            used_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+        self.assertEqual(len(model.functions), 1)
+
+        result = onnx_ir.passes.common.RemoveUnusedFunctionsPass()(model)
+
+        self.assertFalse(result.modified)
+        self.assertEqual(len(model.functions), 1)
+
+    def test_keeps_transitively_used_function(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.outer_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17, "custom": 1]>
+            outer_func (x) => (z) { z = custom.inner_func(x) }
+            <domain: "custom", opset_import: ["": 17]>
+            inner_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+        self.assertEqual(len(model.functions), 2)
+
+        result = onnx_ir.passes.common.RemoveUnusedFunctionsPass()(model)
+
+        self.assertFalse(result.modified)
+        self.assertEqual(len(model.functions), 2)
+
+    def test_removes_only_unused_functions(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.used_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17]>
+            used_func (x) => (z) { z = Relu(x) }
+            <domain: "custom", opset_import: ["": 17]>
+            unused_func (x) => (z) { z = Sigmoid(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+        self.assertEqual(len(model.functions), 2)
+
+        result = onnx_ir.passes.common.RemoveUnusedFunctionsPass()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.functions), 1)
+        remaining_names = [f.name for f in model.functions.values()]
+        self.assertIn("used_func", remaining_names)
+
+
+class RemoveUnusedOpsetsTest(unittest.TestCase):
+    def test_removes_unused_opset(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "unused_domain": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = Relu(x)
+            }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+        self.assertIn("unused_domain", model.graph.opset_imports)
+
+        result = onnx_ir.passes.common.RemoveUnusedOpsetsPass()(model)
+
+        self.assertTrue(result.modified)
+        self.assertNotIn("unused_domain", model.graph.opset_imports)
+        self.assertIn("", model.graph.opset_imports)  # Default domain kept
+
+    def test_keeps_used_opsets(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = Relu(x)
+            }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+
+        result = onnx_ir.passes.common.RemoveUnusedOpsetsPass()(model)
+
+        self.assertFalse(result.modified)
+        self.assertIn("", model.graph.opset_imports)
+
+    def test_process_functions_removes_unused_opset_from_function(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.my_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17, "unused_in_func": 1]>
+            my_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+
+        result = onnx_ir.passes.common.RemoveUnusedOpsetsPass(process_functions=True)(model)
+
+        self.assertTrue(result.modified)
+        func = next(iter(model.functions.values()))
+        self.assertNotIn("unused_in_func", func.opset_imports)
+
+    def test_process_functions_false_skips_function_opsets(self):
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.my_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17, "unused_in_func": 1]>
+            my_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+
+        onnx_ir.passes.common.RemoveUnusedOpsetsPass(process_functions=False)(model)
+
+        # The function's unused opset should NOT be removed
+        func = next(iter(model.functions.values()))
+        self.assertIn("unused_in_func", func.opset_imports)
+
+    def test_default_domain_always_retained(self):
+        """Even if no nodes use the default domain, it's retained."""
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[N] x) => (float[N] z)
+            {
+                z = custom.my_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17]>
+            my_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = ir.serde.deserialize_model(model_proto)
+
+        onnx_ir.passes.common.RemoveUnusedOpsetsPass()(model)
+
+        # Default domain always retained
+        self.assertIn("", model.graph.opset_imports)
+
+
+class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
+    """Test that unused removal works on subgraphs in attributes."""
+
+    def test_remove_unused_nodes_in_if_subgraph(self):
+        x = ir.Value(name="x")
+        cond = ir.Value(name="cond")
+
+        # Then branch: has an unused Relu and a used Sigmoid
+        then_out = ir.Value(name="then_z")
+        then_unused = ir.Node("", "Relu", [x], num_outputs=1, name="unused_relu")
+        then_used = ir.Node("", "Sigmoid", [x], outputs=[then_out], name="used_sigmoid")
+        then_graph = ir.Graph(
+            [], [then_out], nodes=[then_unused, then_used], name="then_graph"
+        )
+
+        # Else branch
+        else_out = ir.Value(name="else_z")
+        else_node = ir.Node("", "Tanh", [x], outputs=[else_out], name="else_tanh")
+        else_graph = ir.Graph([], [else_out], nodes=[else_node], name="else_graph")
+
+        z = ir.Value(name="z")
+        if_node = ir.Node(
+            "",
+            "If",
+            [cond],
+            outputs=[z],
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+        )
+        graph = ir.Graph([cond, x], [z], nodes=[if_node], opset_imports={"": 17}, name="main")
+        model = ir.Model(graph, ir_version=10)
+
+        result = onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
+
+        self.assertTrue(result.modified)
+        # Check the then_branch has unused node removed
+        updated_then = if_node.attributes["then_branch"].as_graph()
+        op_types = [n.op_type for n in updated_then]
+        self.assertNotIn("Relu", op_types)
+        self.assertIn("Sigmoid", op_types)
+
+
 if __name__ == "__main__":
     unittest.main()

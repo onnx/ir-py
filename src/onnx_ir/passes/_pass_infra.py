@@ -126,6 +126,12 @@ class PassBase(abc.ABC):
 
         result = self.call(model)
 
+        if not isinstance(result, PassResult):
+            raise TypeError(
+                f"The result of the pass '{self.__class__.__name__}' should be type PassResult. "
+                "Please create one with ir.passes.PassResult()."
+            )
+
         # Check postconditions
         try:
             self.ensures(result.model)
@@ -135,12 +141,6 @@ class PassBase(abc.ABC):
             raise PostconditionError(
                 f"Post-condition for pass '{self.__class__.__name__}' failed"
             ) from e
-
-        if not isinstance(result, PassResult):
-            raise TypeError(
-                f"The result of the pass '{self.__class__.__name__}' should be type PassResult. "
-                "Please create one with ir.passes.PassResult()."
-            )
 
         # Checks that the declared in-place property is respected
         if self.in_place and result.model is not model:

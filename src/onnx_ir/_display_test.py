@@ -3,11 +3,15 @@
 """Test display() methods in various classes."""
 
 import contextlib
+import io
+import types
 import unittest
+from unittest import mock
 
 import numpy as np
 
 import onnx_ir as ir
+from onnx_ir import _display
 
 
 class DisplayTest(unittest.TestCase):
@@ -22,6 +26,48 @@ class DisplayTest(unittest.TestCase):
 
         with contextlib.redirect_stdout(None):
             graph.display()
+
+
+class DisplayRichFallbackTest(unittest.TestCase):
+    def test_require_rich_returns_none_when_not_installed(self):
+        with mock.patch.dict("sys.modules", {"rich": None}):
+            result = _display.require_rich()
+            self.assertIsNone(result)
+
+    def test_display_without_rich_prints_plaintext(self):
+        """Test the fallback when rich is not available."""
+        graph = ir.Graph([], [], nodes=[], name="test_graph")
+
+        # Mock require_rich to return None (simulating rich not installed)
+        with mock.patch.object(_display, "require_rich", return_value=None):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                graph.display()
+            printed = output.getvalue()
+            self.assertIn("Tip:", printed)
+
+    def test_display_with_page(self):
+        """Test display with page=True uses rich pager."""
+        graph = ir.Graph([], [], nodes=[], name="test_graph")
+        mock_console = mock.MagicMock()
+        mock_console.pager.return_value = contextlib.nullcontext()
+        fake_rich = types.ModuleType("rich")
+        fake_rich.print = mock.MagicMock()
+        fake_rich.console = types.SimpleNamespace(
+            Console=mock.MagicMock(return_value=mock_console)
+        )
+        fake_rich.markup = types.SimpleNamespace(escape=lambda text: text)
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "rich": fake_rich,
+                "rich.markup": fake_rich.markup,
+                "rich.console": fake_rich.console,
+            },
+        ):
+            graph.display(page=True)
+        mock_console.pager.assert_called_once()
+        mock_console.print.assert_called_once()
 
 
 if __name__ == "__main__":

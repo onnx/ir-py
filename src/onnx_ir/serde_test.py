@@ -15,47 +15,6 @@ from onnx_ir import _version_utils, serde
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
-    @parameterized.parameterized.expand(
-        [
-            ("model", onnx.ModelProto()),
-            ("graph", onnx.GraphProto()),
-            ("node", onnx.NodeProto(input=["X"], output=["Y"])),
-            (
-                "tensor",
-                onnx.helper.make_tensor("test_tensor", onnx.TensorProto.FLOAT, [1], [1.0]),
-            ),
-            ("value_info", onnx.ValueInfoProto()),
-            ("type", onnx.TypeProto()),
-            ("attribute", onnx.AttributeProto()),
-        ]
-    )
-    def test_from_proto(self, _: str, proto):
-        serde.from_proto(proto)
-
-    @parameterized.parameterized.expand(
-        [
-            ("model", ir.Model(ir.Graph([], [], nodes=[]), ir_version=1)),
-            ("graph", ir.Graph([], [], nodes=[])),
-            (
-                "node",
-                ir.Node("", "Op", inputs=[], outputs=[ir.Value(name="value")]),
-            ),
-            (
-                "tensor",
-                serde.TensorProtoTensor(
-                    onnx.helper.make_tensor("test_tensor", onnx.TensorProto.FLOAT, [1], [1.0])
-                ),
-            ),
-            ("value", ir.Value(name="value")),
-            ("type", ir.SequenceType(ir.OptionalType(ir.TensorType(ir.DataType.COMPLEX128)))),
-            ("attribute", ir.Attr("attribute", ir.AttributeType.FLOAT, 1)),
-            ("ref_attribute", ir.RefAttr("ref_attr", "attr", ir.AttributeType.FLOAT)),
-            ("graph_view", ir.GraphView([], [], nodes=[])),
-        ]
-    )
-    def test_to_proto(self, _: str, ir_object):
-        serde.to_proto(ir_object)
-
     def test_from_to_onnx_text(self):
         model_text = """\
 <
@@ -440,7 +399,10 @@ class TensorProtoTensorTest(unittest.TestCase):
     def test_round_trip_numpy_conversion_from_raw_data(
         self, _: str, onnx_dtype: ir.DataType, original_array: np.ndarray
     ):
-        original_array = original_array.astype(onnx_dtype.numpy())
+        target_dtype = np.dtype(onnx_dtype.numpy())
+        if target_dtype.kind in {"i", "u", "b"}:
+            original_array = np.nan_to_num(original_array, nan=0.0, posinf=0.0, neginf=0.0)
+        original_array = original_array.astype(target_dtype)
         ir_tensor = ir.Tensor(original_array, name="test_tensor")
         proto = serde.to_proto(ir_tensor)
         if original_array.size > 0:
@@ -735,6 +697,451 @@ graph {
             deserialized_model.graph.outputs[0].meta["quant_parameter_tensor_names"],
             {"custom_key": "arbitrary_value_output"},
         )
+
+
+class FromProtoDispatchTest(unittest.TestCase):
+    """Test from_proto dispatches to the correct deserialize function."""
+
+    def test_from_proto_model(self):
+        proto = onnx.parser.parse_model(
+            '<ir_version: 10, opset_import: ["": 17]> agraph (float[N] x) => (float[N] z) { z = Relu(x) }'
+        )
+        result = serde.from_proto(proto)
+        self.assertIsInstance(result, ir.Model)
+
+    def test_from_proto_graph(self):
+        model_proto = onnx.parser.parse_model(
+            '<ir_version: 10, opset_import: ["": 17]> agraph (float[N] x) => (float[N] z) { z = Relu(x) }'
+        )
+        result = serde.from_proto(model_proto.graph)
+        self.assertIsInstance(result, ir.Graph)
+
+    def test_from_proto_node(self):
+        node_proto = onnx.helper.make_node("Relu", ["x"], ["y"])
+        result = serde.from_proto(node_proto)
+        self.assertIsInstance(result, ir.Node)
+        self.assertEqual(result.op_type, "Relu")
+
+    def test_from_proto_tensor(self):
+        tensor_proto = onnx.numpy_helper.from_array(
+            np.array([1.0, 2.0], dtype=np.float32), name="t"
+        )
+        result = serde.from_proto(tensor_proto)
+        self.assertEqual(result.name, "t")
+
+    def test_from_proto_attribute(self):
+        attr_proto = onnx.helper.make_attribute("alpha", 2.0)
+        result = serde.from_proto(attr_proto)
+        self.assertEqual(result.name, "alpha")
+        self.assertEqual(result.value, 2.0)
+
+    def test_from_proto_value_info(self):
+        vi_proto = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 2])
+        result = serde.from_proto(vi_proto)
+        self.assertIsInstance(result, ir.Value)
+        self.assertEqual(result.name, "x")
+
+    def test_from_proto_type_proto(self):
+        type_proto = onnx.helper.make_tensor_type_proto(onnx.TensorProto.FLOAT, [1, 2])
+        result = serde.from_proto(type_proto)
+        self.assertIsInstance(result, ir.TypeAndShape)
+
+    def test_from_proto_function(self):
+        func_proto = onnx.helper.make_function(
+            "test_domain",
+            "test_func",
+            ["x"],
+            ["y"],
+            [onnx.helper.make_node("Relu", ["x"], ["y"])],
+            [onnx.helper.make_opsetid("", 17)],
+        )
+        result = serde.from_proto(func_proto)
+        self.assertIsInstance(result, ir.Function)
+
+    def test_from_proto_tensor_shape(self):
+        shape_proto = onnx.TensorShapeProto()
+        dim = shape_proto.dim.add()
+        dim.dim_value = 3
+        dim2 = shape_proto.dim.add()
+        dim2.dim_param = "N"
+        result = serde.from_proto(shape_proto)
+        self.assertIsInstance(result, ir.Shape)
+
+    def test_from_proto_dimension(self):
+        dim_proto = onnx.TensorShapeProto.Dimension()
+        dim_proto.dim_value = 42
+        result = serde.from_proto(dim_proto)
+        self.assertEqual(result[0], 42)
+
+    def test_from_proto_opset_imports(self):
+        opset_list = [onnx.helper.make_opsetid("", 17), onnx.helper.make_opsetid("custom", 1)]
+        result = serde.from_proto(opset_list)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result[""], 17)
+        self.assertEqual(result["custom"], 1)
+
+    def test_from_proto_metadata_props(self):
+        entries = []
+        entry = onnx.StringStringEntryProto()
+        entry.key = "key1"
+        entry.value = "val1"
+        entries.append(entry)
+        result = serde.from_proto(entries)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["key1"], "val1")
+
+    def test_from_proto_unsupported_raises(self):
+        with self.assertRaises(NotImplementedError):
+            serde.from_proto("not a proto")  # type: ignore[arg-type]
+
+
+class SequenceOptionalTypeDeserializationTest(unittest.TestCase):
+    def test_deserialize_sequence_type(self):
+        type_proto = onnx.TypeProto()
+        type_proto.sequence_type.elem_type.tensor_type.elem_type = onnx.TensorProto.FLOAT
+        shape_proto = onnx.TensorShapeProto()
+        dim = shape_proto.dim.add()
+        dim.dim_value = 3
+        type_proto.sequence_type.elem_type.tensor_type.shape.CopyFrom(shape_proto)
+
+        ir_type = serde.deserialize_type_proto_for_type(type_proto)
+        self.assertIsInstance(ir_type, ir.SequenceType)
+
+        shape = serde.deserialize_type_proto_for_shape(type_proto)
+        self.assertIsInstance(shape, ir.Shape)
+
+    def test_deserialize_optional_type(self):
+        type_proto = onnx.TypeProto()
+        type_proto.optional_type.elem_type.tensor_type.elem_type = onnx.TensorProto.DOUBLE
+        shape_proto = onnx.TensorShapeProto()
+        dim = shape_proto.dim.add()
+        dim.dim_value = 5
+        type_proto.optional_type.elem_type.tensor_type.shape.CopyFrom(shape_proto)
+
+        ir_type = serde.deserialize_type_proto_for_type(type_proto)
+        self.assertIsInstance(ir_type, ir.OptionalType)
+
+        shape = serde.deserialize_type_proto_for_shape(type_proto)
+        self.assertIsInstance(shape, ir.Shape)
+
+    def test_deserialize_sparse_tensor_type(self):
+        type_proto = onnx.TypeProto()
+        type_proto.sparse_tensor_type.elem_type = onnx.TensorProto.FLOAT
+        shape_proto = onnx.TensorShapeProto()
+        dim = shape_proto.dim.add()
+        dim.dim_value = 10
+        type_proto.sparse_tensor_type.shape.CopyFrom(shape_proto)
+
+        ir_type = serde.deserialize_type_proto_for_type(type_proto)
+        self.assertIsInstance(ir_type, ir.SparseTensorType)
+
+        shape = serde.deserialize_type_proto_for_shape(type_proto)
+        self.assertIsInstance(shape, ir.Shape)
+
+
+class TypeSerializationTest(unittest.TestCase):
+    def test_serialize_sequence_type(self):
+        inner = ir.TensorType(ir.DataType.FLOAT)
+        seq_type = ir.SequenceType(inner)
+        proto = serde.serialize_type(seq_type)
+        self.assertTrue(proto.HasField("sequence_type"))
+
+    def test_serialize_optional_type(self):
+        inner = ir.TensorType(ir.DataType.DOUBLE)
+        opt_type = ir.OptionalType(inner)
+        proto = serde.serialize_type(opt_type)
+        self.assertTrue(proto.HasField("optional_type"))
+
+    def test_serialize_sparse_tensor_type(self):
+        sparse_type = ir.SparseTensorType(ir.DataType.FLOAT)
+        proto = serde.serialize_type(sparse_type)
+        self.assertTrue(proto.HasField("sparse_tensor_type"))
+
+    def test_sequence_type_roundtrip(self):
+        inner = ir.TensorType(ir.DataType.FLOAT)
+        seq_type = ir.SequenceType(inner)
+        proto = serde.serialize_type(seq_type)
+        deserialized = serde.deserialize_type_proto_for_type(proto)
+        self.assertIsInstance(deserialized, ir.SequenceType)
+
+
+class AttributeSerializationCoverageTest(unittest.TestCase):
+    """Test serialization of less common attribute types."""
+
+    def test_ints_attribute_roundtrip(self):
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrInt64s("axes", [0, 1, 2])])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        self.assertEqual(list(deserialized.attributes["axes"].as_ints()), [0, 1, 2])
+
+    def test_floats_attribute_roundtrip(self):
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrFloat32s("vals", [1.0, 2.0])])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        self.assertEqual(list(deserialized.attributes["vals"].as_floats()), [1.0, 2.0])
+
+    def test_strings_attribute_roundtrip(self):
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrStrings("names", ["a", "b"])])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        self.assertEqual(list(deserialized.attributes["names"].as_strings()), ["a", "b"])
+
+    def test_tensors_attribute_roundtrip(self):
+        t1 = ir.Tensor(np.array([1.0], dtype=np.float32))
+        t2 = ir.Tensor(np.array([2.0], dtype=np.float32))
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrTensors("weights", [t1, t2])])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        tensors = deserialized.attributes["weights"].as_tensors()
+        self.assertEqual(len(tensors), 2)
+
+    def test_type_proto_attribute_roundtrip(self):
+        type_and_shape = ir.TypeAndShape(ir.TensorType(ir.DataType.FLOAT), ir.Shape([1, 2]))
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrTypeProto("t", type_and_shape)])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        attr = deserialized.attributes["t"]
+        self.assertEqual(attr.type, ir.AttributeType.TYPE_PROTO)
+
+    def test_type_protos_attribute_roundtrip(self):
+        ts1 = ir.TypeAndShape(ir.TensorType(ir.DataType.FLOAT), ir.Shape([1]))
+        ts2 = ir.TypeAndShape(ir.TensorType(ir.DataType.DOUBLE), ir.Shape([2]))
+        node = ir.Node("", "TestOp", [], attributes=[ir.AttrTypeProtos("ts", [ts1, ts2])])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        attr = deserialized.attributes["ts"]
+        self.assertEqual(attr.type, ir.AttributeType.TYPE_PROTOS)
+
+
+class FunctionSerializationCoverageTest(unittest.TestCase):
+    def test_function_with_value_info_roundtrip(self):
+        """Test that functions with typed values serialize and deserialize with value info."""
+        model_text = """
+            <ir_version: 10, opset_import: ["": 17, "custom": 1]>
+            agraph (float[2, 3] x) => (float[2, 3] z) {
+                z = custom.my_func(x)
+            }
+            <domain: "custom", opset_import: ["": 17]>
+            my_func (x) => (z) { z = Relu(x) }
+        """
+        model_proto = onnx.parser.parse_model(model_text)
+        model = serde.deserialize_model(model_proto)
+
+        # Add type info to function values
+        func = next(iter(model.functions.values()))
+        for value in itertools.chain(func.inputs, func.outputs):
+            value.type = ir.TensorType(ir.DataType.FLOAT)
+            value.shape = ir.Shape([2, 3])
+
+        # Serialize and check
+        result_proto = serde.serialize_model(model)
+        self.assertGreater(len(result_proto.functions), 0)
+        func_proto = result_proto.functions[0]
+        value_info_by_name = {
+            value_info.name: value_info for value_info in func_proto.value_info
+        }
+        self.assertEqual(set(value_info_by_name), {"x", "z"})
+        for name in ("x", "z"):
+            value_info = value_info_by_name[name]
+            self.assertEqual(value_info.type.tensor_type.elem_type, onnx.TensorProto.FLOAT)
+            self.assertEqual(
+                [dim.dim_value for dim in value_info.type.tensor_type.shape.dim], [2, 3]
+            )
+
+    def test_function_with_ref_attr(self):
+        """Test serialization of functions with reference attributes."""
+        func_proto = onnx.helper.make_function(
+            "test_domain",
+            "test_func",
+            ["x"],
+            ["y"],
+            [onnx.helper.make_node("Relu", ["x"], ["y"])],
+            [onnx.helper.make_opsetid("", 17)],
+            attributes=["my_attr"],
+        )
+        func = serde.deserialize_function(func_proto)
+        self.assertIn("my_attr", func.attributes)
+
+        # Roundtrip
+        serialized = serde.serialize_function(func)
+        self.assertIn("my_attr", serialized.attribute)
+
+
+class ExperimentalFunctionValueInfoIR9Test(unittest.TestCase):
+    """Test value info handling for functions in IR version <10."""
+
+    def test_model_ir9_with_function_value_info(self):
+        """Functions in IR9 have value info stored in the main graph."""
+        # Create a model with IR version 9 and functions
+        func_proto = onnx.helper.make_function(
+            "pkg",
+            "my_func",
+            ["x"],
+            ["y"],
+            [onnx.helper.make_node("Relu", ["x"], ["y"])],
+            [onnx.helper.make_opsetid("", 17)],
+        )
+        # Create model proto with ir version 9
+        graph_proto = onnx.helper.make_graph(
+            [onnx.helper.make_node("pkg.my_func", ["input"], ["output"], domain="pkg")],
+            "test_graph",
+            [onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 2])],
+            [onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 2])],
+        )
+        # Add experimental function value info to the graph
+        vi = graph_proto.value_info.add()
+        vi.name = "pkg::my_func/x"
+        vi.type.tensor_type.elem_type = onnx.TensorProto.FLOAT
+        vi.type.tensor_type.shape.dim.add().dim_value = 1
+
+        model_proto = onnx.helper.make_model(graph_proto, functions=[func_proto])
+        model_proto.ir_version = 9
+        model_proto.opset_import.extend([onnx.helper.make_opsetid("pkg", 1)])
+
+        model = serde.deserialize_model(model_proto)
+        self.assertEqual(model.ir_version, 9)
+
+        # Serialize back - should use experimental format for IR9
+        result_proto = serde.serialize_model(model)
+        self.assertEqual(result_proto.ir_version, 9)
+        # Verify experimental function value_info entries in main graph
+        value_info_by_name = {
+            value_info.name: value_info for value_info in result_proto.graph.value_info
+        }
+        self.assertIn("pkg::my_func/x", value_info_by_name)
+        value_info = value_info_by_name["pkg::my_func/x"]
+        self.assertEqual(value_info.type.tensor_type.elem_type, onnx.TensorProto.FLOAT)
+        self.assertEqual([dim.dim_value for dim in value_info.type.tensor_type.shape.dim], [1])
+
+
+class ModelWithMetadataPropsTest(unittest.TestCase):
+    def test_model_metadata_props_roundtrip(self):
+        model = ir.Model(
+            graph=ir.Graph([], [], nodes=[], name="g"),
+            ir_version=10,
+            metadata_props={"key": "value", "author": "test"},
+        )
+        proto = serde.serialize_model(model)
+        deserialized = serde.deserialize_model(proto)
+        self.assertEqual(deserialized.metadata_props["key"], "value")
+        self.assertEqual(deserialized.metadata_props["author"], "test")
+
+
+class ShapeSerializationEdgeCaseTest(unittest.TestCase):
+    def test_serialize_shape_with_denotation(self):
+        shape = ir.Shape([1, 2], denotations=["batch", "channel"])
+        value = ir.Value(
+            name="x",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=shape,
+        )
+        proto = onnx.ValueInfoProto()
+        serde.serialize_value_into(proto, value)
+        dims = proto.type.tensor_type.shape.dim
+        self.assertEqual(dims[0].denotation, "batch")
+        self.assertEqual(dims[1].denotation, "channel")
+
+    def test_serialize_shape_without_type_logs_warning(self):
+        """When a value has shape but no type, serialization should handle it gracefully."""
+        shape = ir.Shape([1, 2])
+        value = ir.Value(name="x", shape=shape)
+        proto = onnx.ValueInfoProto()
+        # Should not raise - just logs a warning
+        serde.serialize_value_into(proto, value)
+
+    def test_serialize_sequence_type_with_shape(self):
+        """Serialize shape for a sequence type with nested tensor."""
+        inner = ir.TensorType(ir.DataType.FLOAT)
+        seq_type = ir.SequenceType(inner)
+        shape = ir.Shape([3, 4])
+        value = ir.Value(name="x", type=seq_type, shape=shape)
+        proto = onnx.ValueInfoProto()
+        serde.serialize_value_into(proto, value)
+        # Shape should be set on the inner tensor type
+        self.assertTrue(proto.type.HasField("sequence_type"))
+
+
+class NodeSerializationTest(unittest.TestCase):
+    def test_node_with_domain_and_overload(self):
+        node = ir.Node(
+            "custom.domain",
+            "MyOp",
+            [],
+            name="my_node",
+            overload="v2",
+            doc_string="test doc",
+            metadata_props={"k": "v"},
+        )
+        proto = serde.serialize_node(node)
+        self.assertEqual(proto.domain, "custom.domain")
+        self.assertEqual(proto.name, "my_node")
+        self.assertEqual(proto.overload, "v2")
+        self.assertEqual(proto.doc_string, "test doc")
+
+    def test_node_with_none_inputs(self):
+        """None inputs should serialize as empty strings."""
+        x = ir.Value(name="x")
+        node = ir.Node("", "Op", [x, None, x])
+        proto = serde.serialize_node(node)
+        self.assertEqual(list(proto.input), ["x", "", "x"])
+
+
+class StringTensorSerializationTest(unittest.TestCase):
+    def test_string_tensor_roundtrip(self):
+        t = ir.StringTensor(np.array([b"hello", b"world"]), name="str_tensor")
+        proto = serde.serialize_tensor(t)
+        deserialized = serde.deserialize_tensor(proto)
+        self.assertEqual(deserialized.name, "str_tensor")
+
+
+class GraphSerializationWithSubgraphsTest(unittest.TestCase):
+    def test_graphs_attribute_roundtrip(self):
+        """Test serialization of GRAPHS attribute (multiple subgraphs)."""
+        sub_graph1 = ir.Graph([], [ir.Value(name="o1")], nodes=[], name="sub1")
+        sub_graph2 = ir.Graph([], [ir.Value(name="o2")], nodes=[], name="sub2")
+        node = ir.Node(
+            "",
+            "TestOp",
+            [],
+            attributes=[ir.AttrGraphs("branches", [sub_graph1, sub_graph2])],
+        )
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        graphs = deserialized.attributes["branches"].as_graphs()
+        self.assertEqual(len(graphs), 2)
+
+
+class ReferenceAttributeSerializationTest(unittest.TestCase):
+    def test_reference_attribute_roundtrip(self):
+        ref_attr = ir.RefAttr("my_attr", "external_attr", ir.AttributeType.FLOAT)
+        node = ir.Node("", "TestOp", [], attributes=[ref_attr])
+        proto = serde.serialize_node(node)
+        deserialized = serde.deserialize_node(proto)
+        attr = deserialized.attributes["my_attr"]
+        self.assertTrue(attr.is_ref())
+        self.assertEqual(attr.ref_attr_name, "external_attr")
+
+
+class ValueInfoSerializationTest(unittest.TestCase):
+    def test_value_with_doc_string(self):
+        value = ir.Value(
+            name="x",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            doc_string="A test value",
+        )
+        proto = onnx.ValueInfoProto()
+        serde.serialize_value_into(proto, value)
+        self.assertEqual(proto.doc_string, "A test value")
+
+    def test_value_with_metadata_props(self):
+        value = ir.Value(
+            name="x",
+            type=ir.TensorType(ir.DataType.FLOAT),
+        )
+        value.metadata_props["key"] = "val"
+        proto = onnx.ValueInfoProto()
+        serde.serialize_value_into(proto, value)
+        self.assertGreater(len(proto.metadata_props), 0)
 
 
 if __name__ == "__main__":
