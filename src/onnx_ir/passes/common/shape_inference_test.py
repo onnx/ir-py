@@ -114,21 +114,21 @@ class TestShapeInferencePass(unittest.TestCase):
         self.assertEqual(len(result.model.graph.inputs), 2)
         self.assertEqual(len(result.model.graph.initializers), 2)
         np.testing.assert_array_equal(
-            result.model.graph.initializers["input_b"].const_value.numpy(),
+            result.model.graph.initializers.get_tensor("input_b").numpy(),
             np.array([[42]] * big_dim, dtype=np.float32),
             strict=True,
         )
         self.assertEqual(
-            result.model.graph.initializers["input_b"].const_value.dtype,
+            result.model.graph.initializers.get_tensor("input_b").dtype,
             ir.DataType.FLOAT,
         )
         np.testing.assert_array_equal(
-            result.model.graph.initializers["initializer"].const_value.numpy(),
+            result.model.graph.initializers.get_tensor("initializer").numpy(),
             np.array([[2.0, 3.0]], dtype=np.float32),
             strict=True,
         )
         self.assertEqual(
-            result.model.graph.initializers["initializer"].const_value.dtype,
+            result.model.graph.initializers.get_tensor("initializer").dtype,
             ir.DataType.FLOAT,
         )
 
@@ -176,7 +176,7 @@ class TestShapeInferencePass(unittest.TestCase):
         self.assertEqual(len(result.model.graph.initializers), 1)
         self.assertIn("W", result.model.graph.initializers)
         self.assertIs(result.model.graph.initializers["W"], weight)
-        self.assertIsNone(result.model.graph.initializers["W"].const_value)
+        self.assertIsNone(result.model.graph.initializers.get_tensor("W"))
 
 
 if __name__ == "__main__":

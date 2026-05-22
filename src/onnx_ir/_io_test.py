@@ -60,7 +60,7 @@ class IOFunctionsTest(unittest.TestCase):
         self.assertEqual(len(loaded_model.graph.initializers), 1)
         self.assertEqual(len(loaded_model.graph), 2)
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["initializer_0"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("initializer_0").numpy(),
             np.array([0.0]),
         )
         np.testing.assert_array_equal(
@@ -72,7 +72,7 @@ class IOFunctionsTest(unittest.TestCase):
 
     def test_save_with_external_data_does_not_modify_model(self):
         model = _create_simple_model_with_initializers()
-        self.assertIsInstance(model.graph.initializers["initializer_0"].const_value, ir.Tensor)
+        self.assertIsInstance(model.graph.initializers.get_tensor("initializer_0"), ir.Tensor)
         # There may be clean up errors on Windows, so we ignore them
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
@@ -84,7 +84,7 @@ class IOFunctionsTest(unittest.TestCase):
             loaded_model = _io.load(path)
 
             # The loaded model contains external data
-            initializer_tensor = loaded_model.graph.initializers["initializer_0"].const_value
+            initializer_tensor = loaded_model.graph.initializers.get_tensor("initializer_0")
             self.assertIsInstance(initializer_tensor, ir.ExternalTensor)
             # The attribute is not externalized
             const_attr_tensor = loaded_model.graph.node(1).attributes["value"].as_tensor()
@@ -94,7 +94,7 @@ class IOFunctionsTest(unittest.TestCase):
 
         # The original model is not changed and can be accessed even if the
         # external data file is deleted
-        initializer_tensor = model.graph.initializers["initializer_0"].const_value
+        initializer_tensor = model.graph.initializers.get_tensor("initializer_0")
         self.assertIsInstance(initializer_tensor, ir.Tensor)
         const_attr_tensor = model.graph.node(1).attributes["value"].as_tensor()
         self.assertIsInstance(const_attr_tensor, ir.Tensor)
@@ -111,7 +111,7 @@ class IOFunctionsTest(unittest.TestCase):
 
     def test_save_with_external_data_invalidates_obsolete_external_tensors(self):
         model = _create_simple_model_with_initializers()
-        self.assertIsInstance(model.graph.initializers["initializer_0"].const_value, ir.Tensor)
+        self.assertIsInstance(model.graph.initializers.get_tensor("initializer_0"), ir.Tensor)
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
             external_data_file = "model.data"
@@ -126,7 +126,7 @@ class IOFunctionsTest(unittest.TestCase):
             _io.save(
                 loaded_model, path, external_data=external_data_file, size_threshold_bytes=0
             )
-            initializer_0_tensor = loaded_model.graph.initializers["initializer_0"].const_value
+            initializer_0_tensor = loaded_model.graph.initializers.get_tensor("initializer_0")
             self.assertIsInstance(initializer_0_tensor, ir.ExternalTensor)
             self.assertFalse(initializer_0_tensor.valid())
             with self.assertRaisesRegex(ValueError, "is invalidated"):
