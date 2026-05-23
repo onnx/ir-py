@@ -11,7 +11,7 @@ import onnx
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir import _device_configurations, _version_utils, serde
+from onnx_ir import _multi_device, _version_utils, serde
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
@@ -1037,9 +1037,9 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
         model_proto.configuration.add(name="conf0", num_devices=2, device=["CPU", "CUDA:0"])
         model = serde.deserialize_model(model_proto)
         self.assertEqual(
-            model.model_configurations,
+            model.device_configurations,
             (
-                _device_configurations.ModelConfiguration(
+                _multi_device.ModelConfiguration(
                     name="conf0",
                     num_devices=2,
                     device=("CPU", "CUDA:0"),
@@ -1059,8 +1059,8 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
     )
     def test_model_configuration_from_dataclass(self):
         model = ir.Model(graph=ir.Graph([], [], nodes=[], name="g"), ir_version=11)
-        model.model_configurations = (
-            _device_configurations.ModelConfiguration(
+        model.device_configurations = (
+            _multi_device.ModelConfiguration(
                 name="conf0",
                 num_devices=2,
                 device=("CPU", "CUDA:0"),
@@ -1136,7 +1136,7 @@ class NodeSerializationTest(unittest.TestCase):
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )
-    def test_node_device_configurations_roundtrip(self):
+    def test_device_configurations_roundtrip(self):
         node_proto = onnx.helper.make_node("Relu", ["x"], ["y"], name="node")
         node_device_configuration = node_proto.device_configurations.add()
         node_device_configuration.configuration_id = "conf0"
@@ -1150,19 +1150,19 @@ class NodeSerializationTest(unittest.TestCase):
 
         node = serde.deserialize_node(node_proto)
         self.assertEqual(
-            node.node_device_configurations,
+            node.device_configurations,
             (
-                _device_configurations.NodeDeviceConfiguration(
+                _multi_device.NodeDeviceConfiguration(
                     configuration_id="conf0",
                     sharding_spec=(
-                        _device_configurations.ShardingSpec(
+                        _multi_device.ShardingSpec(
                             tensor_name="x",
                             device=(0, 1),
                             sharded_dim=(
-                                _device_configurations.ShardedDim(
+                                _multi_device.ShardedDim(
                                     axis=0,
                                     simple_sharding=(
-                                        _device_configurations.SimpleShardedDim(
+                                        _multi_device.SimpleShardedDim(
                                             dim=4,
                                             num_shards=2,
                                         ),
@@ -1189,26 +1189,26 @@ class NodeSerializationTest(unittest.TestCase):
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )
-    def test_node_device_configurations_from_dataclass(self):
+    def test_device_configurations_from_dataclass(self):
         node = ir.Node("", "Relu", [ir.Value(name="x")], outputs=[ir.Value(name="y")])
-        node.node_device_configurations = (
-            _device_configurations.NodeDeviceConfiguration(
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
                 configuration_id="conf0",
                 sharding_spec=(
-                    _device_configurations.ShardingSpec(
+                    _multi_device.ShardingSpec(
                         tensor_name="x",
                         device=(0, 1),
                         index_to_device_group_map=(
-                            _device_configurations.IndexToDeviceGroupMapEntry(
+                            _multi_device.IndexToDeviceGroupMapEntry(
                                 key=0,
                                 value=(0, 1),
                             ),
                         ),
                         sharded_dim=(
-                            _device_configurations.ShardedDim(
+                            _multi_device.ShardedDim(
                                 axis=0,
                                 simple_sharding=(
-                                    _device_configurations.SimpleShardedDim(
+                                    _multi_device.SimpleShardedDim(
                                         dim=ir.SymbolicDim("BATCH"),
                                         num_shards=2,
                                     ),

@@ -200,7 +200,7 @@ class Cloner:
             name=node.name,
             doc_string=node.doc_string,
             metadata_props=new_metadata,
-            node_device_configurations=node.node_device_configurations,
+            device_configurations=node.device_configurations,
         )
         if node.meta:
             self.clone_meta(node.meta, new_node.meta, deep_copy=deep_copy)

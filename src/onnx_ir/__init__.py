@@ -110,7 +110,7 @@ from onnx_ir import (
     tape,
     traversal,
 )
-from onnx_ir import _device_configurations as device_configurations
+from onnx_ir import _multi_device as device_configurations
 from onnx_ir._convenience._constructors import node, tensor, val
 from onnx_ir._core import (
     Attr,
@@ -154,7 +154,7 @@ from onnx_ir._enums import (
     AttributeType,
     DataType,
 )
-from onnx_ir._device_configurations import (
+from onnx_ir._multi_device import (
     IndexToDeviceGroupMapEntry,
     ModelConfiguration,
     NodeDeviceConfiguration,

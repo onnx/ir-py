@@ -68,7 +68,7 @@ if typing.TYPE_CHECKING:
     import numpy.typing as npt
     from typing_extensions import TypeGuard
 
-    from onnx_ir._device_configurations import ModelConfiguration, NodeDeviceConfiguration
+    from onnx_ir._multi_device import ModelConfiguration, NodeDeviceConfiguration
 
 TArrayCompatible = typing.TypeVar(
     "TArrayCompatible",
@@ -2022,7 +2022,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         "_overload",
         "_version",
         "doc_string",
-        "node_device_configurations",
+        "device_configurations",
     )
 
     def __init__(
@@ -2040,7 +2040,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         name: str | None = None,
         doc_string: str | None = None,
         metadata_props: dict[str, str] | None = None,
-        node_device_configurations: tuple[NodeDeviceConfiguration, ...] = (),
+        device_configurations: tuple[NodeDeviceConfiguration, ...] = (),
     ):
         """Initialize a node and add it as a user of the input values.
 
@@ -2061,7 +2061,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 set by a :class:`Graph` if ``graph`` is specified.
             doc_string: The documentation string.
             metadata_props: The metadata properties.
-            node_device_configurations: Multi-device configuration metadata for the node.
+            device_configurations: Multi-device configuration metadata for the node.
 
         Raises:
             TypeError: If the attributes are not :class:`Attr`.
@@ -2088,8 +2088,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         self._version: int | None = version
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
-        self.node_device_configurations: tuple[NodeDeviceConfiguration, ...] = (
-            node_device_configurations
+        self.device_configurations: tuple[NodeDeviceConfiguration, ...] = (
+            device_configurations
         )
         # _graph is set by graph.append
         self._graph: Graph | None = None
@@ -3934,7 +3934,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         "domain",
         "graph",
         "ir_version",
-        "model_configurations",
+        "device_configurations",
         "model_version",
         "producer_name",
         "producer_version",
@@ -3953,7 +3953,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: Documentation string.
         functions: The functions defined in the model.
         metadata_props: Metadata.
-        model_configurations: Multi-device configuration metadata for the model.
+        device_configurations: Multi-device configuration metadata for the model.
     """
 
     def __init__(
@@ -3968,7 +3968,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: str | None = None,
         functions: Sequence[Function] = (),
         metadata_props: dict[str, str] | None = None,
-        model_configurations: tuple[ModelConfiguration, ...] = (),
+        device_configurations: tuple[ModelConfiguration, ...] = (),
     ) -> None:
         self.graph: Graph = graph
         self.ir_version = ir_version
@@ -3980,7 +3980,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         self._functions = {func.identifier(): func for func in functions}
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
-        self.model_configurations: tuple[ModelConfiguration, ...] = model_configurations
+        self.device_configurations: tuple[ModelConfiguration, ...] = device_configurations
 
     @property
     def functions(self) -> dict[_protocols.OperatorIdentifier, Function]:
@@ -4085,7 +4085,7 @@ Model(
             doc_string=self.doc_string,
             functions=new_functions,
             metadata_props=dict(self.metadata_props),
-            model_configurations=self.model_configurations,
+            device_configurations=self.device_configurations,
         )
 
         return new_model

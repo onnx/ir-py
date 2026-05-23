@@ -5,7 +5,7 @@ import unittest
 import onnx
 
 import onnx_ir as ir
-from onnx_ir import _device_configurations
+from onnx_ir import _multi_device
 
 
 class DeviceConfigurationsTest(unittest.TestCase):
@@ -14,14 +14,14 @@ class DeviceConfigurationsTest(unittest.TestCase):
         "ModelProto.configuration is not available",
     )
     def test_model_configuration_serde_helpers_roundtrip(self):
-        configuration = _device_configurations.ModelConfiguration(
+        configuration = _multi_device.ModelConfiguration(
             name="conf0",
             num_devices=2,
             device=("CPU", "CUDA:0"),
         )
 
-        proto = _device_configurations.serialize_model_configuration(configuration)
-        result = _device_configurations.deserialize_model_configuration(proto)
+        proto = _multi_device.serialize_model_configuration(configuration)
+        result = _multi_device.deserialize_model_configuration(proto)
 
         self.assertEqual(result, configuration)
 
@@ -30,23 +30,23 @@ class DeviceConfigurationsTest(unittest.TestCase):
         "NodeProto.device_configurations is not available",
     )
     def test_node_device_configuration_serde_helpers_roundtrip(self):
-        node_device_configuration = _device_configurations.NodeDeviceConfiguration(
+        node_device_configuration = _multi_device.NodeDeviceConfiguration(
             configuration_id="conf0",
             sharding_spec=(
-                _device_configurations.ShardingSpec(
+                _multi_device.ShardingSpec(
                     tensor_name="x",
                     device=(0, 1),
                     index_to_device_group_map=(
-                        _device_configurations.IndexToDeviceGroupMapEntry(
+                        _multi_device.IndexToDeviceGroupMapEntry(
                             key=0,
                             value=(1, 0),
                         ),
                     ),
                     sharded_dim=(
-                        _device_configurations.ShardedDim(
+                        _multi_device.ShardedDim(
                             axis=0,
                             simple_sharding=(
-                                _device_configurations.SimpleShardedDim(
+                                _multi_device.SimpleShardedDim(
                                     dim=4,
                                     num_shards=2,
                                 ),
@@ -58,10 +58,10 @@ class DeviceConfigurationsTest(unittest.TestCase):
             pipeline_stage=1,
         )
 
-        proto = _device_configurations.serialize_node_device_configuration(
+        proto = _multi_device.serialize_node_device_configuration(
             node_device_configuration
         )
-        result = _device_configurations.deserialize_node_device_configuration(proto)
+        result = _multi_device.deserialize_node_device_configuration(proto)
 
         self.assertEqual(result, node_device_configuration)
 
@@ -71,17 +71,17 @@ class DeviceConfigurationsTest(unittest.TestCase):
     )
     def test_simple_sharded_dim_with_symbolic_dim(self):
         """SimpleShardedDim should round-trip a SymbolicDim."""
-        simple_dim = _device_configurations.SimpleShardedDim(
+        simple_dim = _multi_device.SimpleShardedDim(
             dim=ir.SymbolicDim("BATCH"),
             num_shards=2,
         )
-        node_device_configuration = _device_configurations.NodeDeviceConfiguration(
+        node_device_configuration = _multi_device.NodeDeviceConfiguration(
             configuration_id="conf0",
             sharding_spec=(
-                _device_configurations.ShardingSpec(
+                _multi_device.ShardingSpec(
                     tensor_name="x",
                     sharded_dim=(
-                        _device_configurations.ShardedDim(
+                        _multi_device.ShardedDim(
                             axis=0,
                             simple_sharding=(simple_dim,),
                         ),
@@ -90,9 +90,9 @@ class DeviceConfigurationsTest(unittest.TestCase):
             ),
         )
 
-        proto = _device_configurations.serialize_node_device_configuration(
+        proto = _multi_device.serialize_node_device_configuration(
             node_device_configuration
         )
-        result = _device_configurations.deserialize_node_device_configuration(proto)
+        result = _multi_device.deserialize_node_device_configuration(proto)
 
         self.assertEqual(result, node_device_configuration)

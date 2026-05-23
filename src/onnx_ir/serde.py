@@ -71,7 +71,7 @@ import numpy as np
 import onnx  # noqa: TID251
 import onnx.external_data_helper  # noqa: TID251
 
-from onnx_ir import _convenience, _core, _device_configurations, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _multi_device, _enums, _protocols, _type_casting
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
@@ -618,10 +618,10 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
     for func in proto.functions:
         functions.append(deserialize_function(func))
 
-    model_configurations: tuple[_device_configurations.ModelConfiguration, ...] = ()
+    device_configurations: tuple[_multi_device.ModelConfiguration, ...] = ()
     if hasattr(proto, "configuration") and proto.configuration:
-        model_configurations = tuple(
-            _device_configurations.deserialize_model_configuration(configuration)
+        device_configurations = tuple(
+            _multi_device.deserialize_model_configuration(configuration)
             for configuration in proto.configuration
         )
     model = _core.Model(
@@ -634,7 +634,7 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
         doc_string=_get_field(proto, "doc_string"),
         functions=functions,
         metadata_props=deserialize_metadata_props(proto.metadata_props),
-        model_configurations=model_configurations,
+        device_configurations=device_configurations,
     )
 
     # Handle experimental value info for functions created by the dynamo exporter in IR version 9
@@ -1338,10 +1338,10 @@ def _deserialize_node(
         )
         value = current_scope[output_name]
         node_outputs.append(value)
-    node_device_configurations: tuple[_device_configurations.NodeDeviceConfiguration, ...] = ()
+    node_multi_device: tuple[_multi_device.NodeDeviceConfiguration, ...] = ()
     if hasattr(proto, "device_configurations") and proto.device_configurations:
-        node_device_configurations = tuple(
-            _device_configurations.deserialize_node_device_configuration(device_configuration)
+        node_multi_device = tuple(
+            _multi_device.deserialize_node_device_configuration(device_configuration)
             for device_configuration in proto.device_configurations
         )
     node = _core.Node(
@@ -1354,7 +1354,7 @@ def _deserialize_node(
         name=proto.name,
         doc_string=_get_field(proto, "doc_string"),
         metadata_props=deserialize_metadata_props(proto.metadata_props),
-        node_device_configurations=node_device_configurations,
+        device_configurations=node_multi_device,
     )
     return node
 
@@ -1399,7 +1399,7 @@ def serialize_model_into(
     _serialize_opset_imports_into(model_proto.opset_import, from_.opset_imports)
     if from_.metadata_props:
         _serialize_metadata_props_into(model_proto.metadata_props, from_.metadata_props)
-    _serialize_model_configurations_into(model_proto, from_)
+    _serialize_device_configurations_into(model_proto, from_)
     serialize_graph_into(model_proto.graph, from_.graph)
 
     create_value_info_in_functions = from_.ir_version >= _FUNCTION_VALUE_INFO_SUPPORTED_VERSION
@@ -1415,22 +1415,22 @@ def serialize_model_into(
     return model_proto
 
 
-def _serialize_model_configurations_into(
+def _serialize_device_configurations_into(
     model_proto: onnx.ModelProto, from_: _protocols.ModelProtocol
 ) -> None:
     if not hasattr(model_proto, "configuration"):
         return
-    model_configurations = getattr(from_, "model_configurations", ())
-    if not model_configurations:
+    device_configurations = getattr(from_, "device_configurations", ())
+    if not device_configurations:
         return
-    for model_configuration in model_configurations:
+    for model_configuration in device_configurations:
         configuration_proto = model_proto.configuration.add()
         if isinstance(model_configuration, bytes):
             configuration_proto.ParseFromString(model_configuration)
             continue
-        if isinstance(model_configuration, _device_configurations.ModelConfiguration):
+        if isinstance(model_configuration, _multi_device.ModelConfiguration):
             configuration_proto.CopyFrom(
-                _device_configurations.serialize_model_configuration(model_configuration)
+                _multi_device.serialize_model_configuration(model_configuration)
             )
             continue
         if isinstance(model_configuration, onnx.DeviceConfigurationProto):
@@ -1782,28 +1782,28 @@ def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtoc
             serialize_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
         else:
             serialize_reference_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
-    _serialize_node_device_configurations_into(node_proto, from_)
+    _serialize_node_multi_device_into(node_proto, from_)
 
 
-def _serialize_node_device_configurations_into(
+def _serialize_node_multi_device_into(
     node_proto: onnx.NodeProto, from_: _protocols.NodeProtocol
 ) -> None:
     if not hasattr(node_proto, "device_configurations"):
         return
-    node_device_configurations = getattr(from_, "node_device_configurations", ())
-    if not node_device_configurations:
+    node_multi_device = getattr(from_, "device_configurations", ())
+    if not node_multi_device:
         return
-    for node_device_configuration in node_device_configurations:
+    for node_device_configuration in node_multi_device:
         device_configuration_proto = node_proto.device_configurations.add()
         if isinstance(node_device_configuration, bytes):
             device_configuration_proto.ParseFromString(node_device_configuration)
             continue
         if isinstance(
             node_device_configuration,
-            _device_configurations.NodeDeviceConfiguration,
+            _multi_device.NodeDeviceConfiguration,
         ):
             device_configuration_proto.CopyFrom(
-                _device_configurations.serialize_node_device_configuration(
+                _multi_device.serialize_node_device_configuration(
                     node_device_configuration
                 )
             )
