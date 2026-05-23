@@ -3603,6 +3603,59 @@ class AttrTest(unittest.TestCase):
         self.assertTrue(attr.meta.is_valid("source_file"))
 
 
+class SparseTensorTest(unittest.TestCase):
+    """Tests for SparseTensor.as_tensor()."""
+
+    def test_as_tensor_1d_linear_indices(self):
+        """as_tensor converts 1-D linear indices to a dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([1, 3], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+        dense = sparse.as_tensor()
+        expected = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32)
+        np.testing.assert_array_equal(dense.numpy(), expected)
+
+    def test_as_tensor_2d_per_dimension_indices(self):
+        """as_tensor converts 2-D per-dimension indices to a dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        # Shape [rank=2, NNZ=2]: positions [0,1] and [1,0]
+        indices = _core.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
+        dense = sparse.as_tensor()
+        expected = np.zeros((3, 3), dtype=np.float32)
+        expected[0, 1] = 1.0
+        expected[1, 0] = 2.0
+        np.testing.assert_array_equal(dense.numpy(), expected)
+
+    def test_as_tensor_lazy_returns_lazy_tensor(self):
+        """as_tensor(lazy=True) returns a LazyTensor with correct metadata."""
+        values = _core.Tensor(np.array([1.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([0], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[3])
+        lazy = sparse.as_tensor(lazy=True)
+        self.assertIsInstance(lazy, _core.LazyTensor)
+        self.assertEqual(lazy.dtype, ir.DataType.FLOAT)
+        self.assertEqual(list(lazy.shape), [3])
+
+    def test_as_tensor_lazy_computes_correctly(self):
+        """LazyTensor returned by as_tensor(lazy=True) evaluates to the same dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([1, 3], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+        eager = sparse.as_tensor()
+        lazy = sparse.as_tensor(lazy=True)
+        np.testing.assert_array_equal(lazy.numpy(), eager.numpy())
+
+    def test_as_tensor_dtype_preserved(self):
+        """as_tensor preserves the dtype of the values tensor."""
+        values = _core.Tensor(np.array([1, 2], dtype=np.int32))
+        indices = _core.Tensor(np.array([0, 2], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[4])
+        dense = sparse.as_tensor()
+        self.assertEqual(dense.dtype, ir.DataType.INT32)
+        np.testing.assert_array_equal(dense.numpy(), [1, 0, 2, 0])
+
+
 class LazyTensorTest(unittest.TestCase):
     def test_lazy_tensor_initialization(self):
         def tensor_fn():
