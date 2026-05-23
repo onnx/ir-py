@@ -1283,6 +1283,45 @@ class SparseTensorTest(unittest.TestCase):
         value = ir.Value(name="w", const_sparse_value=sparse)
         self.assertIsInstance(value.const_sparse_value, ir.SparseTensor)
 
+    def test_serializer_no_warning_for_sparse_initializer_without_const_value(self):
+        """Serializer should not warn when a sparse-typed initializer has no const_sparse_value."""
+        v = ir.Value(
+            None,
+            index=None,
+            name="sparse_x",
+            type=ir.SparseTensorType(ir.DataType.FLOAT),
+            shape=ir.Shape([3, 3]),
+        )
+        graph = ir.Graph(inputs=[], outputs=[], nodes=[], name="test")
+        graph.initializers["sparse_x"] = v
+        model = ir.Model(graph, ir_version=8)
+        with self.assertLogs("onnx_ir.serde", level="WARNING") as log_ctx:
+            # Generate an unrelated warning so assertLogs doesn't raise on no warnings
+            import logging
+
+            logging.getLogger("onnx_ir.serde").warning("sentinel")
+            serde.serialize_model(model)
+        # Only the sentinel warning should appear, not the "constant value" warning
+        warning_msgs = [r for r in log_ctx.output if "constant value" in r]
+        self.assertEqual(warning_msgs, [], "Unexpected warning for sparse-typed initializer")
+
+    def test_serializer_warns_for_dense_initializer_without_const_value(self):
+        """Serializer should warn when a dense-typed initializer has no const_value."""
+        v = ir.Value(
+            None,
+            index=None,
+            name="dense_x",
+            type=ir.TensorType(ir.DataType.FLOAT),
+            shape=ir.Shape([3]),
+        )
+        graph = ir.Graph(inputs=[], outputs=[], nodes=[], name="test")
+        graph.initializers["dense_x"] = v
+        model = ir.Model(graph, ir_version=8)
+        with self.assertLogs("onnx_ir.serde", level="WARNING") as log_ctx:
+            serde.serialize_model(model)
+        warning_msgs = [r for r in log_ctx.output if "constant value" in r]
+        self.assertGreater(len(warning_msgs), 0, "Expected a warning for dense initializer without const_value")
+
 
 if __name__ == "__main__":
     unittest.main()

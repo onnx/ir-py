@@ -1344,26 +1344,77 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
 
     def __init__(
         self,
-        values: _protocols.TensorProtocol,
-        indices: _protocols.TensorProtocol,
-        dims: Sequence[int],
+        values: _protocols.TensorProtocol | Any,
+        indices: _protocols.TensorProtocol | None = None,
+        dims: Sequence[int] | None = None,
         *,
+        name: str | None = None,
         doc_string: str | None = None,
         metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a sparse tensor.
 
+        The sparse tensor can be created in two ways:
+
+        1. From explicit COO components (``values``, ``indices``, ``dims``).
+        2. From a **scipy sparse array** (``scipy.sparse.sparray`` or
+           ``scipy.sparse.spmatrix``), in which case ``indices`` and ``dims``
+           are derived from the sparse array automatically.
+
         Args:
-            values: A tensor containing the non-zero values. The name of this tensor
-                is used as the name of the sparse tensor (per the ONNX specification).
-            indices: A tensor of ``INT64`` containing the indices of the non-zero values.
-            dims: The dense shape of the sparse tensor.
+            values: Either a :class:`TensorProtocol` containing the non-zero values,
+                or a scipy sparse array (any format; it will be converted to COO
+                internally).  When a :class:`TensorProtocol` is provided, ``indices``
+                and ``dims`` must also be given.  The name of the ``values`` tensor
+                is used as the name of the sparse tensor (per the ONNX specification)
+                unless ``name`` is explicitly supplied.
+            indices: A tensor of ``INT64`` containing the indices of the non-zero
+                values.  Required when ``values`` is a :class:`TensorProtocol`;
+                ignored when ``values`` is a scipy sparse array.
+            dims: The dense shape of the sparse tensor.  Required when ``values``
+                is a :class:`TensorProtocol``; inferred from the scipy array shape
+                otherwise.
+            name: Optional name for the sparse tensor.  When ``values`` is a
+                :class:`TensorProtocol`, this overrides the name stored on that
+                tensor.  When constructing from a scipy sparse array, this sets
+                the name on the internally created ``values`` tensor.
             doc_string: Optional documentation string.
             metadata_props: Optional metadata properties.
         """
-        self._values = values
-        self._indices = indices
-        self._dims: list[int] = list(dims)
+        try:
+            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
+
+            _is_scipy = isinstance(values, (_scipy_sparse.sparray, _scipy_sparse.spmatrix))
+        except ImportError:
+            _is_scipy = False
+
+        if _is_scipy:
+            # Convert scipy sparse to COO and extract components
+            coo = values.tocoo()  # type: ignore[union-attr]
+            data: np.ndarray = np.asarray(coo.data)
+            dtype = _enums.DataType.from_numpy(data.dtype)
+            coords = coo.coords  # tuple of per-dimension index arrays
+            indices_array = np.stack(coords, axis=0).astype(np.int64)
+            self._values: _protocols.TensorProtocol = Tensor(data, dtype, name=name)
+            self._indices: _protocols.TensorProtocol = Tensor(
+                indices_array, _enums.DataType.INT64
+            )
+            self._dims: list[int] = list(values.shape)  # type: ignore[union-attr]
+        else:
+            if not isinstance(values, _protocols.TensorProtocol):
+                raise TypeError(
+                    f"'values' must be a TensorProtocol or a scipy sparse array, got {type(values)!r}"
+                )
+            if indices is None:
+                raise TypeError("'indices' must be provided when 'values' is a TensorProtocol")
+            if dims is None:
+                raise TypeError("'dims' must be provided when 'values' is a TensorProtocol")
+            self._values = values
+            self._indices = indices
+            self._dims = list(dims)
+            if name is not None:
+                self._values.name = name  # type: ignore[misc]
+
         self._doc_string = doc_string
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
@@ -1422,6 +1473,60 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         if self._metadata is None:
             self._metadata = _metadata.MetadataStore()
         return self._metadata
+
+    def numpy(self) -> Any:
+        """Return the sparse tensor as a :class:`scipy.sparse.coo_array`.
+
+        The returned array has the same shape as :attr:`dims` and the same
+        element type as :attr:`values`.
+
+        Two index layouts are supported (following the ONNX specification):
+
+        * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
+          (C) order; these are converted to per-dimension coordinates via
+          :func:`numpy.unravel_index`.
+        * **2-D indices** (shape ``[rank, NNZ]``): per-dimension indices where
+          row *i* contains the index along dimension *i* for every non-zero.
+
+        Returns:
+            A ``scipy.sparse.coo_array`` with the non-zero data placed at the
+            corresponding coordinates.
+
+        Raises:
+            ImportError: If ``scipy`` is not installed.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import onnx_ir as ir
+            >>> values = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+            >>> indices = ir.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+            >>> sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
+            >>> sp = sparse.numpy()
+            >>> sp.toarray()
+            array([[0., 1., 0.],
+                   [2., 0., 0.],
+                   [0., 0., 0.]], dtype=float32)
+        """
+        try:
+            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "scipy is required for SparseTensor.numpy(). "
+                "Install it with 'pip install scipy'."
+            ) from e
+
+        values_array = self._values.numpy()
+        indices_array = self._indices.numpy()
+        if indices_array.ndim == 1:
+            # Linear (flat) indices → per-dimension coordinates
+            coords = np.unravel_index(indices_array, self._dims)
+        else:
+            # Shape [rank, NNZ] – each row is one dimension's indices
+            coords = tuple(indices_array[i] for i in range(indices_array.shape[0]))
+        return _scipy_sparse.coo_array(
+            (values_array, coords), shape=tuple(self._dims)
+        )
 
     def as_tensor(self, *, lazy: bool = False) -> "TensorBase":
         """Convert this sparse tensor to a dense :class:`Tensor`.
