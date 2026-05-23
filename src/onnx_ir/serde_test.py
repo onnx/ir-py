@@ -1236,7 +1236,9 @@ class NodeSerializationTest(unittest.TestCase):
             [0, 1],
         )
         self.assertEqual(result.sharding_spec[0].sharded_dim[0].axis, 0)
-        self.assertEqual(result.sharding_spec[0].sharded_dim[0].simple_sharding[0].dim_param, "BATCH")
+        self.assertEqual(
+            result.sharding_spec[0].sharded_dim[0].simple_sharding[0].dim_param, "BATCH"
+        )
 
 
 class StringTensorSerializationTest(unittest.TestCase):

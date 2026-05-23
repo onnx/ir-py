@@ -58,9 +58,7 @@ class DeviceConfigurationsTest(unittest.TestCase):
             pipeline_stage=1,
         )
 
-        proto = _multi_device.serialize_node_device_configuration(
-            node_device_configuration
-        )
+        proto = _multi_device.serialize_node_device_configuration(node_device_configuration)
         result = _multi_device.deserialize_node_device_configuration(proto)
 
         self.assertEqual(result, node_device_configuration)
@@ -90,9 +88,7 @@ class DeviceConfigurationsTest(unittest.TestCase):
             ),
         )
 
-        proto = _multi_device.serialize_node_device_configuration(
-            node_device_configuration
-        )
+        proto = _multi_device.serialize_node_device_configuration(node_device_configuration)
         result = _multi_device.deserialize_node_device_configuration(proto)
 
         self.assertEqual(result, node_device_configuration)

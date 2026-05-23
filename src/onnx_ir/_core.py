@@ -2088,9 +2088,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         self._version: int | None = version
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
-        self.device_configurations: tuple[NodeDeviceConfiguration, ...] = (
-            device_configurations
-        )
+        self.device_configurations: tuple[NodeDeviceConfiguration, ...] = device_configurations
         # _graph is set by graph.append
         self._graph: Graph | None = None
         # Add the node to the graph if graph is specified

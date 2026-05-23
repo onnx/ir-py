@@ -1803,9 +1803,7 @@ def _serialize_node_multi_device_into(
             _multi_device.NodeDeviceConfiguration,
         ):
             device_configuration_proto.CopyFrom(
-                _multi_device.serialize_node_device_configuration(
-                    node_device_configuration
-                )
+                _multi_device.serialize_node_device_configuration(node_device_configuration)
             )
             continue
         if isinstance(node_device_configuration, onnx.NodeDeviceConfigurationProto):

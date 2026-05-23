@@ -103,11 +103,15 @@ def _deserialize_simple_sharded_dim(proto: onnx.SimpleShardedDimProto) -> Simple
     )
 
 
-def _serialize_simple_sharded_dim(simple_sharding: SimpleShardedDim) -> onnx.SimpleShardedDimProto:
+def _serialize_simple_sharded_dim(
+    simple_sharding: SimpleShardedDim,
+) -> onnx.SimpleShardedDimProto:
     proto = onnx.SimpleShardedDimProto()
     if isinstance(simple_sharding.dim, int):
         proto.dim_value = simple_sharding.dim
-    elif isinstance(simple_sharding.dim, SymbolicDim) and simple_sharding.dim.value is not None:
+    elif (
+        isinstance(simple_sharding.dim, SymbolicDim) and simple_sharding.dim.value is not None
+    ):
         proto.dim_param = simple_sharding.dim.value
     proto.num_shards = simple_sharding.num_shards
     return proto
