@@ -3683,13 +3683,13 @@ class SparseTensorTest(unittest.TestCase):
         np.testing.assert_array_equal(result.toarray(), expected)
 
     def test_init_from_scipy_sparse(self):
-        """SparseTensor can be constructed from a scipy sparse array."""
+        """SparseTensor can be constructed via ir.tensor() from a scipy sparse array."""
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         data = np.array([1.0, 2.0], dtype=np.float32)
         coo = sp.coo_array((data, ([0, 1], [1, 0])), shape=(3, 3))
-        sparse = ir.SparseTensor(coo, name="test_sparse")
+        sparse = ir.tensor(coo, name="test_sparse")
         self.assertEqual(sparse.name, "test_sparse")
         self.assertEqual(sparse.dims, [3, 3])
         np.testing.assert_array_equal(sparse.values.numpy(), data)
@@ -3698,25 +3698,25 @@ class SparseTensorTest(unittest.TestCase):
         )
 
     def test_init_from_scipy_non_coo_format(self):
-        """SparseTensor construction from CSR and other scipy formats is supported."""
+        """ir.tensor() from CSR and other scipy formats is supported."""
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         csr = sp.eye(3, format="csr", dtype=np.float32)
-        sparse = ir.SparseTensor(csr)
+        sparse = ir.tensor(csr)
         self.assertEqual(sparse.dims, [3, 3])
         # Round-trip through numpy()
         result = sparse.numpy()
         np.testing.assert_array_equal(result.toarray(), np.eye(3, dtype=np.float32))
 
     def test_scipy_roundtrip(self):
-        """A scipy sparse array survives a SparseTensor round-trip."""
+        """A scipy sparse array survives a SparseTensor round-trip via ir.tensor()."""
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         data = np.array([3.0, 7.0], dtype=np.float64)
         original = sp.coo_array((data, ([0, 2], [1, 0])), shape=(4, 3))
-        sparse = ir.SparseTensor(original)
+        sparse = ir.tensor(original)
         roundtripped = sparse.numpy()
         np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
 
