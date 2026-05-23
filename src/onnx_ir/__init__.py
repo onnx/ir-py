@@ -8,7 +8,6 @@ __all__ = [
     "traversal",
     "convenience",
     "external_data",
-    "device_configurations",
     "tape",
     "schemas",
     # IR classes
@@ -110,7 +109,6 @@ from onnx_ir import (
     tape,
     traversal,
 )
-from onnx_ir import _multi_device as device_configurations
 from onnx_ir._convenience._constructors import node, tensor, val
 from onnx_ir._core import (
     Attr,
