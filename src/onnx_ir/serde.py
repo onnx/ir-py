@@ -71,7 +71,7 @@ import numpy as np
 import onnx  # noqa: TID251
 import onnx.external_data_helper  # noqa: TID251
 
-from onnx_ir import _convenience, _core, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _enums, _protocols, _type_casting, device_configurations
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
@@ -633,7 +633,8 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
     )
     if hasattr(proto, "configuration") and proto.configuration:
         model.meta[_MODEL_CONFIGURATION_FIELD] = tuple(
-            configuration.SerializeToString() for configuration in proto.configuration
+            device_configurations.deserialize_model_configuration(configuration)
+            for configuration in proto.configuration
         )
 
     # Handle experimental value info for functions created by the dynamo exporter in IR version 9
@@ -1350,7 +1351,7 @@ def _deserialize_node(
     )
     if hasattr(proto, "device_configurations") and proto.device_configurations:
         node.meta[_NODE_DEVICE_CONFIGURATIONS_FIELD] = tuple(
-            device_configuration.SerializeToString()
+            device_configurations.deserialize_node_device_configuration(device_configuration)
             for device_configuration in proto.device_configurations
         )
     return node
@@ -1425,11 +1426,17 @@ def _serialize_model_configurations_into(
         if isinstance(model_configuration, bytes):
             configuration_proto.ParseFromString(model_configuration)
             continue
+        if isinstance(model_configuration, device_configurations.ModelConfiguration):
+            configuration_proto.CopyFrom(
+                device_configurations.serialize_model_configuration(model_configuration)
+            )
+            continue
         if isinstance(model_configuration, onnx.DeviceConfigurationProto):
             configuration_proto.CopyFrom(model_configuration)
             continue
         raise TypeError(
-            f"Expected bytes or DeviceConfigurationProto for '{_MODEL_CONFIGURATION_FIELD}', "
+            "Expected bytes, ModelConfiguration, or DeviceConfigurationProto for "
+            f"'{_MODEL_CONFIGURATION_FIELD}', "
             f"got {type(model_configuration)}"
         )
 
@@ -1790,11 +1797,21 @@ def _serialize_node_device_configurations_into(
         if isinstance(node_device_configuration, bytes):
             device_configuration_proto.ParseFromString(node_device_configuration)
             continue
+        if isinstance(
+            node_device_configuration,
+            device_configurations.NodeDeviceConfiguration,
+        ):
+            device_configuration_proto.CopyFrom(
+                device_configurations.serialize_node_device_configuration(
+                    node_device_configuration
+                )
+            )
+            continue
         if isinstance(node_device_configuration, onnx.NodeDeviceConfigurationProto):
             device_configuration_proto.CopyFrom(node_device_configuration)
             continue
         raise TypeError(
-            "Expected bytes or NodeDeviceConfigurationProto for "
+            "Expected bytes, NodeDeviceConfiguration, or NodeDeviceConfigurationProto for "
             f"'{_NODE_DEVICE_CONFIGURATIONS_FIELD}', got {type(node_device_configuration)}"
         )
 
