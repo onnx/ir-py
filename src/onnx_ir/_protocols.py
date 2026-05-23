@@ -53,6 +53,8 @@ if typing.TYPE_CHECKING:
     import numpy as np
     from typing_extensions import TypeAlias
 
+    from onnx_ir._device_configurations import ModelConfiguration, NodeDeviceConfiguration
+
 # An identifier that will uniquely identify an operator. E.g (domain, op_type, overload)
 OperatorIdentifier: TypeAlias = tuple[str, str, str]
 
@@ -267,6 +269,7 @@ class NodeProtocol(Protocol):
     doc_string: str | None
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
+    node_device_configurations: tuple[NodeDeviceConfiguration, ...]
 
     def replace_input_with(self, index: int, value: ValueProtocol | None) -> None:
         """Set the input at the given index to the given value, replacing the original value."""
@@ -417,6 +420,7 @@ class ModelProtocol(Protocol):
     opset_imports: MutableMapping[str, int]
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
+    model_configurations: tuple[ModelConfiguration, ...]
 
 
 @typing.runtime_checkable

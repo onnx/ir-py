@@ -11,7 +11,7 @@ import onnx
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir import _version_utils, device_configurations, serde
+from onnx_ir import _device_configurations, _version_utils, serde
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
@@ -1037,9 +1037,9 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
         model_proto.configuration.add(name="conf0", num_devices=2, device=["CPU", "CUDA:0"])
         model = serde.deserialize_model(model_proto)
         self.assertEqual(
-            model.meta["model_configuration_protos"],
+            model.model_configurations,
             (
-                device_configurations.ModelConfiguration(
+                _device_configurations.ModelConfiguration(
                     name="conf0",
                     num_devices=2,
                     device=("CPU", "CUDA:0"),
@@ -1059,8 +1059,8 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
     )
     def test_model_configuration_from_dataclass(self):
         model = ir.Model(graph=ir.Graph([], [], nodes=[], name="g"), ir_version=11)
-        model.meta["model_configuration_protos"] = (
-            device_configurations.ModelConfiguration(
+        model.model_configurations = (
+            _device_configurations.ModelConfiguration(
                 name="conf0",
                 num_devices=2,
                 device=("CPU", "CUDA:0"),
@@ -1150,20 +1150,20 @@ class NodeSerializationTest(unittest.TestCase):
 
         node = serde.deserialize_node(node_proto)
         self.assertEqual(
-            node.meta["node_device_configuration_protos"],
+            node.node_device_configurations,
             (
-                device_configurations.NodeDeviceConfiguration(
+                _device_configurations.NodeDeviceConfiguration(
                     configuration_id="conf0",
                     sharding_spec=(
-                        device_configurations.ShardingSpec(
+                        _device_configurations.ShardingSpec(
                             tensor_name="x",
                             device=(0, 1),
                             sharded_dim=(
-                                device_configurations.ShardedDim(
+                                _device_configurations.ShardedDim(
                                     axis=0,
                                     simple_sharding=(
-                                        device_configurations.SimpleShardedDim(
-                                            dim_value=4,
+                                        _device_configurations.SimpleShardedDim(
+                                            dim=4,
                                             num_shards=2,
                                         ),
                                     ),
@@ -1191,25 +1191,25 @@ class NodeSerializationTest(unittest.TestCase):
     )
     def test_node_device_configurations_from_dataclass(self):
         node = ir.Node("", "Relu", [ir.Value(name="x")], outputs=[ir.Value(name="y")])
-        node.meta["node_device_configuration_protos"] = (
-            device_configurations.NodeDeviceConfiguration(
+        node.node_device_configurations = (
+            _device_configurations.NodeDeviceConfiguration(
                 configuration_id="conf0",
                 sharding_spec=(
-                    device_configurations.ShardingSpec(
+                    _device_configurations.ShardingSpec(
                         tensor_name="x",
                         device=(0, 1),
                         index_to_device_group_map=(
-                            device_configurations.IndexToDeviceGroupMapEntry(
+                            _device_configurations.IndexToDeviceGroupMapEntry(
                                 key=0,
                                 value=(0, 1),
                             ),
                         ),
                         sharded_dim=(
-                            device_configurations.ShardedDim(
+                            _device_configurations.ShardedDim(
                                 axis=0,
                                 simple_sharding=(
-                                    device_configurations.SimpleShardedDim(
-                                        dim_param="BATCH",
+                                    _device_configurations.SimpleShardedDim(
+                                        dim=ir.SymbolicDim("BATCH"),
                                         num_shards=2,
                                     ),
                                 ),

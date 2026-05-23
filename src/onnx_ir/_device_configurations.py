@@ -19,6 +19,8 @@ import dataclasses
 
 import onnx  # noqa: TID251
 
+from onnx_ir._core import SymbolicDim
+
 
 @dataclasses.dataclass(frozen=True)
 class ModelConfiguration:
@@ -35,8 +37,15 @@ class IndexToDeviceGroupMapEntry:
 
 @dataclasses.dataclass(frozen=True)
 class SimpleShardedDim:
-    dim_value: int | None = None
-    dim_param: str | None = None
+    """A dimension with a sharding specification.
+
+    The ``dim`` field represents the size of the dimension and follows the same
+    convention as :class:`onnx_ir.Shape` dimensions: an :class:`int` for a
+    fixed size, a :class:`~onnx_ir.SymbolicDim` for a symbolic/unknown size,
+    or ``None`` when the dimension is unspecified.
+    """
+
+    dim: int | SymbolicDim | None = None
     num_shards: int = 0
 
 
@@ -82,21 +91,24 @@ def serialize_model_configuration(
 
 
 def _deserialize_simple_sharded_dim(proto: onnx.SimpleShardedDimProto) -> SimpleShardedDim:
-    dim_value = proto.dim_value if proto.HasField("dim_value") else None
-    dim_param = proto.dim_param if proto.HasField("dim_param") else None
+    if proto.HasField("dim_value"):
+        dim: int | SymbolicDim | None = proto.dim_value
+    elif proto.HasField("dim_param"):
+        dim = SymbolicDim(proto.dim_param)
+    else:
+        dim = None
     return SimpleShardedDim(
-        dim_value=dim_value,
-        dim_param=dim_param,
+        dim=dim,
         num_shards=proto.num_shards,
     )
 
 
 def _serialize_simple_sharded_dim(simple_sharding: SimpleShardedDim) -> onnx.SimpleShardedDimProto:
     proto = onnx.SimpleShardedDimProto()
-    if simple_sharding.dim_value is not None:
-        proto.dim_value = simple_sharding.dim_value
-    if simple_sharding.dim_param is not None:
-        proto.dim_param = simple_sharding.dim_param
+    if isinstance(simple_sharding.dim, int):
+        proto.dim_value = simple_sharding.dim
+    elif isinstance(simple_sharding.dim, SymbolicDim) and simple_sharding.dim.value is not None:
+        proto.dim_param = simple_sharding.dim.value
     proto.num_shards = simple_sharding.num_shards
     return proto
 
