@@ -627,9 +627,7 @@ class ShardedExternalDataTest(unittest.TestCase):
             size_threshold_bytes=0,
             max_shard_size_bytes=500,
         )
-        shard_files = sorted(
-            f for f in os.listdir(self.base_path) if f.startswith("model-")
-        )
+        shard_files = sorted(f for f in os.listdir(self.base_path) if f.startswith("model-"))
         self.assertGreater(len(shard_files), 1, "Expected multiple shard files")
         # Check that each initializer points to a shard file
         for value in model.graph.initializers.values():

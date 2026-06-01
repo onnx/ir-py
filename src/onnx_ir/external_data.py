@@ -542,10 +542,14 @@ def unload_from_model(
         global_index = 0
 
         for shard_idx, shard_tensor_list in enumerate(tensor_shards, start=1):
-            shard_relative_path = _get_shard_filename(str(relative_path), shard_idx, total_shards)
+            shard_relative_path = _get_shard_filename(
+                str(relative_path), shard_idx, total_shards
+            )
 
             # Wrap the callback so that index/total reflect the global position across shards
-            shard_callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None
+            shard_callback: (
+                Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None
+            ) = None
             if callback is not None:
 
                 def _make_shard_callback(

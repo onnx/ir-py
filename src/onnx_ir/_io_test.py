@@ -103,18 +103,25 @@ class IOFunctionsTest(unittest.TestCase):
 
     def test_save_with_sharding_creates_multiple_shard_files(self):
         """Test that max_shard_size_bytes creates multiple numbered shard files."""
+
         # Build a model with 3 tensors, each ~400 bytes (100 float32 elements)
         def make_init(name: str, n: int) -> ir.Value:
             arr = np.zeros(n, dtype=np.float32)
             t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
-            return ir.Value(name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype))
+            return ir.Value(
+                name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)
+            )
 
         inits = [make_init(f"w{i}", 100) for i in range(3)]
         node = ir.Node("", "Identity", inputs=(inits[0],))
         node.outputs[0].name = "out"
         node.outputs[0].dtype = ir.DataType.FLOAT
         graph = ir.Graph(
-            inputs=inits, outputs=list(node.outputs), nodes=[node], initializers=inits, name="g"
+            inputs=inits,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=inits,
+            name="g",
         )
         model = ir.Model(graph, ir_version=10)
 
@@ -162,7 +169,6 @@ class IOFunctionsTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(tmpdir, "model.data")))
             shard_files = [f for f in os.listdir(tmpdir) if "of-" in f]
             self.assertEqual(shard_files, [], "Should not create numbered shard files")
-
 
         model = _create_simple_model_with_initializers()
         with tempfile.TemporaryDirectory() as tmpdir:
