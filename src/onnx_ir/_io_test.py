@@ -170,6 +170,7 @@ class IOFunctionsTest(unittest.TestCase):
             shard_files = [f for f in os.listdir(tmpdir) if "of-" in f]
             self.assertEqual(shard_files, [], "Should not create numbered shard files")
 
+    def test_save_raise_when_external_data_is_not_relative_path(self):
         model = _create_simple_model_with_initializers()
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
