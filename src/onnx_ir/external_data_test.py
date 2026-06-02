@@ -594,7 +594,7 @@ class ShardTensorsTest(unittest.TestCase):
         size_choices = [1, 100, threshold - 1, threshold, threshold + 1, 3 * threshold]
         rng = np.random.default_rng(0)
         for _ in range(500):
-            count = int(rng.integers(0, 8))
+            count = int(rng.integers(0, 100))
             tensors = [
                 self._make_tensor(f"t{i}", int(rng.choice(size_choices))) for i in range(count)
             ]

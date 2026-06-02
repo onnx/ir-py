@@ -32,6 +32,8 @@ _ALIGN_OFFSET = True
 _ALIGN_THRESHOLD = 1048576  # 1MB
 # allocation_granularity: The allocation Granularity for mmap() support. Typically 64KB for Windows & 4KB for other OSes.
 _ALLOCATION_GRANULARITY = 65536  # 64KB
+# The factor that tensor offsets are aligned to when alignment is enabled.
+_ALIGNMENT_FACTOR = max(4096, _ALLOCATION_GRANULARITY)
 
 
 logger = logging.getLogger(__name__)
@@ -185,8 +187,7 @@ class _ShardSizeAccumulator:
     def add(self, tensor: _protocols.TensorProtocol) -> None:
         size = tensor.nbytes
         if _ALIGN_OFFSET and size > _ALIGN_THRESHOLD:
-            alignment_factor = max(4096, _ALLOCATION_GRANULARITY)
-            padded = (size + alignment_factor - 1) // alignment_factor * alignment_factor
+            padded = (size + _ALIGNMENT_FACTOR - 1) // _ALIGNMENT_FACTOR * _ALIGNMENT_FACTOR
             self.sum_aligned += padded
             if size >= self.largest_aligned_raw:
                 self.largest_aligned_raw = size
@@ -199,11 +200,12 @@ class _ShardSizeAccumulator:
     def size(self) -> int:
         if not self.has_aligned:
             return self.sum_unaligned
-        alignment_factor = max(4096, _ALLOCATION_GRANULARITY)
         # The first aligned tensor pads the unaligned prefix up to an alignment
         # boundary; the largest aligned tensor is written last and is not padded.
         leading = (
-            (self.sum_unaligned + alignment_factor - 1) // alignment_factor * alignment_factor
+            (self.sum_unaligned + _ALIGNMENT_FACTOR - 1)
+            // _ALIGNMENT_FACTOR
+            * _ALIGNMENT_FACTOR
         )
         return (
             leading + self.sum_aligned - self.largest_aligned_padded + self.largest_aligned_raw
