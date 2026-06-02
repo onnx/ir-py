@@ -363,7 +363,7 @@ def _materialize_external_tensors_for_destination_paths(
             _paths_refer_to_same_file(tensor.path, destination_path)
             for destination_path in existing_destination_paths
         ):
-            # FIXME(shubhambhokare1): If there is a non-initializer tensor that
+            # TODO(justinchuby): If there is a non-initializer tensor that
             # is referring to this file, that tensor is now invalid.
             # This is a special case we are ok not handling right now.
             converted_tensors.append(_external_tensor_to_memory_tensor(tensor))
