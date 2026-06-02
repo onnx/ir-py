@@ -432,10 +432,8 @@ def _check_no_foreign_shard_collisions(
         listing = ", ".join(repr(p) for p in foreign)
         raise FileExistsError(
             "Refusing to overwrite existing external data file(s) that are not "
-            f"referenced by the model being saved: {listing}. Either delete "
-            "these files first, save into a clean directory, or load the model "
-            "with ir.load() before re-saving so the conflicting files are "
-            "recognized as part of this model."
+            f"referenced by the model being saved: {listing}. Delete the "
+            "conflicting files or save into a different directory."
         )
 
 
@@ -684,8 +682,8 @@ def unload_from_model(
             but is not referenced by an :class:`ExternalTensor` in the model
             being saved. This prevents silently overwriting another model's
             shard data that happens to share the same base name. Callers
-            should either save into a clean directory or load the model with
-            :func:`load` before re-saving.
+            should delete the conflicting files or save into a different
+            directory.
     """
     if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
         raise ValueError(
