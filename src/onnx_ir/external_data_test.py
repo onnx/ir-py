@@ -586,6 +586,26 @@ class ShardTensorsTest(unittest.TestCase):
         self.assertEqual(len(shards), 2)
         self.assertEqual([len(s) for s in shards], [1, 1])
 
+    def test_incremental_size_matches_reference_estimate(self):
+        # The incremental accumulator used by _shard_tensors must match the
+        # reference size simulation for arbitrary mixes of tensor sizes,
+        # especially around the alignment threshold.
+        threshold = external_data._ALIGN_THRESHOLD
+        size_choices = [1, 100, threshold - 1, threshold, threshold + 1, 3 * threshold]
+        rng = np.random.default_rng(0)
+        for _ in range(500):
+            count = int(rng.integers(0, 8))
+            tensors = [
+                self._make_tensor(f"t{i}", int(rng.choice(size_choices))) for i in range(count)
+            ]
+            accumulator = external_data._ShardSizeAccumulator()
+            for tensor in tensors:
+                accumulator.add(tensor)
+            self.assertEqual(
+                accumulator.size,
+                external_data._estimate_shard_size_bytes(tensors),
+            )
+
 
 class ShardedExternalDataTest(unittest.TestCase):
     """Integration tests for sharded ONNX external data via unload_from_model."""
@@ -734,6 +754,22 @@ class ShardedExternalDataTest(unittest.TestCase):
         self.assertTrue(all(i.total == 3 for i in infos))
         # indices should be 0, 1, 2 across all shards
         self.assertEqual(sorted(i.index for i in infos), [0, 1, 2])
+
+    def test_cleanup_removes_invalid_zero_indexed_shard_files(self):
+        # Shard indices are 1-indexed; a stray 0-indexed shard file is invalid
+        # and must be cleaned up.
+        stale = os.path.join(self.base_path, "model-00000-of-00001.data")
+        with open(stale, "wb") as f:
+            f.write(b"stale")
+        model, _ = self._make_model([100, 100])
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=10_000,
+        )
+        self.assertFalse(os.path.exists(stale))
 
 
 if __name__ == "__main__":

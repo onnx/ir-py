@@ -163,6 +163,53 @@ def _make_shard_callback(
     return _shard_callback
 
 
+@dataclasses.dataclass
+class _ShardSizeAccumulator:
+    """Incrementally track the on-disk size of a shard in O(1) per tensor.
+
+    The size matches :func:`_estimate_shard_size_bytes` (tensors written in
+    size-sorted order with offset alignment) but is maintained incrementally so
+    that sharding does not need to re-sort the shard on every tensor append.
+
+    Sorting tensors ascending by size places every unaligned tensor
+    (``nbytes <= _ALIGN_THRESHOLD``) before every aligned one, so the final size
+    only depends on a few running aggregates rather than the full ordering.
+    """
+
+    sum_unaligned: int = 0
+    sum_aligned: int = 0
+    largest_aligned_raw: int = 0
+    largest_aligned_padded: int = 0
+    has_aligned: bool = False
+
+    def add(self, tensor: _protocols.TensorProtocol) -> None:
+        size = tensor.nbytes
+        if _ALIGN_OFFSET and size > _ALIGN_THRESHOLD:
+            alignment_factor = max(4096, _ALLOCATION_GRANULARITY)
+            padded = (size + alignment_factor - 1) // alignment_factor * alignment_factor
+            self.sum_aligned += padded
+            if size >= self.largest_aligned_raw:
+                self.largest_aligned_raw = size
+                self.largest_aligned_padded = padded
+            self.has_aligned = True
+        else:
+            self.sum_unaligned += size
+
+    @property
+    def size(self) -> int:
+        if not self.has_aligned:
+            return self.sum_unaligned
+        alignment_factor = max(4096, _ALLOCATION_GRANULARITY)
+        # The first aligned tensor pads the unaligned prefix up to an alignment
+        # boundary; the largest aligned tensor is written last and is not padded.
+        leading = (
+            (self.sum_unaligned + alignment_factor - 1) // alignment_factor * alignment_factor
+        )
+        return (
+            leading + self.sum_aligned - self.largest_aligned_padded + self.largest_aligned_raw
+        )
+
+
 def _shard_tensors(
     tensors: Sequence[_protocols.TensorProtocol],
     max_shard_size_bytes: int,
@@ -182,6 +229,7 @@ def _shard_tensors(
         A list of tensor groups, one per shard.
     """
     shards: list[list[_protocols.TensorProtocol]] = [[]]
+    accumulator = _ShardSizeAccumulator()
 
     for tensor in tensors:
         if tensor.nbytes > max_shard_size_bytes:
@@ -191,12 +239,16 @@ def _shard_tensors(
                 tensor.nbytes,
                 max_shard_size_bytes,
             )
-        projected_shard_size = _estimate_shard_size_bytes([*shards[-1], tensor])
+        candidate = dataclasses.replace(accumulator)
+        candidate.add(tensor)
         # Start a new shard when the current one would be exceeded
         # (but never leave a shard empty).
-        if projected_shard_size > max_shard_size_bytes and len(shards[-1]) > 0:
+        if candidate.size > max_shard_size_bytes and len(shards[-1]) > 0:
             shards.append([])
-            projected_shard_size = _estimate_shard_size_bytes([tensor])
+            accumulator = _ShardSizeAccumulator()
+            accumulator.add(tensor)
+        else:
+            accumulator = candidate
 
         shards[-1].append(tensor)
 
@@ -260,32 +312,33 @@ def _estimate_shard_size_bytes(tensors: Sequence[_protocols.TensorProtocol]) -> 
     return current_offset
 
 
-def _normalize_existing_path(path: str | os.PathLike) -> str | None:
-    if not os.path.exists(path):
-        return None
-    return os.path.normcase(os.path.realpath(path))
+def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike) -> bool:
+    """Return True if both paths exist and refer to the same file.
+
+    Uses :func:`os.path.samefile` so that hard links and symlinks pointing to the
+    same underlying file are correctly detected.
+    """
+    try:
+        return os.path.samefile(path1, path2)
+    except OSError:
+        # One of the paths does not exist (or cannot be stat'd).
+        return False
 
 
 def _materialize_external_tensors_for_destination_paths(
     tensors: Sequence[_protocols.TensorProtocol],
     destination_paths: Sequence[str | os.PathLike],
 ) -> list[_protocols.TensorProtocol]:
-    normalized_destination_paths = {
-        normalized_path
-        for path in destination_paths
-        if (normalized_path := _normalize_existing_path(path)) is not None
-    }
-    if not normalized_destination_paths:
+    existing_destination_paths = [path for path in destination_paths if os.path.exists(path)]
+    if not existing_destination_paths:
         return list(tensors)
 
     converted_tensors: list[_protocols.TensorProtocol] = []
     for tensor in tensors:
-        normalized_tensor_path = (
-            _normalize_existing_path(tensor.path)
-            if isinstance(tensor, _core.ExternalTensor)
-            else None
-        )
-        if normalized_tensor_path in normalized_destination_paths:
+        if isinstance(tensor, _core.ExternalTensor) and any(
+            _paths_refer_to_same_file(tensor.path, destination_path)
+            for destination_path in existing_destination_paths
+        ):
             # FIXME(shubhambhokare1): If there is a non-initializer tensor that
             # is referring to this file, that tensor is now invalid.
             # This is a special case we are ok not handling right now.
@@ -325,7 +378,9 @@ def _cleanup_stale_shard_files(
             continue
         shard_index = int(match.group(1))
         shard_total = int(match.group(2))
-        if shard_total != total_shards or shard_index > total_shards:
+        # Remove shards from a different layout, out-of-range indices, and any
+        # invalid 0-indexed shard files (shard indices are 1-indexed).
+        if shard_total != total_shards or shard_index < 1 or shard_index > total_shards:
             os.remove(os.path.join(shard_dir, filename))
 
 
@@ -596,6 +651,7 @@ def unload_from_model(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
     )
 
+    external_tensors: list[_core.ExternalTensor]
     if max_shard_size_bytes is None:
         # No sharding: write all tensors to the single destination file
         external_tensors = convert_tensors_to_external(
@@ -626,7 +682,7 @@ def unload_from_model(
         )
         _cleanup_stale_shard_files(base_dir, relative_path, total_shards)
 
-        external_tensors: list[_core.ExternalTensor] = []
+        external_tensors = []
         global_index = 0
 
         for shard_relative_path, shard_tensor_count in zip(
