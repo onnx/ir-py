@@ -99,17 +99,24 @@ def save(
             files (e.g. ``model-00001-of-00003.data``). Because the ONNX format stores
             ``location``, ``offset``, and ``length`` per tensor, no separate index file is
             created — the saved ONNX proto itself encodes which shard each tensor lives in.
+            If a single tensor is larger than this value, it is written in its own oversized
+            shard file.
             Effective only when ``external_data`` is set.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes.
 
     Raises:
         ValueError: If the external data path is an absolute path.
+        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
     """
     if external_data is not None:
         if os.path.isabs(external_data):
             raise ValueError(
                 f"The external data path must be relative to the ONNX file path, not '{external_data}'."
+            )
+        if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
+            raise ValueError(
+                f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
             )
         base_dir = os.path.dirname(path)
 

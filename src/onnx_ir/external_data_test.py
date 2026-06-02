@@ -524,6 +524,12 @@ class ShardFilenameTest(unittest.TestCase):
             "model-00002-of-00005",
         )
 
+    def test_filename_with_dotted_directory_and_no_extension(self):
+        self.assertEqual(
+            external_data._get_shard_filename("my.dir/model", 2, 5),
+            os.path.join("my.dir", "model-00002-of-00005"),
+        )
+
     def test_five_digit_padding(self):
         result = external_data._get_shard_filename("weights.bin", 42, 100)
         self.assertEqual(result, "weights-00042-of-00100.bin")
@@ -564,10 +570,12 @@ class ShardTensorsTest(unittest.TestCase):
     def test_tensor_larger_than_limit_gets_its_own_shard(self):
         t_big = self._make_tensor("big", 2000)
         t_small = self._make_tensor("small", 100)
-        shards = external_data._shard_tensors([t_big, t_small], 500)
+        with self.assertLogs(external_data.logger, level="WARNING") as logs:
+            shards = external_data._shard_tensors([t_big, t_small], 500)
         self.assertEqual(len(shards), 2)
         self.assertIs(shards[0][0], t_big)
         self.assertIs(shards[1][0], t_small)
+        self.assertRegex(logs.output[0], r"exceeds max_shard_size_bytes")
 
     def test_sharding_accounts_for_alignment(self):
         t0 = self._make_tensor("t0", external_data._ALIGN_THRESHOLD + 4)
@@ -675,6 +683,17 @@ class ShardedExternalDataTest(unittest.TestCase):
             t = value.const_value
             self.assertIsInstance(t, ir.ExternalTensor)
             self.assertEqual(t.location, "model.data")
+
+    def test_sharding_limit_must_be_positive(self):
+        model, _ = self._make_model([100, 100])
+        with self.assertRaisesRegex(ValueError, "max_shard_size_bytes must be greater than 0"):
+            external_data.unload_from_model(
+                model,
+                self.base_path,
+                "model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=0,
+            )
 
     def test_model_unchanged_after_unload_and_load(self):
         model, _ = self._make_model([400, 400, 400])

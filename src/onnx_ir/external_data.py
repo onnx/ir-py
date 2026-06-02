@@ -18,6 +18,7 @@ __all__ = [
 import dataclasses
 import logging
 import os
+import re
 from collections.abc import Iterator, Sequence
 
 from onnx_ir import _core, _enums, _protocols
@@ -132,16 +133,34 @@ def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> st
     if total_shards == 1:
         return base_name
 
-    # Extract extension
-    if "." in base_name:
-        name, ext = base_name.rsplit(".", 1)
-        ext = f".{ext}"
-    else:
-        name = base_name
-        ext = ""
+    dir_name, filename = os.path.split(base_name)
+    name, ext = os.path.splitext(filename)
 
     # Always use 5 digits to follow transformers convention
-    return f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
+    shard_filename = f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
+    return os.path.join(dir_name, shard_filename) if dir_name else shard_filename
+
+
+def _make_shard_callback(
+    callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
+    total: int,
+    index_offset: int,
+) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
+    def _shard_callback(
+        tensor: _protocols.TensorProtocol,
+        info: CallbackInfo,
+    ) -> None:
+        callback(
+            tensor,
+            CallbackInfo(
+                total=total,
+                index=index_offset + info.index,
+                offset=info.offset,
+                filename=info.filename,
+            ),
+        )
+
+    return _shard_callback
 
 
 def _shard_tensors(
@@ -163,18 +182,23 @@ def _shard_tensors(
         A list of tensor groups, one per shard.
     """
     shards: list[list[_protocols.TensorProtocol]] = [[]]
-    current_shard_size = 0
 
     for tensor in tensors:
+        if tensor.nbytes > max_shard_size_bytes:
+            logger.warning(
+                "Tensor %s (%d bytes) exceeds max_shard_size_bytes=%d and will be written in an oversized shard.",
+                tensor.name,
+                tensor.nbytes,
+                max_shard_size_bytes,
+            )
         projected_shard_size = _estimate_shard_size_bytes([*shards[-1], tensor])
         # Start a new shard when the current one would be exceeded
         # (but never leave a shard empty).
-        if projected_shard_size > max_shard_size_bytes and current_shard_size > 0:
+        if projected_shard_size > max_shard_size_bytes and len(shards[-1]) > 0:
             shards.append([])
             projected_shard_size = _estimate_shard_size_bytes([tensor])
 
         shards[-1].append(tensor)
-        current_shard_size = projected_shard_size
 
     return shards
 
@@ -234,6 +258,75 @@ def _estimate_shard_size_bytes(tensors: Sequence[_protocols.TensorProtocol]) -> 
         current_offset = _compute_new_offset(current_offset, tensor.nbytes)
         current_offset += tensor.nbytes
     return current_offset
+
+
+def _normalize_existing_path(path: str | os.PathLike) -> str | None:
+    if not os.path.exists(path):
+        return None
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _materialize_external_tensors_for_destination_paths(
+    tensors: Sequence[_protocols.TensorProtocol],
+    destination_paths: Sequence[str | os.PathLike],
+) -> list[_protocols.TensorProtocol]:
+    normalized_destination_paths = {
+        normalized_path
+        for path in destination_paths
+        if (normalized_path := _normalize_existing_path(path)) is not None
+    }
+    if not normalized_destination_paths:
+        return list(tensors)
+
+    converted_tensors: list[_protocols.TensorProtocol] = []
+    for tensor in tensors:
+        normalized_tensor_path = (
+            _normalize_existing_path(tensor.path)
+            if isinstance(tensor, _core.ExternalTensor)
+            else None
+        )
+        if normalized_tensor_path in normalized_destination_paths:
+            # FIXME(shubhambhokare1): If there is a non-initializer tensor that
+            # is referring to this file, that tensor is now invalid.
+            # This is a special case we are ok not handling right now.
+            converted_tensors.append(_external_tensor_to_memory_tensor(tensor))
+            # Mark the original external tensor as invalid because it is now pointing
+            # to a file that is going to be overwritten.
+            tensor.invalidate()
+            logger.warning(
+                "External tensor %s is referring to the destination path. "
+                "It has been invalidated because the data file is changed. To avoid this, "
+                "save the external data to a different path or load the newly saved model back "
+                "with ir.load().",
+                tensor,
+            )
+        else:
+            converted_tensors.append(tensor)
+
+    return converted_tensors
+
+
+def _cleanup_stale_shard_files(
+    base_dir: str | os.PathLike,
+    relative_path: str | os.PathLike,
+    total_shards: int,
+) -> None:
+    path_str = str(relative_path)
+    dir_name, file_name = os.path.split(path_str)
+    stem, ext = os.path.splitext(file_name)
+    shard_dir = os.path.join(base_dir, dir_name) if dir_name else str(base_dir)
+    if not os.path.isdir(shard_dir):
+        return
+
+    shard_pattern = re.compile(rf"^{re.escape(stem)}-(\d{{5}})-of-(\d{{5}}){re.escape(ext)}$")
+    for filename in os.listdir(shard_dir):
+        match = shard_pattern.match(filename)
+        if match is None:
+            continue
+        shard_index = int(match.group(1))
+        shard_total = int(match.group(2))
+        if shard_total != total_shards or shard_index > total_shards:
+            os.remove(os.path.join(shard_dir, filename))
 
 
 def _compute_external_data_info(
@@ -369,34 +462,7 @@ def convert_tensors_to_external(
         should match the input tensor order.
     """
     path = os.path.join(base_dir, relative_path)
-
-    # Check if output path exists. Load pre-existing external data if it does.
-    if os.path.exists(path):
-        # Check if any tensor provided is using the destination file
-        new_tensors = []
-        for tensor in tensors:
-            if (
-                isinstance(tensor, _core.ExternalTensor)
-                and os.path.exists(tensor.path)
-                and os.path.samefile(path, tensor.path)
-            ):
-                # FIXME(shubhambhokare1): If there is a non-initializer tensor that
-                # is referring to this file, that tensor is now invalid.
-                # This is a special case we are ok not handling right now.
-                new_tensors.append(_external_tensor_to_memory_tensor(tensor))
-                # Mark the original external tensor as invalid because it is now pointing
-                # to a file that is going to be overwritten.
-                tensor.invalidate()
-                logger.warning(
-                    "External tensor %s is referring to the same file as the destination path. "
-                    "It has been invalidated because the data file is changed. To avoid this, "
-                    "save the external data to a different path or load the newly saved model back "
-                    "with ir.load().",
-                    tensor,
-                )
-            else:
-                new_tensors.append(tensor)
-        tensors = new_tensors
+    tensors = _materialize_external_tensors_for_destination_paths(tensors, [path])
 
     external_data_infos: list[_ExternalDataInfo] = []
     # Sort all tensors based on tensor sizes, in order to avoid unnecessary alignment.
@@ -492,14 +558,24 @@ def unload_from_model(
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
             ``relative_path``.  When set, tensors are written to multiple numbered shard
-            files.
+            files. If a single tensor is larger than this value, that tensor is written
+            in its own oversized shard.
         callback: A callback function that is called for each tensor that is saved to external data
-            for debugging or logging purposes.
+            for debugging or logging purposes. Under sharding the callback index reflects
+            each shard's size-sorted write order while remaining globally contiguous.
 
     Returns:
         An ir.Model with all initializer data equal or above ``size_threshold_bytes``
         converted to external tensors.
+
+    Raises:
+        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
     """
+    if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
+        raise ValueError(
+            f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
+        )
+
     # In-memory or external tensors, if equal to or above the threshold, should be converted to or re-saved as external tensors
     initializers_to_become_external = []
     # Existing external tensors, if below the threshold, should be loaded to memory
@@ -537,55 +613,46 @@ def unload_from_model(
         tensor_shards = _shard_tensors(tensors_to_externalize, max_shard_size_bytes)
         total_shards = len(tensor_shards)
         total_tensors = len(tensors_to_externalize)
+        shard_relative_paths = [
+            _get_shard_filename(str(relative_path), shard_idx, total_shards)
+            for shard_idx in range(1, total_shards + 1)
+        ]
+        destination_paths = [
+            os.path.join(base_dir, shard_relative_path)
+            for shard_relative_path in shard_relative_paths
+        ]
+        tensors_to_externalize = _materialize_external_tensors_for_destination_paths(
+            tensors_to_externalize, destination_paths
+        )
+        _cleanup_stale_shard_files(base_dir, relative_path, total_shards)
 
-        external_tensors_list: list[_core.ExternalTensor] = []
+        external_tensors: list[_core.ExternalTensor] = []
         global_index = 0
 
-        for shard_idx, shard_tensor_list in enumerate(tensor_shards, start=1):
-            shard_relative_path = _get_shard_filename(
-                str(relative_path), shard_idx, total_shards
-            )
-
+        for shard_relative_path, shard_tensor_count in zip(
+            shard_relative_paths,
+            [len(shard) for shard in tensor_shards],
+            strict=True,
+        ):
+            shard_tensors = tensors_to_externalize[
+                global_index : global_index + shard_tensor_count
+            ]
             # Wrap the callback so that index/total reflect the global position across shards
             shard_callback: (
                 Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None
             ) = None
             if callback is not None:
-
-                def _make_shard_callback(
-                    _cb: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
-                    _total: int,
-                    _offset: int,
-                ) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
-                    def _shard_cb(
-                        tensor: _protocols.TensorProtocol,
-                        info: CallbackInfo,
-                    ) -> None:
-                        _cb(
-                            tensor,
-                            CallbackInfo(
-                                total=_total,
-                                index=_offset + info.index,
-                                offset=info.offset,
-                                filename=info.filename,
-                            ),
-                        )
-
-                    return _shard_cb
-
                 shard_callback = _make_shard_callback(callback, total_tensors, global_index)
 
             shard_external_tensors = convert_tensors_to_external(
-                shard_tensor_list,
+                shard_tensors,
                 base_dir=base_dir,
                 relative_path=shard_relative_path,
                 callback=shard_callback,
             )
 
-            external_tensors_list.extend(shard_external_tensors)
-            global_index += len(shard_tensor_list)
-
-        external_tensors = external_tensors_list
+            external_tensors.extend(shard_external_tensors)
+            global_index += shard_tensor_count
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(

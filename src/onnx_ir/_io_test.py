@@ -178,6 +178,118 @@ class IOFunctionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _io.save(model, path, external_data=external_data_file)
 
+    def test_save_raise_when_max_shard_size_bytes_is_not_positive(self):
+        model = _create_simple_model_with_initializers()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            with self.assertRaisesRegex(
+                ValueError, "max_shard_size_bytes must be greater than 0"
+            ):
+                _io.save(
+                    model,
+                    path,
+                    external_data="model.data",
+                    size_threshold_bytes=0,
+                    max_shard_size_bytes=0,
+                )
+
+    def test_save_with_sharding_removes_stale_shard_files(self):
+        def make_init(name: str, n: int) -> ir.Value:
+            arr = np.zeros(n, dtype=np.float32)
+            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
+            return ir.Value(
+                name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)
+            )
+
+        inits = [make_init(f"w{i}", 100) for i in range(3)]
+        node = ir.Node("", "Identity", inputs=(inits[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+        graph = ir.Graph(
+            inputs=inits,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=inits,
+            name="g",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=400,
+            )
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "model-00003-of-00003.data")))
+
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=10_000_000,
+            )
+            stale_shards = [
+                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
+            ]
+            self.assertEqual(stale_shards, [])
+
+    def test_save_loaded_sharded_model_with_different_limit_preserves_data(self):
+        def make_init(name: str, n: int) -> tuple[ir.Value, np.ndarray]:
+            arr = np.arange(n, dtype=np.float32)
+            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
+            value = ir.Value(
+                name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)
+            )
+            return value, arr
+
+        init_0, arr_0 = make_init("w0", 150)  # 600 bytes
+        init_1, arr_1 = make_init("w1", 100)  # 400 bytes
+        init_2, arr_2 = make_init("w2", 100)  # 400 bytes
+        inits = [init_0, init_1, init_2]
+        node = ir.Node("", "Identity", inputs=(inits[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+        graph = ir.Graph(
+            inputs=inits,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=inits,
+            name="g",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=1000,
+            )
+            loaded = _io.load(path)
+            _io.save(
+                loaded,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=800,
+            )
+            reloaded = _io.load(path)
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w0"].const_value.numpy(), arr_0
+            )
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w1"].const_value.numpy(), arr_1
+            )
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w2"].const_value.numpy(), arr_2
+            )
+
     def test_save_with_external_data_invalidates_obsolete_external_tensors(self):
         model = _create_simple_model_with_initializers()
         self.assertIsInstance(model.graph.initializers["initializer_0"].const_value, ir.Tensor)
