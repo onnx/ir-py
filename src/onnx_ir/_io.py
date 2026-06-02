@@ -108,7 +108,13 @@ def save(
     Raises:
         ValueError: If the external data path is an absolute path.
         ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        ValueError: If ``max_shard_size_bytes`` is set without ``external_data``.
     """
+    if max_shard_size_bytes is not None and external_data is None:
+        raise ValueError(
+            "max_shard_size_bytes can only be used together with external_data; "
+            "set external_data to the relative path where shards should be written."
+        )
     if external_data is not None:
         if os.path.isabs(external_data):
             raise ValueError(

@@ -193,6 +193,15 @@ class IOFunctionsTest(unittest.TestCase):
                     max_shard_size_bytes=0,
                 )
 
+    def test_save_raise_when_max_shard_size_bytes_without_external_data(self):
+        model = _create_simple_model_with_initializers()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            with self.assertRaisesRegex(
+                ValueError, "max_shard_size_bytes can only be used together with external_data"
+            ):
+                _io.save(model, path, max_shard_size_bytes=1024)
+
     def test_save_with_sharding_removes_stale_shard_files(self):
         def make_init(name: str, n: int) -> ir.Value:
             arr = np.zeros(n, dtype=np.float32)
