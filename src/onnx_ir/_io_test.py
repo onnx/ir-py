@@ -202,38 +202,43 @@ class IOFunctionsTest(unittest.TestCase):
             ):
                 _io.save(model, path, max_shard_size_bytes=1024)
 
-    def test_save_with_sharding_removes_stale_shard_files(self):
-        def make_init(name: str, n: int) -> ir.Value:
-            arr = np.zeros(n, dtype=np.float32)
-            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
-            return ir.Value(
-                name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)
-            )
-
-        inits = [make_init(f"w{i}", 100) for i in range(3)]
-        node = ir.Node("", "Identity", inputs=(inits[0],))
-        node.outputs[0].name = "out"
-        node.outputs[0].dtype = ir.DataType.FLOAT
-        graph = ir.Graph(
-            inputs=inits,
-            outputs=list(node.outputs),
-            nodes=[node],
-            initializers=inits,
-            name="g",
-        )
-        model = ir.Model(graph, ir_version=10)
-
+    def test_save_sharded_raises_on_foreign_shard_collision(self):
+        # The sharded write path refuses to silently clobber existing shard
+        # files that aren't already part of the model being saved. This is
+        # what enforces "the user knows whose files live in this directory"
+        # without bringing back the (very error-prone) stem-based cleanup.
+        # 2 initializers + max_shard_size_bytes=200 forces a 2-shard layout
+        # whose first shard collides with the foreign file below.
+        model, _arrs = self._make_sharded_test_model([100, 100])
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            foreign = os.path.join(tmpdir, "model-00001-of-00002.data")
+            with open(foreign, "wb") as f:
+                f.write(b"foreign")
             path = os.path.join(tmpdir, "model.onnx")
-            _io.save(
-                model,
-                path,
-                external_data="model.data",
-                size_threshold_bytes=0,
-                max_shard_size_bytes=400,
-            )
-            self.assertTrue(os.path.exists(os.path.join(tmpdir, "model-00003-of-00003.data")))
+            with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+                _io.save(
+                    model,
+                    path,
+                    external_data="model.data",
+                    size_threshold_bytes=0,
+                    max_shard_size_bytes=200,
+                )
+            # The foreign file must remain untouched after the raise.
+            with open(foreign, "rb") as f:
+                self.assertEqual(f.read(), b"foreign")
 
+    def test_save_sharded_does_not_raise_on_unrelated_shard_files(self):
+        # An unrelated model's shards sitting in the same directory but
+        # with *different* filenames must not block our save.
+        model = _create_simple_model_with_initializers()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            unrelated = [
+                os.path.join(tmpdir, f"other-{i:05d}-of-00009.data") for i in range(1, 10)
+            ]
+            for p in unrelated:
+                with open(p, "wb") as f:
+                    f.write(b"unrelated")
+            path = os.path.join(tmpdir, "model.onnx")
             _io.save(
                 model,
                 path,
@@ -241,10 +246,8 @@ class IOFunctionsTest(unittest.TestCase):
                 size_threshold_bytes=0,
                 max_shard_size_bytes=10_000_000,
             )
-            stale_shards = [
-                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
-            ]
-            self.assertEqual(stale_shards, [])
+            for p in unrelated:
+                self.assertTrue(os.path.exists(p))
 
     def test_save_loaded_sharded_model_with_different_limit_preserves_data(self):
         def make_init(name: str, n: int) -> tuple[ir.Value, np.ndarray]:
@@ -327,12 +330,11 @@ class IOFunctionsTest(unittest.TestCase):
 
     def test_resave_loaded_model_with_changed_shard_count_preserves_data(self):
         # Round-2 regression: re-saving a loaded sharded model with a *different*
-        # shard count used to crash with FileNotFoundError because
-        # _materialize_external_tensors_for_destination_paths only protected
-        # tensors matching a new destination path, and the old shards (under
-        # different names) were deleted before being read.
-        # Save 4 tensors of 125 floats each (500 bytes each) -> 4 shards at
-        # max_shard_size_bytes=500, then re-save at 1500 -> ~2 shards.
+        # shard count used to crash with FileNotFoundError because the old
+        # shards (under different names) got deleted before being read. With
+        # the simplified contract there is no automatic cleanup at all, so the
+        # old shard files remain on disk as garbage — but the new save still
+        # succeeds and the data round-trips cleanly via ir.load.
         model, arrs = self._make_sharded_test_model([125, 125, 125, 125])
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
@@ -343,10 +345,6 @@ class IOFunctionsTest(unittest.TestCase):
                 size_threshold_bytes=0,
                 max_shard_size_bytes=500,
             )
-            first_layout = sorted(
-                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
-            )
-            self.assertGreaterEqual(len(first_layout), 2)
             loaded = _io.load(path)
             _io.save(
                 loaded,
@@ -355,16 +353,6 @@ class IOFunctionsTest(unittest.TestCase):
                 size_threshold_bytes=0,
                 max_shard_size_bytes=1500,
             )
-            second_layout = sorted(
-                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
-            )
-            self.assertNotEqual(first_layout, second_layout)
-            # Old layout's shard files must be gone (stale cleanup) and
-            # no old-layout shard should survive into the new layout's
-            # filename set.
-            for old_name in first_layout:
-                if old_name not in second_layout:
-                    self.assertFalse(os.path.exists(os.path.join(tmpdir, old_name)))
             reloaded = _io.load(path)
             for i, expected in enumerate(arrs):
                 np.testing.assert_array_equal(
@@ -372,8 +360,10 @@ class IOFunctionsTest(unittest.TestCase):
                 )
 
     def test_resave_loaded_sharded_model_as_single_file_preserves_data(self):
-        # sharded -> non-sharded transition: stale ``-of-`` files must be
-        # cleaned up and the single ``model.data`` written successfully.
+        # sharded -> non-sharded (max_shard_size_bytes=None) transition. The
+        # single-file write path is permissive and just overwrites model.data;
+        # old shard files remain (cleanup is the caller's responsibility), but
+        # the round-tripped data must be correct.
         model, arrs = self._make_sharded_test_model([100, 100, 100])
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
@@ -391,10 +381,6 @@ class IOFunctionsTest(unittest.TestCase):
                 external_data="model.data",
                 size_threshold_bytes=0,
             )
-            stale_shards = [
-                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
-            ]
-            self.assertEqual(stale_shards, [])
             self.assertTrue(os.path.exists(os.path.join(tmpdir, "model.data")))
             reloaded = _io.load(path)
             for i, expected in enumerate(arrs):
@@ -405,7 +391,9 @@ class IOFunctionsTest(unittest.TestCase):
     def test_save_does_not_delete_unrelated_models_shards(self):
         # Regression test for cross-model deletion: an unrelated model's
         # ``model-NNNNN-of-NNNNN.data`` files sitting in the same directory
-        # must survive a save of an unrelated model under the same base name.
+        # must survive a save of an unrelated model under the same base name
+        # *as long as the filenames don't collide*. (A direct collision is now
+        # a FileExistsError, exercised by test_save_sharded_raises_on_foreign_shard_collision.)
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             unrelated = [
                 os.path.join(tmpdir, f"model-{i:05d}-of-00009.data") for i in range(1, 10)

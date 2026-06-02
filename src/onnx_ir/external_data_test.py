@@ -853,6 +853,26 @@ class ShardedExternalDataTest(unittest.TestCase):
         for p in other_paths:
             self.assertTrue(os.path.exists(p), f"unrelated model's shard {p} was deleted")
 
+    def test_save_sharded_raises_on_foreign_destination_collision(self):
+        # Direct filename collision with a file the model doesn't own must
+        # raise FileExistsError rather than silently overwriting. 2 tensors
+        # of 400 bytes with max_shard_size_bytes=400 yields a 2-shard layout
+        # whose first shard filename is ``model-00001-of-00002.data``.
+        foreign = os.path.join(self.base_path, "model-00001-of-00002.data")
+        with open(foreign, "wb") as f:
+            f.write(b"foreign")
+        model, _ = self._make_model([400, 400])
+        with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+            external_data.unload_from_model(
+                model,
+                self.base_path,
+                "model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=400,
+            )
+        with open(foreign, "rb") as f:
+            self.assertEqual(f.read(), b"foreign")
+
 
 if __name__ == "__main__":
     unittest.main()
