@@ -534,15 +534,29 @@ class ShardFilenameTest(unittest.TestCase):
         result = external_data._get_shard_filename("weights.bin", 42, 100)
         self.assertEqual(result, "weights-00042-of-00100.bin")
 
+    def test_shard_count_above_five_digits_uses_natural_width(self):
+        # ``:05d`` is a *minimum* width: the shard index keeps 5 zero-padded
+        # digits, but a total ≥ 100_000 spills to its natural 6-digit width.
+        # The cleanup regex (``\d{5,}``) must still match these.
+        result = external_data._get_shard_filename("model.data", 1, 100_000)
+        self.assertEqual(result, "model-00001-of-100000.data")
+        result_big = external_data._get_shard_filename("model.data", 99_999, 100_000)
+        self.assertEqual(result_big, "model-99999-of-100000.data")
+
 
 class ShardTensorsTest(unittest.TestCase):
     """Test the tensor sharding helper."""
 
     def _make_tensor(self, name: str, nbytes: int) -> ir.TensorProtocol:
-        """Create a float32 tensor with the requested byte size."""
+        """Create a float32 tensor with the requested byte size (rounded down to 4)."""
         n_floats = max(1, nbytes // 4)
         data = np.zeros(n_floats, dtype=np.float32)
         return ir.Tensor(data, dtype=ir.DataType.FLOAT, name=name)
+
+    def _make_uint8_tensor(self, name: str, nbytes: int) -> ir.TensorProtocol:
+        """Create a uint8 tensor with exactly ``nbytes`` bytes (1 byte per element)."""
+        data = np.zeros(max(1, nbytes), dtype=np.uint8)
+        return ir.Tensor(data, dtype=ir.DataType.UINT8, name=name)
 
     def test_no_tensors(self):
         shards = external_data._shard_tensors([], 1000)
@@ -605,6 +619,49 @@ class ShardTensorsTest(unittest.TestCase):
                 accumulator.size,
                 external_data._estimate_shard_size_bytes(tensors),
             )
+
+    def test_incremental_size_at_strict_alignment_threshold_boundary(self):
+        # Round-2 review: the float32 ``nbytes // 4`` helper collapses
+        # ``threshold + 1`` back down to ``threshold`` because the floor
+        # divide rounds away the 1-byte excess. Use exact-byte uint8
+        # tensors to actually exercise the strict ``> _ALIGN_THRESHOLD``
+        # branch in :meth:`_ShardSizeAccumulator.add`.
+        threshold = external_data._ALIGN_THRESHOLD
+        for sizes in (
+            [threshold - 1, threshold, threshold + 1],
+            [threshold + 1, threshold, threshold - 1],
+            [threshold + 1, threshold + 1, threshold - 1, threshold],
+        ):
+            tensors = [self._make_uint8_tensor(f"t{i}", s) for i, s in enumerate(sizes)]
+            for tensor, expected_size in zip(tensors, sizes):
+                self.assertEqual(tensor.nbytes, expected_size)
+            accumulator = external_data._ShardSizeAccumulator()
+            for tensor in tensors:
+                accumulator.add(tensor)
+            self.assertEqual(
+                accumulator.size,
+                external_data._estimate_shard_size_bytes(tensors),
+                f"sizes={sizes}",
+            )
+
+    def test_incremental_size_invariant_under_add_order(self):
+        # The accumulator is fed tensors in the order ``_shard_tensors`` sees
+        # them (i.e. unsorted), but :func:`_estimate_shard_size_bytes` sorts
+        # internally. Their results must agree regardless of the input order.
+        threshold = external_data._ALIGN_THRESHOLD
+        size_choices = [1, 100, threshold - 1, threshold, threshold + 1, 3 * threshold]
+        rng = np.random.default_rng(123)
+        for _ in range(200):
+            count = int(rng.integers(1, 40))
+            sizes = [int(rng.choice(size_choices)) for _ in range(count)]
+            tensors = [self._make_uint8_tensor(f"t{i}", s) for i, s in enumerate(sizes)]
+            reference = external_data._estimate_shard_size_bytes(tensors)
+            shuffled = list(tensors)
+            rng.shuffle(shuffled)
+            accumulator = external_data._ShardSizeAccumulator()
+            for tensor in shuffled:
+                accumulator.add(tensor)
+            self.assertEqual(accumulator.size, reference)
 
 
 class ShardedExternalDataTest(unittest.TestCase):
@@ -755,11 +812,14 @@ class ShardedExternalDataTest(unittest.TestCase):
         # indices should be 0, 1, 2 across all shards
         self.assertEqual(sorted(i.index for i in infos), [0, 1, 2])
 
-    def test_cleanup_removes_invalid_zero_indexed_shard_files(self):
-        # Shard indices are 1-indexed; a stray 0-indexed shard file is invalid
-        # and must be cleaned up.
-        stale = os.path.join(self.base_path, "model-00000-of-00001.data")
-        with open(stale, "wb") as f:
+    def test_cleanup_leaves_unowned_zero_indexed_shard_files_alone(self):
+        # Shard indices are 1-indexed and the 0-indexed file *is* invalid, but
+        # we deliberately leave it alone unless the model being saved actually
+        # references it. This avoids the cross-model deletion bug where a
+        # stem-based glob would wipe out shards belonging to a different model
+        # that happens to live in the same directory.
+        unrelated = os.path.join(self.base_path, "model-00000-of-00001.data")
+        with open(unrelated, "wb") as f:
             f.write(b"stale")
         model, _ = self._make_model([100, 100])
         external_data.unload_from_model(
@@ -769,7 +829,29 @@ class ShardedExternalDataTest(unittest.TestCase):
             size_threshold_bytes=0,
             max_shard_size_bytes=10_000,
         )
-        self.assertFalse(os.path.exists(stale))
+        self.assertTrue(os.path.exists(unrelated))
+
+    def test_cleanup_does_not_delete_unrelated_models_shards_in_same_directory(self):
+        # Regression test for the cross-model-deletion bug: an unrelated model
+        # in the same directory wrote ``model-00001-of-00009.data`` ...
+        # ``model-00009-of-00009.data``. Saving *our* model under the same
+        # base name with a smaller shard count must not touch those files.
+        other_paths = [
+            os.path.join(self.base_path, f"model-{i:05d}-of-00009.data") for i in range(1, 10)
+        ]
+        for p in other_paths:
+            with open(p, "wb") as f:
+                f.write(b"other-model-data")
+        model, _ = self._make_model([100, 100])
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=10_000,
+        )
+        for p in other_paths:
+            self.assertTrue(os.path.exists(p), f"unrelated model's shard {p} was deleted")
 
 
 if __name__ == "__main__":

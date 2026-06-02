@@ -299,6 +299,132 @@ class IOFunctionsTest(unittest.TestCase):
                 reloaded.graph.initializers["w2"].const_value.numpy(), arr_2
             )
 
+    def _make_sharded_test_model(self, sizes):
+        """Build a tiny model with one initializer per ``sizes`` element."""
+
+        def make_init(name, n):
+            arr = np.arange(n, dtype=np.float32)
+            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
+            return (
+                ir.Value(name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)),
+                arr,
+            )
+
+        pairs = [make_init(f"w{i}", n) for i, n in enumerate(sizes)]
+        inits = [v for v, _ in pairs]
+        arrs = [a for _, a in pairs]
+        node = ir.Node("", "Identity", inputs=(inits[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+        graph = ir.Graph(
+            inputs=inits,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=inits,
+            name="g",
+        )
+        return ir.Model(graph, ir_version=10), arrs
+
+    def test_resave_loaded_model_with_changed_shard_count_preserves_data(self):
+        # Round-2 regression: re-saving a loaded sharded model with a *different*
+        # shard count used to crash with FileNotFoundError because
+        # _materialize_external_tensors_for_destination_paths only protected
+        # tensors matching a new destination path, and the old shards (under
+        # different names) were deleted before being read.
+        # Save 4 tensors of 125 floats each (500 bytes each) -> 4 shards at
+        # max_shard_size_bytes=500, then re-save at 1500 -> ~2 shards.
+        model, arrs = self._make_sharded_test_model([125, 125, 125, 125])
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=500,
+            )
+            first_layout = sorted(
+                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
+            )
+            self.assertGreaterEqual(len(first_layout), 2)
+            loaded = _io.load(path)
+            _io.save(
+                loaded,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=1500,
+            )
+            second_layout = sorted(
+                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
+            )
+            self.assertNotEqual(first_layout, second_layout)
+            # Old layout's shard files must be gone (stale cleanup) and
+            # no old-layout shard should survive into the new layout's
+            # filename set.
+            for old_name in first_layout:
+                if old_name not in second_layout:
+                    self.assertFalse(os.path.exists(os.path.join(tmpdir, old_name)))
+            reloaded = _io.load(path)
+            for i, expected in enumerate(arrs):
+                np.testing.assert_array_equal(
+                    reloaded.graph.initializers[f"w{i}"].const_value.numpy(), expected
+                )
+
+    def test_resave_loaded_sharded_model_as_single_file_preserves_data(self):
+        # sharded -> non-sharded transition: stale ``-of-`` files must be
+        # cleaned up and the single ``model.data`` written successfully.
+        model, arrs = self._make_sharded_test_model([100, 100, 100])
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=500,
+            )
+            loaded = _io.load(path)
+            _io.save(
+                loaded,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+            )
+            stale_shards = [
+                f for f in os.listdir(tmpdir) if f.startswith("model-") and "-of-" in f
+            ]
+            self.assertEqual(stale_shards, [])
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "model.data")))
+            reloaded = _io.load(path)
+            for i, expected in enumerate(arrs):
+                np.testing.assert_array_equal(
+                    reloaded.graph.initializers[f"w{i}"].const_value.numpy(), expected
+                )
+
+    def test_save_does_not_delete_unrelated_models_shards(self):
+        # Regression test for cross-model deletion: an unrelated model's
+        # ``model-NNNNN-of-NNNNN.data`` files sitting in the same directory
+        # must survive a save of an unrelated model under the same base name.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            unrelated = [
+                os.path.join(tmpdir, f"model-{i:05d}-of-00009.data") for i in range(1, 10)
+            ]
+            for p in unrelated:
+                with open(p, "wb") as f:
+                    f.write(b"unrelated")
+            model, _ = self._make_sharded_test_model([200, 200])
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=500,
+            )
+            for p in unrelated:
+                self.assertTrue(os.path.exists(p), f"unrelated shard {p} was deleted")
+
     def test_save_with_external_data_invalidates_obsolete_external_tensors(self):
         model = _create_simple_model_with_initializers()
         self.assertIsInstance(model.graph.initializers["initializer_0"].const_value, ir.Tensor)

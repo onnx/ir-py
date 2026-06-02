@@ -16,6 +16,49 @@ from onnx_ir import external_data as _external_data
 from onnx_ir._polyfill import zip
 
 
+def _read_existing_external_data_locations(
+    model_path: str | os.PathLike, base_dir: str | os.PathLike
+) -> list[str]:
+    """Return the absolute external_data file paths referenced by an existing ``.onnx``.
+
+    Used by :func:`save` to recover the set of files written by the previous
+    save of *this* model. The returned paths feed into
+    :func:`external_data.unload_from_model`'s ownership-scoped cleanup so that
+    stale shard files from a previous layout are removed without ever touching
+    shard-shaped files that happen to belong to a different model in the same
+    directory.
+
+    Returns an empty list if ``model_path`` does not exist, is not readable as
+    an ONNX proto, or contains no external initializers.
+    """
+    if not os.path.exists(model_path):
+        return []
+    try:
+        proto = onnx.load(model_path, load_external_data=False)
+    except Exception:  # pragma: no cover - best-effort recovery
+        return []
+    base_dir_str = os.fspath(base_dir) if base_dir else "."
+    locations: set[str] = set()
+
+    def _harvest(graph_proto) -> None:
+        for init in graph_proto.initializer:
+            if init.data_location != onnx.TensorProto.EXTERNAL:
+                continue
+            for entry in init.external_data:
+                if entry.key == "location":
+                    locations.add(os.path.realpath(os.path.join(base_dir_str, entry.value)))
+        for node in graph_proto.node:
+            for attr in node.attribute:
+                if attr.type == onnx.AttributeProto.GRAPH:
+                    _harvest(attr.g)
+                elif attr.type == onnx.AttributeProto.GRAPHS:
+                    for sub in attr.graphs:
+                        _harvest(sub)
+
+    _harvest(proto.graph)
+    return sorted(locations)
+
+
 def load(path: str | os.PathLike, format: str | None = None) -> _core.Model:
     """Load an ONNX model from a file.
 
@@ -126,6 +169,16 @@ def save(
             )
         base_dir = os.path.dirname(path)
 
+        # Look at the existing .onnx file at ``path`` (if any) and collect the
+        # external_data ``location`` entries it references. These count as
+        # files owned by *this* model for cleanup purposes, even when the
+        # in-memory ``model`` was constructed in-memory and has no
+        # ExternalTensor initializers to learn ownership from. This is what
+        # lets re-saving with a different shard layout (e.g. sharded → single
+        # file, or N shards → M shards) safely clean up stale shards without
+        # touching unrelated models' files sitting in the same directory.
+        prior_external_files = _read_existing_external_data_locations(path, base_dir)
+
         # Store the original initializer values so they can be restored if modify_model=False
         initialized_values: list[_core.Value] = []
         for graph in model.graphs():
@@ -141,6 +194,7 @@ def save(
                 size_threshold_bytes=size_threshold_bytes,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
+                prior_external_files=prior_external_files,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)

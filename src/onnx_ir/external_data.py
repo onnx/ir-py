@@ -19,7 +19,7 @@ import dataclasses
 import logging
 import os
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 from onnx_ir import _core, _enums, _protocols
 from onnx_ir import traversal as _traversal
@@ -173,32 +173,44 @@ class _ShardSizeAccumulator:
     size-sorted order with offset alignment) but is maintained incrementally so
     that sharding does not need to re-sort the shard on every tensor append.
 
-    Sorting tensors ascending by size places every unaligned tensor
-    (``nbytes <= _ALIGN_THRESHOLD``) before every aligned one, so the final size
-    only depends on a few running aggregates rather than the full ordering.
+    Load-bearing invariants:
+
+    * :func:`convert_tensors_to_external` writes tensors in ascending-``nbytes``
+      order, so every *unaligned* tensor (``nbytes <= _ALIGN_THRESHOLD``) is
+      written strictly before every *aligned* tensor (``nbytes > _ALIGN_THRESHOLD``).
+      The final on-disk size therefore only depends on a few running aggregates,
+      not on the order in which we observe the tensors here.
+    * Because aligned tensors are written largest-last, the largest aligned
+      tensor sits at the end of the file and contributes only its raw
+      (unpadded) length — that's why ``size`` subtracts
+      ``largest_aligned_padded`` and adds back ``largest_aligned_raw``.
+    * The transition from the unaligned prefix to the first aligned tensor
+      forces the writer to pad up to the next alignment boundary, which the
+      ``leading`` computation accounts for.
     """
 
     sum_unaligned: int = 0
-    sum_aligned: int = 0
+    # ``sum_aligned_padded`` is the *padded* (aligned) total for every aligned
+    # tensor seen so far. The last aligned tensor's padding is subtracted in
+    # ``size`` because it's written last and never followed by another tensor.
+    sum_aligned_padded: int = 0
     largest_aligned_raw: int = 0
     largest_aligned_padded: int = 0
-    has_aligned: bool = False
 
     def add(self, tensor: _protocols.TensorProtocol) -> None:
         size = tensor.nbytes
         if _ALIGN_OFFSET and size > _ALIGN_THRESHOLD:
             padded = (size + _ALIGNMENT_FACTOR - 1) // _ALIGNMENT_FACTOR * _ALIGNMENT_FACTOR
-            self.sum_aligned += padded
+            self.sum_aligned_padded += padded
             if size >= self.largest_aligned_raw:
                 self.largest_aligned_raw = size
                 self.largest_aligned_padded = padded
-            self.has_aligned = True
         else:
             self.sum_unaligned += size
 
     @property
     def size(self) -> int:
-        if not self.has_aligned:
+        if self.largest_aligned_raw == 0:
             return self.sum_unaligned
         # The first aligned tensor pads the unaligned prefix up to an alignment
         # boundary; the largest aligned tensor is written last and is not padded.
@@ -208,7 +220,10 @@ class _ShardSizeAccumulator:
             * _ALIGNMENT_FACTOR
         )
         return (
-            leading + self.sum_aligned - self.largest_aligned_padded + self.largest_aligned_raw
+            leading
+            + self.sum_aligned_padded
+            - self.largest_aligned_padded
+            + self.largest_aligned_raw
         )
 
 
@@ -331,6 +346,14 @@ def _materialize_external_tensors_for_destination_paths(
     tensors: Sequence[_protocols.TensorProtocol],
     destination_paths: Sequence[str | os.PathLike],
 ) -> list[_protocols.TensorProtocol]:
+    """Load into memory any external tensor whose backing file is about to be overwritten or deleted.
+
+    Safety-critical: this is what allows ``unload_from_model`` to re-save a
+    loaded sharded model — even when the new shard layout differs from the
+    old one — without reading from a file that has already been clobbered or
+    cleaned up. Callers must pass *every* path that will be written, renamed,
+    or deleted by the upcoming save, not just the immediate destination.
+    """
     existing_destination_paths = [path for path in destination_paths if os.path.exists(path)]
     if not existing_destination_paths:
         return list(tensors)
@@ -361,29 +384,99 @@ def _materialize_external_tensors_for_destination_paths(
     return converted_tensors
 
 
-def _cleanup_stale_shard_files(
+def _collect_model_external_files(
+    tensors: Iterable[_protocols.TensorProtocol],
+) -> set[str]:
+    """Return the set of absolute file paths backing the model's external tensors.
+
+    This is the *ownership* set used by :func:`_find_stale_shard_files` to avoid
+    deleting shard-shaped files that belong to some other model in the same
+    directory.
+    """
+    owned: set[str] = set()
+    for tensor in tensors:
+        if isinstance(tensor, _core.ExternalTensor):
+            try:
+                owned.add(os.path.realpath(tensor.path))
+            except OSError:
+                continue
+    return owned
+
+
+def _find_stale_shard_files(
     base_dir: str | os.PathLike,
     relative_path: str | os.PathLike,
     total_shards: int,
-) -> None:
+    *,
+    owned_files: set[str],
+    keep_paths: Iterable[str | os.PathLike] = (),
+) -> list[str]:
+    """Identify shard files belonging to this model that the new save will leave behind.
+
+    A file is considered stale iff it (a) sits in the shard directory, (b) matches
+    the shard filename pattern for ``relative_path``, (c) was actually referenced
+    by an :class:`ExternalTensor` in the model being saved (``owned_files``), and
+    (d) is *not* one of the destinations the new save is about to write
+    (``keep_paths``). This scoping prevents collateral deletion of unrelated
+    models' shards that happen to share the same directory.
+    """
     path_str = str(relative_path)
     dir_name, file_name = os.path.split(path_str)
     stem, ext = os.path.splitext(file_name)
     shard_dir = os.path.join(base_dir, dir_name) if dir_name else str(base_dir)
     if not os.path.isdir(shard_dir):
-        return
+        return []
 
-    shard_pattern = re.compile(rf"^{re.escape(stem)}-(\d{{5}})-of-(\d{{5}}){re.escape(ext)}$")
+    # ``\d{5,}`` instead of ``\d{5}`` so that models with >99,999 shards (which
+    # ``_get_shard_filename`` emits as the natural width of the integer) are
+    # still recognized.
+    shard_pattern = re.compile(
+        rf"^{re.escape(stem)}-(\d{{5,}})-of-(\d{{5,}}){re.escape(ext)}$"
+    )
+    # The single-shard layout writes plain ``stem+ext`` (no -NNNNN-of-NNNNN
+    # suffix). When we are *about* to write that single-shard file, we also want
+    # to clean up any leftover ``stem-00001-of-00001.ext`` from a prior save.
+    single_shard_name = file_name
+
+    keep_realpaths = {
+        os.path.realpath(os.fspath(p)) for p in keep_paths if os.path.exists(os.fspath(p))
+    }
+
+    stale: list[str] = []
     for filename in os.listdir(shard_dir):
         match = shard_pattern.match(filename)
-        if match is None:
+        is_single_shard_leftover = (
+            match is None and total_shards == 1 and filename != single_shard_name
+        )
+        if match is None and not is_single_shard_leftover:
             continue
-        shard_index = int(match.group(1))
-        shard_total = int(match.group(2))
-        # Remove shards from a different layout, out-of-range indices, and any
-        # invalid 0-indexed shard files (shard indices are 1-indexed).
-        if shard_total != total_shards or shard_index < 1 or shard_index > total_shards:
-            os.remove(os.path.join(shard_dir, filename))
+        full_path = os.path.join(shard_dir, filename)
+        try:
+            real_path = os.path.realpath(full_path)
+        except OSError:
+            continue
+        if real_path in keep_realpaths:
+            continue
+        # Ownership: only delete files this model actually references. This
+        # avoids deleting shard-shaped files belonging to unrelated models.
+        if real_path not in owned_files:
+            continue
+        stale.append(full_path)
+    return stale
+
+
+def _delete_stale_shard_files(stale_files: Iterable[str]) -> None:
+    """Best-effort removal of stale shard files; logs and continues on errors.
+
+    Should only be called *after* all new shards and the ``.onnx`` proto have
+    been written so that a partial failure cannot leave the on-disk model
+    referencing files that no longer exist.
+    """
+    for path in stale_files:
+        try:
+            os.remove(path)
+        except OSError as exc:
+            logger.warning("Failed to remove stale shard file %s: %s", path, exc)
 
 
 def _compute_external_data_info(
@@ -586,6 +679,7 @@ def unload_from_model(
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
+    prior_external_files: Iterable[str | os.PathLike] = (),
 ) -> _core.Model:
     """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
 
@@ -620,6 +714,13 @@ def unload_from_model(
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes. Under sharding the callback index reflects
             each shard's size-sorted write order while remaining globally contiguous.
+        prior_external_files: Additional file paths that the caller knows belong
+            to a previous save of this same model (typically read from the
+            existing ``.onnx`` file's external_data location entries by
+            :func:`save`). They are unioned with the files the in-memory model
+            currently references for ownership-scoped cleanup, so that stale
+            shards from a prior layout are removed without risk of touching
+            unrelated models' files in the same directory.
 
     Returns:
         An ir.Model with all initializer data equal or above ``size_threshold_bytes``
@@ -647,6 +748,21 @@ def unload_from_model(
             elif isinstance(value.const_value, _core.ExternalTensor):
                 initializers_to_load_to_memory.append(value)
 
+    # Snapshot every external file the current model references *before* we
+    # touch anything. This drives both (a) ownership-scoped cleanup (so we
+    # never delete shard-shaped files belonging to other models) and (b)
+    # materialization of input tensors whose backing file we're about to
+    # overwrite or delete.
+    owned_external_files = _collect_model_external_files(
+        v.const_value  # type: ignore[misc]
+        for v in (*initializers_to_become_external, *initializers_to_load_to_memory)
+    )
+    for prior_path in prior_external_files:
+        try:
+            owned_external_files.add(os.path.realpath(os.fspath(prior_path)))
+        except OSError:
+            continue
+
     # Load to memory first, then convert to external tensors, because
     # the existing external tensors may be overwritten by the new external data
     memory_tensors = convert_tensors_from_external(
@@ -655,16 +771,41 @@ def unload_from_model(
 
     external_tensors: list[_core.ExternalTensor]
     if max_shard_size_bytes is None:
-        # No sharding: write all tensors to the single destination file
+        # No sharding: write all tensors to the single destination file.
+        # Determine stale shard files left over from a *previous* sharded save
+        # of this same model so layout transitions (sharded -> non-sharded,
+        # ``model-NNNNN-of-NNNNN.data`` -> ``model.data``) don't leak garbage.
+        new_destination = os.path.join(base_dir, str(relative_path))
+        stale_files = _find_stale_shard_files(
+            base_dir,
+            relative_path,
+            total_shards=1,
+            owned_files=owned_external_files,
+            keep_paths=[new_destination],
+        )
+        tensors_to_externalize: list[_protocols.TensorProtocol] = [
+            v.const_value  # type: ignore[misc]
+            for v in initializers_to_become_external
+        ]
+        # Materialize every input tensor whose backing file is about to be
+        # overwritten *or* deleted by cleanup, not just the immediate
+        # destination — otherwise re-saving a sharded model as a single file
+        # would race the cleanup against the writer.
+        tensors_to_externalize = _materialize_external_tensors_for_destination_paths(
+            tensors_to_externalize, [new_destination, *stale_files]
+        )
         external_tensors = convert_tensors_to_external(
-            [v.const_value for v in initializers_to_become_external],  # type: ignore[misc]
+            tensors_to_externalize,
             base_dir=base_dir,
             relative_path=relative_path,
             callback=callback,
         )
+        # Cleanup happens *after* the new file is durable on disk so a partial
+        # failure can't leave the model referencing a missing file.
+        _delete_stale_shard_files(stale_files)
     else:
         # Sharding: distribute tensors across multiple numbered shard files
-        tensors_to_externalize: list[_protocols.TensorProtocol] = [
+        tensors_to_externalize = [
             v.const_value  # type: ignore[misc]
             for v in initializers_to_become_external
         ]
@@ -679,10 +820,25 @@ def unload_from_model(
             os.path.join(base_dir, shard_relative_path)
             for shard_relative_path in shard_relative_paths
         ]
-        tensors_to_externalize = _materialize_external_tensors_for_destination_paths(
-            tensors_to_externalize, destination_paths
+        # Identify stale shards *owned by this model* (so a different model in
+        # the same directory is never touched) that aren't part of the new
+        # layout. Computed before any write so we know the full set of files
+        # at risk.
+        stale_files = _find_stale_shard_files(
+            base_dir,
+            relative_path,
+            total_shards,
+            owned_files=owned_external_files,
+            keep_paths=destination_paths,
         )
-        _cleanup_stale_shard_files(base_dir, relative_path, total_shards)
+        # Materialize every input tensor whose backing file is in the at-risk
+        # set (new destinations OR stale files we'll delete). This is what
+        # makes re-saving with a *different shard count* safe — old shards
+        # whose names don't collide with the new layout would otherwise be
+        # deleted before they're read.
+        tensors_to_externalize = _materialize_external_tensors_for_destination_paths(
+            tensors_to_externalize, [*destination_paths, *stale_files]
+        )
 
         external_tensors = []
         global_index = 0
@@ -711,6 +867,11 @@ def unload_from_model(
 
             external_tensors.extend(shard_external_tensors)
             global_index += shard_tensor_count
+
+        # Defer destructive cleanup until every new shard is written so a
+        # mid-save failure can't leave behind a model referencing deleted
+        # files.
+        _delete_stale_shard_files(stale_files)
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(
