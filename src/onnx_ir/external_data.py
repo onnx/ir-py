@@ -386,13 +386,20 @@ def _materialize_external_tensors_for_destination_paths(
 def _collect_owned_external_files(
     tensors: Iterable[_protocols.TensorProtocol],
 ) -> set[str]:
-    """Return the set of normalized file paths backing the model's external tensors.
+    """Return the set of resolved (real) absolute file paths backing the model's external tensors.
 
     A "legitimate self-overwrite" is when the model is being saved to the same
     file(s) it was loaded from. The destination-collision check in
-    :func:`_check_no_foreign_shard_collisions` uses this set to permit those
+    :func:`_check_no_foreign_file_collisions` uses this set to permit those
     overwrites while still raising on collisions with foreign files (other
     models' shards, unrelated artifacts) that happen to share the directory.
+
+    Note: this only walks ``ExternalTensor`` instances that the caller passes
+    in. Today callers only enumerate graph initializers, so an external
+    tensor referenced exclusively from a node attribute (e.g. ``Constant``)
+    would not be considered "owned" and a collision against its file would
+    be reported as foreign. This is acceptable because the writer also only
+    re-emits initializers; broaden the input set here if/when that changes.
     """
     owned: set[str] = set()
     for tensor in tensors:
@@ -404,7 +411,7 @@ def _collect_owned_external_files(
     return owned
 
 
-def _check_no_foreign_shard_collisions(
+def _check_no_foreign_file_collisions(
     destination_paths: Sequence[str | os.PathLike],
     owned_files: set[str],
 ) -> None:
@@ -678,12 +685,22 @@ def unload_from_model(
 
     Raises:
         ValueError: If ``max_shard_size_bytes`` is not greater than 0.
-        FileExistsError: If any destination shard file already exists on disk
-            but is not referenced by an :class:`ExternalTensor` in the model
-            being saved. This prevents silently overwriting another model's
+        FileExistsError: When ``max_shard_size_bytes`` is set and any
+            destination shard file already exists on disk but is not
+            referenced by an :class:`ExternalTensor` in the model being
+            saved. This prevents silently overwriting another model's
             shard data that happens to share the same base name. Callers
             should delete the conflicting files or save into a different
-            directory.
+            directory. The single-file path (``max_shard_size_bytes is
+            None``) does **not** raise on collision and instead overwrites
+            ``relative_path`` unconditionally — this asymmetry is
+            intentional for backwards compatibility but tracked as a TODO.
+
+    Notes:
+        Stale shards from a previous save (when the new layout produces
+        fewer or differently named shard files) are the caller's
+        responsibility to clean up. This function will neither delete nor
+        rename pre-existing files that are not in the new destination set.
     """
     if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
         raise ValueError(
@@ -754,12 +771,25 @@ def unload_from_model(
             os.path.join(base_dir, shard_relative_path)
             for shard_relative_path in shard_relative_paths
         ]
-        # Refuse to clobber any pre-existing destination that isn't already
-        # part of this model. This is the simple replacement for the previous
-        # stale-shard cleanup machinery: rather than try to figure out which
-        # leftover files were "ours" and delete them, we make the caller
-        # responsible for starting from a clean directory (or load+re-save).
-        _check_no_foreign_shard_collisions(destination_paths, owned_external_files)
+        # Contract: we only overwrite destination files that the in-memory
+        # model already references (legitimate self-overwrite of a loaded
+        # model). Any other pre-existing destination is treated as foreign
+        # and raises FileExistsError; the caller is responsible for cleaning
+        # up stale shards from previous saves.
+        _check_no_foreign_file_collisions(destination_paths, owned_external_files)
+
+        # Safety-critical global pre-materialization: any input ExternalTensor
+        # whose backing file is among the destinations we are about to
+        # (re)write must be loaded into memory *before* we open any shard for
+        # writing. A per-shard materialization is not sufficient because a
+        # tensor can migrate from shard i to shard j > i across saves (e.g.
+        # an in-place edit shifts a shard boundary). Without this pass, the
+        # writer for shard j would still see the original ExternalTensor
+        # pointing at file i, but file i has already been truncated when we
+        # wrote shard i, so its data would be lost.
+        tensors_to_externalize = _materialize_external_tensors_for_destination_paths(
+            tensors_to_externalize, destination_paths
+        )
 
         external_tensors = []
         global_index = 0

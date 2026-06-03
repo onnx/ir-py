@@ -359,6 +359,56 @@ class IOFunctionsTest(unittest.TestCase):
                     reloaded.graph.initializers[f"w{i}"].const_value.numpy(), expected
                 )
 
+    def test_resave_same_shard_count_with_boundary_shift_preserves_data(self):
+        # Round-4 regression (@titaiwangms): when the new shard layout has the
+        # *same* shard count but a tensor migrates from shard i to shard j > i,
+        # a per-shard materialization pass would still leave that tensor
+        # pointing at file i while we are writing shard j. By the time shard i
+        # is rewritten and truncated, the migrated tensor's data is gone. The
+        # fix is a global pre-materialization pass across all destination
+        # paths before any shard is opened for writing.
+        model, _arrs = self._make_sharded_test_model([75, 75, 75, 125])
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            # First save: layout is [w0,w1,w2][w3] (2 shards under 900 bytes).
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=900,
+            )
+            loaded = _io.load(path)
+            # Enlarge w1 so the shard boundary shifts: new layout is
+            # [w0,w1][w2,w3] — still 2 shards, but w2 migrates from shard 1
+            # to shard 2.
+            big = np.arange(150, dtype=np.float32) + 10000
+            loaded.graph.initializers["w1"].const_value = ir.tensor(big, name="w1")
+            _io.save(
+                loaded,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=900,
+            )
+            reloaded = _io.load(path)
+            # w2's original data must survive even though its shard changed.
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w2"].const_value.numpy(),
+                np.arange(75, dtype=np.float32),
+            )
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w0"].const_value.numpy(),
+                np.arange(75, dtype=np.float32),
+            )
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w1"].const_value.numpy(), big
+            )
+            np.testing.assert_array_equal(
+                reloaded.graph.initializers["w3"].const_value.numpy(),
+                np.arange(125, dtype=np.float32),
+            )
+
     def test_resave_loaded_sharded_model_as_single_file_preserves_data(self):
         # sharded -> non-sharded (max_shard_size_bytes=None) transition. The
         # single-file write path is permissive and just overwrites model.data;
