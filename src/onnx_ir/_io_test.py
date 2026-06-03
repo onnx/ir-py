@@ -249,7 +249,58 @@ class IOFunctionsTest(unittest.TestCase):
             for p in unrelated:
                 self.assertTrue(os.path.exists(p))
 
-    def test_save_loaded_sharded_model_with_different_limit_preserves_data(self):
+    def test_save_loaded_sharded_model_in_place_raises(self):
+        # The sharded write path never overwrites pre-existing shard files, so
+        # re-saving a loaded sharded model to the *same* base name raises
+        # FileExistsError (the destination shards already exist on disk).
+        def make_init(name: str, n: int) -> tuple[ir.Value, np.ndarray]:
+            arr = np.arange(n, dtype=np.float32)
+            t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
+            value = ir.Value(
+                name=name, const_value=t, shape=t.shape, type=ir.TensorType(t.dtype)
+            )
+            return value, arr
+
+        init_0, _ = make_init("w0", 150)  # 600 bytes
+        init_1, _ = make_init("w1", 100)  # 400 bytes
+        init_2, _ = make_init("w2", 100)  # 400 bytes
+        inits = [init_0, init_1, init_2]
+        node = ir.Node("", "Identity", inputs=(inits[0],))
+        node.outputs[0].name = "out"
+        node.outputs[0].dtype = ir.DataType.FLOAT
+        graph = ir.Graph(
+            inputs=inits,
+            outputs=list(node.outputs),
+            nodes=[node],
+            initializers=inits,
+            name="g",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                max_shard_size_bytes=1000,
+            )
+            loaded = _io.load(path)
+            with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+                _io.save(
+                    loaded,
+                    path,
+                    external_data="model.data",
+                    size_threshold_bytes=0,
+                    max_shard_size_bytes=800,
+                )
+
+    def test_resave_loaded_sharded_model_to_new_path_preserves_data(self):
+        # The escape hatch for re-saving a loaded sharded model: write to a
+        # *different* external data base name. The source shards are never
+        # touched, so no materialization is needed and the data round-trips
+        # cleanly even when the new layout has a different shard count.
         def make_init(name: str, n: int) -> tuple[ir.Value, np.ndarray]:
             arr = np.arange(n, dtype=np.float32)
             t = ir.tensor(arr, dtype=ir.DataType.FLOAT, name=name)
@@ -284,14 +335,17 @@ class IOFunctionsTest(unittest.TestCase):
                 max_shard_size_bytes=1000,
             )
             loaded = _io.load(path)
+            # Re-save to a different base name with a different limit (shard
+            # count changes from 2 -> 3).
+            path2 = os.path.join(tmpdir, "model2.onnx")
             _io.save(
                 loaded,
-                path,
-                external_data="model.data",
+                path2,
+                external_data="model2.data",
                 size_threshold_bytes=0,
                 max_shard_size_bytes=800,
             )
-            reloaded = _io.load(path)
+            reloaded = _io.load(path2)
             np.testing.assert_array_equal(
                 reloaded.graph.initializers["w0"].const_value.numpy(), arr_0
             )
@@ -329,12 +383,12 @@ class IOFunctionsTest(unittest.TestCase):
         return ir.Model(graph, ir_version=10), arrs
 
     def test_resave_loaded_model_with_changed_shard_count_preserves_data(self):
-        # Round-2 regression: re-saving a loaded sharded model with a *different*
-        # shard count used to crash with FileNotFoundError because the old
-        # shards (under different names) got deleted before being read. With
-        # the simplified contract there is no automatic cleanup at all, so the
-        # old shard files remain on disk as garbage — but the new save still
-        # succeeds and the data round-trips cleanly via ir.load.
+        # When the new layout has a *different* shard count, the new shard
+        # filenames (``-of-00002``) don't collide with the old ones
+        # (``-of-00004``), so the save succeeds without overwriting anything.
+        # The old shard files remain on disk as garbage (cleanup is the
+        # caller's responsibility), but the data round-trips cleanly because
+        # the new shards are written by reading the still-present old shards.
         model, arrs = self._make_sharded_test_model([125, 125, 125, 125])
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
@@ -359,18 +413,15 @@ class IOFunctionsTest(unittest.TestCase):
                     reloaded.graph.initializers[f"w{i}"].const_value.numpy(), expected
                 )
 
-    def test_resave_same_shard_count_with_boundary_shift_preserves_data(self):
-        # Round-4 regression (@titaiwangms): when the new shard layout has the
-        # *same* shard count but a tensor migrates from shard i to shard j > i,
-        # a per-shard materialization pass would still leave that tensor
-        # pointing at file i while we are writing shard j. By the time shard i
-        # is rewritten and truncated, the migrated tensor's data is gone. The
-        # fix is a global pre-materialization pass across all destination
-        # paths before any shard is opened for writing.
+    def test_resave_same_shard_count_with_boundary_shift_in_place_raises(self):
+        # Even when the new layout keeps the *same* shard count, re-saving in
+        # place still collides with the existing shard files and raises. This
+        # is the simplified replacement for the old self-overwrite support:
+        # rather than materializing every migrating tensor to survive an
+        # in-place rewrite, the sharded path simply refuses to overwrite.
         model, _arrs = self._make_sharded_test_model([75, 75, 75, 125])
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = os.path.join(tmpdir, "model.onnx")
-            # First save: layout is [w0,w1,w2][w3] (2 shards under 900 bytes).
             _io.save(
                 model,
                 path,
@@ -379,35 +430,16 @@ class IOFunctionsTest(unittest.TestCase):
                 max_shard_size_bytes=900,
             )
             loaded = _io.load(path)
-            # Enlarge w1 so the shard boundary shifts: new layout is
-            # [w0,w1][w2,w3] — still 2 shards, but w2 migrates from shard 1
-            # to shard 2.
             big = np.arange(150, dtype=np.float32) + 10000
             loaded.graph.initializers["w1"].const_value = ir.tensor(big, name="w1")
-            _io.save(
-                loaded,
-                path,
-                external_data="model.data",
-                size_threshold_bytes=0,
-                max_shard_size_bytes=900,
-            )
-            reloaded = _io.load(path)
-            # w2's original data must survive even though its shard changed.
-            np.testing.assert_array_equal(
-                reloaded.graph.initializers["w2"].const_value.numpy(),
-                np.arange(75, dtype=np.float32),
-            )
-            np.testing.assert_array_equal(
-                reloaded.graph.initializers["w0"].const_value.numpy(),
-                np.arange(75, dtype=np.float32),
-            )
-            np.testing.assert_array_equal(
-                reloaded.graph.initializers["w1"].const_value.numpy(), big
-            )
-            np.testing.assert_array_equal(
-                reloaded.graph.initializers["w3"].const_value.numpy(),
-                np.arange(125, dtype=np.float32),
-            )
+            with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+                _io.save(
+                    loaded,
+                    path,
+                    external_data="model.data",
+                    size_threshold_bytes=0,
+                    max_shard_size_bytes=900,
+                )
 
     def test_resave_loaded_sharded_model_as_single_file_preserves_data(self):
         # sharded -> non-sharded (max_shard_size_bytes=None) transition. The

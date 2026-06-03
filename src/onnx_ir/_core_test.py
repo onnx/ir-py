@@ -510,6 +510,33 @@ class ExternalTensorTest(unittest.TestCase):
         # Ensure repeated reads are consistent
         np.testing.assert_equal(tensor, self.data)
 
+    def test_tofile_raises_oserror_when_backing_file_is_truncated(self):
+        # tofile copies ``length`` bytes from the backing file in chunks. If
+        # the file is shorter than expected (e.g. the data file was truncated
+        # or replaced) the loop must raise an actionable OSError instead of
+        # spinning forever on empty reads.
+        external_data_name = "short.bin"
+        data = np.arange(64, dtype=np.float32)
+        full_bytes = data.tobytes()
+        data_path = pathlib.Path(self.base_path) / external_data_name
+        with open(data_path, "wb") as f:
+            f.write(full_bytes)
+        tensor = _core.ExternalTensor(
+            external_data_name,
+            offset=0,
+            length=len(full_bytes),
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="w",
+            shape=_core.Shape(data.shape),
+        )
+        # Truncate the backing file so it is shorter than ``length``.
+        with open(data_path, "wb") as f:
+            f.write(full_bytes[: len(full_bytes) // 2])
+        buffer = io.BytesIO()
+        with self.assertRaisesRegex(OSError, "shorter than expected"):
+            tensor.tofile(buffer)
+
     def test_load_raises_on_path_traversal(self):
         tensor = _core.ExternalTensor(
             "../../etc/passwd",

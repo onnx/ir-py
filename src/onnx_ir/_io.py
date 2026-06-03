@@ -110,14 +110,11 @@ def save(
         ValueError: If ``max_shard_size_bytes`` is not greater than 0.
         ValueError: If ``max_shard_size_bytes`` is set without ``external_data``.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
-            destination shard file already exists on disk but is not
-            referenced by an :class:`ExternalTensor` in the model being
-            saved. TODO(justinchuby): the single-file (``max_shard_size_bytes
-            is None``) write path is currently permissive and silently
-            overwrites whatever is at ``external_data``; the collision check
-            is sharded-only because shard layouts are ambiguous (different
-            shard counts produce different filenames). The two paths should
-            eventually share the same overwrite policy.
+            destination shard file already exists on disk. The sharded write
+            path never overwrites existing files; delete the conflicting
+            files or choose a different external data path to re-save. The
+            single-file path (``max_shard_size_bytes is None``) instead
+            overwrites ``external_data`` unconditionally and never raises here.
     """
     if max_shard_size_bytes is not None and external_data is None:
         raise ValueError(
