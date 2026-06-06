@@ -913,6 +913,15 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             chunk_size = 1024 * 1024  # 1MB
             while bytes_to_copy > 0:
                 chunk = src.read(min(chunk_size, bytes_to_copy))
+                if not chunk:
+                    failed_at_offset = (self._offset or 0) + (
+                        (self._length or self.nbytes) - bytes_to_copy
+                    )
+                    raise OSError(
+                        f"External data file {self.path!r} is shorter than expected: "
+                        f"could not read {bytes_to_copy} more byte(s) at offset "
+                        f"{failed_at_offset}."
+                    )
                 file.write(chunk)
                 bytes_to_copy -= len(chunk)
 
