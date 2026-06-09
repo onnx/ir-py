@@ -23,6 +23,7 @@
     onnx_ir.val
     onnx_ir.node
     onnx_ir.set_value_magic_handler
+    onnx_ir.check_device_configurations
 ```
 
 ## Classes
@@ -53,6 +54,24 @@
     onnx_ir.StringTensor
     onnx_ir.LazyTensor
     onnx_ir.PackedTensor
+```
+
+## Multi-device configurations
+
+See [Multi-Device Configurations](../multi_device.md) for a guide.
+
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :template: classtemplate.rst
+    :nosignatures:
+
+    onnx_ir.ModelConfiguration
+    onnx_ir.NodeDeviceConfiguration
+    onnx_ir.ShardingSpec
+    onnx_ir.ShardedDim
+    onnx_ir.SimpleShardedDim
+    onnx_ir.IndexToDeviceGroupMapEntry
 ```
 
 ## Enums
