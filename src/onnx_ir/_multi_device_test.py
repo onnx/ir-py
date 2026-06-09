@@ -5,7 +5,7 @@ import unittest
 import onnx
 
 import onnx_ir as ir
-from onnx_ir import _multi_device
+from onnx_ir import _multi_device, serde
 
 
 def _identity_model() -> tuple[ir.Model, ir.Node, ir.Value]:
@@ -29,8 +29,8 @@ class ModelConfigurationSerdeTest(unittest.TestCase):
             device=("CPU", "CUDA:0"),
         )
 
-        proto = _multi_device.serialize_model_configuration(configuration)
-        result = _multi_device.deserialize_model_configuration(proto)
+        proto = serde.serialize_model_configuration(configuration)
+        result = serde.deserialize_model_configuration(proto)
 
         self.assertEqual(result, configuration)
 
@@ -61,7 +61,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
             pipeline_stage=1,
         )
 
-        proto = _multi_device.serialize_node_device_configuration(config)
+        proto = serde.serialize_node_device_configuration(config)
 
         self.assertEqual(proto.configuration_id, "conf0")
         self.assertEqual(proto.pipeline_stage, 1)
@@ -79,7 +79,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         spec = proto.sharding_spec.add()
         spec.tensor_name = "x"
 
-        result = _multi_device.deserialize_node_device_configuration(proto, values={"x": x})
+        result = serde.deserialize_node_device_configuration(proto, values={"x": x})
 
         # The spec is bound to the actual value object.
         self.assertIs(result.sharding_spec[0].value, x)
@@ -95,11 +95,11 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         spec = proto.sharding_spec.add()
         spec.tensor_name = "missing"
 
-        result = _multi_device.deserialize_node_device_configuration(proto, values={})
+        result = serde.deserialize_node_device_configuration(proto, values={})
 
         # A placeholder value carrying the name keeps the round-trip lossless.
         self.assertEqual(result.sharding_spec[0].value.name, "missing")
-        reserialized = _multi_device.serialize_node_device_configuration(result)
+        reserialized = serde.serialize_node_device_configuration(result)
         self.assertEqual(reserialized.sharding_spec[0].tensor_name, "missing")
 
     @unittest.skipUnless(
@@ -128,7 +128,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
             ),
         )
 
-        proto = _multi_device.serialize_node_device_configuration(config)
+        proto = serde.serialize_node_device_configuration(config)
         self.assertEqual(
             proto.sharding_spec[0].sharded_dim[0].simple_sharding[0].dim_param, "BATCH"
         )
@@ -143,7 +143,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
             sharding_spec=(_multi_device.ShardingSpec(value=ir.Value(name="")),),
         )
         with self.assertRaises(ValueError):
-            _multi_device.serialize_node_device_configuration(config)
+            serde.serialize_node_device_configuration(config)
 
 
 class ConvenienceApiTest(unittest.TestCase):
@@ -731,7 +731,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
                 ),
             ),
         )
-        proto = _multi_device.serialize_node_device_configuration(config)
+        proto = serde.serialize_node_device_configuration(config)
         simple = proto.sharding_spec[0].sharded_dim[0].simple_sharding[0]
         self.assertFalse(simple.HasField("dim_value"))
         self.assertFalse(simple.HasField("dim_param"))
@@ -760,7 +760,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
                 ),
             ),
         )
-        proto = _multi_device.serialize_node_device_configuration(config)
+        proto = serde.serialize_node_device_configuration(config)
         simple = proto.sharding_spec[0].sharded_dim[0].simple_sharding[0]
         self.assertFalse(simple.HasField("dim_param"))
 
@@ -777,7 +777,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         sharded.simple_sharding.add(dim_param="BATCH", num_shards=2)
         sharded.simple_sharding.add(num_shards=1)  # neither dim_value nor dim_param
 
-        result = _multi_device.deserialize_node_device_configuration(proto)
+        result = serde.deserialize_node_device_configuration(proto)
         simple = result.sharding_spec[0].sharded_dim[0].simple_sharding
         self.assertEqual(simple[0].dim, ir.SymbolicDim("BATCH"))
         self.assertIsNone(simple[1].dim)
@@ -789,7 +789,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
     def test_deserialize_empty_tensor_name_resolves_to_none(self):
         proto = onnx.NodeDeviceConfigurationProto()
         proto.sharding_spec.add()  # tensor_name left empty
-        result = _multi_device.deserialize_node_device_configuration(proto, values={})
+        result = serde.deserialize_node_device_configuration(proto, values={})
         self.assertIsNone(result.sharding_spec[0].value)
 
     @unittest.skipUnless(
@@ -801,7 +801,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         spec = proto.sharding_spec.add()
         spec.tensor_name = "x"
         # values defaults to None -> treated as empty mapping.
-        result = _multi_device.deserialize_node_device_configuration(proto)
+        result = serde.deserialize_node_device_configuration(proto)
         self.assertEqual(result.sharding_spec[0].value.name, "x")
 
     @unittest.skipUnless(
@@ -813,7 +813,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
             sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
         )
-        proto = _multi_device.serialize_node_device_configuration(config)
+        proto = serde.serialize_node_device_configuration(config)
         self.assertEqual(proto.sharding_spec[0].tensor_name, "")
         self.assertEqual(list(proto.sharding_spec[0].device), [0])
 
@@ -826,7 +826,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
             configuration=_multi_device.ModelConfiguration("", num_devices=1),
         )
         with self.assertRaises(ValueError):
-            _multi_device.serialize_node_device_configuration(config)
+            serde.serialize_node_device_configuration(config)
 
 
 class CheckEdgeCaseTest(unittest.TestCase):

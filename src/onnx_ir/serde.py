@@ -28,7 +28,9 @@ __all__ = [
     "deserialize_graph",
     "deserialize_metadata_props",
     "deserialize_model",
+    "deserialize_model_configuration",
     "deserialize_node",
+    "deserialize_node_device_configuration",
     "deserialize_opset_import",
     "deserialize_tensor",
     "deserialize_tensor_shape",
@@ -47,8 +49,10 @@ __all__ = [
     "serialize_graph",
     "serialize_model_into",
     "serialize_model",
+    "serialize_model_configuration",
     "serialize_node_into",
     "serialize_node",
+    "serialize_node_device_configuration",
     "serialize_shape_into",
     "serialize_reference_attribute_into",
     "serialize_reference_attribute",
@@ -622,7 +626,7 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
     device_configurations: tuple[_multi_device.ModelConfiguration, ...] = ()
     if hasattr(proto, "configuration") and proto.configuration:
         device_configurations = tuple(
-            _multi_device.deserialize_model_configuration(configuration)
+            deserialize_model_configuration(configuration)
             for configuration in proto.configuration
         )
     model = _core.Model(
@@ -1391,7 +1395,7 @@ def _deserialize_node(
         for values in scoped_values:
             merged_values.update(values)
         node_multi_device = tuple(
-            _multi_device.deserialize_node_device_configuration(
+            deserialize_node_device_configuration(
                 device_configuration, values=merged_values
             )
             for device_configuration in proto.device_configurations
@@ -1409,6 +1413,115 @@ def _deserialize_node(
         device_configurations=node_multi_device,
     )
     return node
+
+
+# Multi-device configuration deserialization
+
+
+def deserialize_model_configuration(
+    proto: onnx.DeviceConfigurationProto,
+) -> _multi_device.ModelConfiguration:
+    return _multi_device.ModelConfiguration(
+        name=proto.name,
+        num_devices=proto.num_devices,
+        device=tuple(proto.device),
+    )
+
+
+def _resolve_sharded_value(
+    tensor_name: str, values: Mapping[str, _core.Value]
+) -> _core.Value | None:
+    """Resolve a proto ``tensor_name`` to a :class:`~onnx_ir.Value`.
+
+    When the name is not present in ``values`` a placeholder value carrying the
+    name is created so the reference round-trips losslessly. This mirrors how
+    missing node inputs are handled during deserialization.
+    """
+    if not tensor_name:
+        return None
+    value = values.get(tensor_name)
+    if value is None:
+        logger.warning(
+            "ShardingSpec references tensor '%s' which is not found in the current "
+            "scope. Creating a placeholder value.",
+            tensor_name,
+        )
+        value = _core.Value(name=tensor_name)
+    return value
+
+
+def _deserialize_simple_sharded_dim(
+    proto: onnx.SimpleShardedDimProto,
+) -> _multi_device.SimpleShardedDim:
+    if proto.HasField("dim_value"):
+        dim: int | _core.SymbolicDim | None = proto.dim_value
+    elif proto.HasField("dim_param"):
+        dim = _core.SymbolicDim(proto.dim_param)
+    else:
+        dim = None
+    return _multi_device.SimpleShardedDim(
+        dim=dim,
+        num_shards=proto.num_shards,
+    )
+
+
+def _deserialize_sharded_dim(proto: onnx.ShardedDimProto) -> _multi_device.ShardedDim:
+    return _multi_device.ShardedDim(
+        axis=proto.axis,
+        simple_sharding=tuple(
+            _deserialize_simple_sharded_dim(simple_sharding)
+            for simple_sharding in proto.simple_sharding
+        ),
+    )
+
+
+def _deserialize_sharding_spec(
+    proto: onnx.ShardingSpecProto, values: Mapping[str, _core.Value]
+) -> _multi_device.ShardingSpec:
+    return _multi_device.ShardingSpec(
+        value=_resolve_sharded_value(proto.tensor_name, values),
+        device=tuple(proto.device),
+        index_to_device_group_map=tuple(
+            _multi_device.IndexToDeviceGroupMapEntry(key=entry.key, value=tuple(entry.value))
+            for entry in proto.index_to_device_group_map
+        ),
+        sharded_dim=tuple(_deserialize_sharded_dim(dim) for dim in proto.sharded_dim),
+    )
+
+
+def deserialize_node_device_configuration(
+    proto: onnx.NodeDeviceConfigurationProto,
+    values: Mapping[str, _core.Value] | None = None,
+) -> _multi_device.NodeDeviceConfiguration:
+    """Deserialize a node device configuration.
+
+    Args:
+        proto: The proto to deserialize.
+        values: Mapping from value name to :class:`~onnx_ir.Value` used to
+            resolve ``tensor_name`` references. When ``None`` all references
+            resolve to freshly created placeholder values.
+
+    Note:
+        ``configuration`` is resolved to a *placeholder*
+        :class:`~onnx_ir.ModelConfiguration` carrying the ``configuration_id``.
+        The placeholder is replaced by the real model configuration object by a
+        post-pass once the model is fully built (see :func:`deserialize_model`).
+    """
+    if values is None:
+        values = {}
+    configuration: _multi_device.ModelConfiguration | None = None
+    if proto.configuration_id:
+        configuration = _multi_device.ModelConfiguration(
+            name=proto.configuration_id, num_devices=0
+        )
+    pipeline_stage = proto.pipeline_stage if proto.HasField("pipeline_stage") else None
+    return _multi_device.NodeDeviceConfiguration(
+        configuration=configuration,
+        sharding_spec=tuple(
+            _deserialize_sharding_spec(spec, values) for spec in proto.sharding_spec
+        ),
+        pipeline_stage=pipeline_stage,
+    )
 
 
 # Serialization
@@ -1467,6 +1580,83 @@ def serialize_model_into(
     return model_proto
 
 
+# Multi-device configuration serialization
+
+
+def serialize_model_configuration(
+    configuration: _multi_device.ModelConfiguration,
+) -> onnx.DeviceConfigurationProto:
+    proto = onnx.DeviceConfigurationProto()
+    proto.name = configuration.name
+    proto.num_devices = configuration.num_devices
+    proto.device.extend(configuration.device)
+    return proto
+
+
+def _serialize_simple_sharded_dim(
+    simple_sharding: _multi_device.SimpleShardedDim,
+) -> onnx.SimpleShardedDimProto:
+    proto = onnx.SimpleShardedDimProto()
+    if isinstance(simple_sharding.dim, int):
+        proto.dim_value = simple_sharding.dim
+    elif (
+        isinstance(simple_sharding.dim, _core.SymbolicDim)
+        and simple_sharding.dim.value is not None
+    ):
+        proto.dim_param = simple_sharding.dim.value
+    proto.num_shards = simple_sharding.num_shards
+    return proto
+
+
+def _serialize_sharded_dim(sharded_dim: _multi_device.ShardedDim) -> onnx.ShardedDimProto:
+    proto = onnx.ShardedDimProto()
+    proto.axis = sharded_dim.axis
+    for simple_sharding in sharded_dim.simple_sharding:
+        proto.simple_sharding.append(_serialize_simple_sharded_dim(simple_sharding))
+    return proto
+
+
+def _serialize_sharding_spec(
+    sharding_spec: _multi_device.ShardingSpec,
+) -> onnx.ShardingSpecProto:
+    proto = onnx.ShardingSpecProto()
+    if sharding_spec.value is not None:
+        name = sharding_spec.value.name
+        if not name:
+            raise ValueError(
+                "Cannot serialize a ShardingSpec whose value has no name. "
+                f"Value: {sharding_spec.value!r}"
+            )
+        proto.tensor_name = name
+    proto.device.extend(sharding_spec.device)
+    for entry in sharding_spec.index_to_device_group_map:
+        map_entry = proto.index_to_device_group_map.add()
+        map_entry.key = entry.key
+        map_entry.value.extend(entry.value)
+    for sharded_dim in sharding_spec.sharded_dim:
+        proto.sharded_dim.append(_serialize_sharded_dim(sharded_dim))
+    return proto
+
+
+def serialize_node_device_configuration(
+    node_device_configuration: _multi_device.NodeDeviceConfiguration,
+) -> onnx.NodeDeviceConfigurationProto:
+    proto = onnx.NodeDeviceConfigurationProto()
+    if node_device_configuration.configuration is not None:
+        name = node_device_configuration.configuration.name
+        if not name:
+            raise ValueError(
+                "Cannot serialize a NodeDeviceConfiguration whose configuration has "
+                f"no name. Configuration: {node_device_configuration.configuration!r}"
+            )
+        proto.configuration_id = name
+    for sharding_spec in node_device_configuration.sharding_spec:
+        proto.sharding_spec.append(_serialize_sharding_spec(sharding_spec))
+    if node_device_configuration.pipeline_stage is not None:
+        proto.pipeline_stage = node_device_configuration.pipeline_stage
+    return proto
+
+
 def _serialize_device_configurations_into(
     model_proto: onnx.ModelProto, from_: _protocols.ModelProtocol
 ) -> None:
@@ -1481,7 +1671,7 @@ def _serialize_device_configurations_into(
                 f"Expected ModelConfiguration, got {type(model_configuration)}"
             )
         model_proto.configuration.add().CopyFrom(
-            _multi_device.serialize_model_configuration(model_configuration)
+            serialize_model_configuration(model_configuration)
         )
 
 
@@ -1845,7 +2035,7 @@ def _serialize_node_multi_device_into(
                 f"{type(node_device_configuration)}"
             )
         node_proto.device_configurations.add().CopyFrom(
-            _multi_device.serialize_node_device_configuration(node_device_configuration)
+            serialize_node_device_configuration(node_device_configuration)
         )
 
 
