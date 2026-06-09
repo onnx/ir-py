@@ -233,6 +233,48 @@ class ConvenienceApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             node.shard(foreign, configuration=conf, axis=0, num_shards=2)
 
+    def test_shard_accepts_negative_axis(self):
+        # x has shape [4, 8]; axis=-1 means the last axis.
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=-1, num_shards=2)
+        spec = node.sharding_of(x)[0]
+        self.assertEqual(spec.sharded_dim[0].axis, -1)
+        # The dim is resolved from the last axis (size 8).
+        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, 8)
+        self.assertEqual(_multi_device.check_device_configurations(model), [])
+
+    def test_shard_negative_axis_aliases_positive(self):
+        # On a rank-2 tensor, axis=1 and axis=-1 are the same axis.
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=1, num_shards=2)
+        with self.assertRaises(ValueError):
+            node.shard(x, configuration=conf, axis=-1, num_shards=2)
+
+    def test_shard_rejects_out_of_range_negative_axis(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        # rank is 2, valid range is [-2, 1].
+        with self.assertRaises(ValueError):
+            node.shard(x, configuration=conf, axis=-3, num_shards=2)
+
+    def test_shard_conflicting_pipeline_stage_raises(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        y = node.outputs[0]
+        node.shard(x, configuration=conf, axis=0, num_shards=2, pipeline_stage=1)
+        with self.assertRaises(ValueError):
+            node.shard(y, configuration=conf, axis=0, num_shards=2, pipeline_stage=2)
+
+    def test_shard_same_pipeline_stage_is_allowed(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        y = node.outputs[0]
+        node.shard(x, configuration=conf, axis=0, num_shards=2, pipeline_stage=1)
+        node.shard(y, configuration=conf, axis=0, num_shards=2, pipeline_stage=1)
+        self.assertEqual(node.device_configurations[0].pipeline_stage, 1)
+
     def test_shard_rejects_bad_axis_and_shards(self):
         model, node, x = _identity_model()
         conf = model.add_device_configuration("conf0", devices=("CPU",))
@@ -401,6 +443,84 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         self.assertTrue(any("axis" in e for e in errors), errors)
         self.assertTrue(any("device index" in e for e in errors), errors)
 
+    def test_negative_axis_within_range_is_valid(self):
+        model, node, x = _identity_model()  # x rank 2
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=-1,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(_multi_device.check_device_configurations(model), [])
+
+    def test_out_of_range_negative_axis_reported(self):
+        model, node, x = _identity_model()  # x rank 2, valid [-2, 1]
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=-3,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("axis" in e for e in errors), errors)
+
+    def test_duplicate_axis_within_spec_reported(self):
+        model, node, x = _identity_model()  # x rank 2
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        # axis 0 and axis -2 are the same axis on a rank-2 tensor.
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=0,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                            _multi_device.ShardedDim(
+                                axis=-2,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("more than once" in e for e in errors), errors)
+
 
 class CloneTest(unittest.TestCase):
     def test_clone_remaps_sharding_values(self):
@@ -440,6 +560,23 @@ class CloneTest(unittest.TestCase):
         cloned_config = cloned.graph[0].device_configurations[0]
         self.assertIsNone(cloned_config.sharding_spec[0].value)
         self.assertEqual(cloned_config.sharding_spec[0].device, (0,))
+
+    def test_clone_propagates_dropped_value_to_none(self):
+        # When the cloner is told a value maps to None (intentionally dropped),
+        # the sharding reference follows to None rather than staying stale.
+        from onnx_ir import _cloner
+
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+
+        cloner = _cloner.Cloner(
+            attr_map={},
+            value_map={x: None},
+            metadata_props={},
+        )
+        cloned_configs = cloner._remap_device_configurations(node.device_configurations)
+        self.assertIsNone(cloned_configs[0].sharding_spec[0].value)
 
 
 class SerdeHelperEdgeCaseTest(unittest.TestCase):

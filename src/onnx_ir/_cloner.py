@@ -243,8 +243,14 @@ class Cloner:
             new_specs = []
             spec_changed = False
             for spec in configuration.sharding_spec:
-                mapped = self._value_map.get(spec.value) if spec.value is not None else None
-                if mapped is not None and mapped is not spec.value:
+                if spec.value is None or spec.value not in self._value_map:
+                    # No mapping (e.g. an outer-scope value): keep as-is.
+                    new_specs.append(spec)
+                    continue
+                mapped = self._value_map[spec.value]
+                # ``mapped`` may be None when the value was intentionally dropped
+                # from the clone; propagate that so the reference is not stale.
+                if mapped is not spec.value:
                     new_specs.append(dataclasses.replace(spec, value=mapped))
                     spec_changed = True
                 else:

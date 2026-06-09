@@ -2491,16 +2491,20 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 own inputs or outputs.
             configuration: The :class:`~onnx_ir.ModelConfiguration` the sharding
                 belongs to.
-            axis: The axis along which ``value`` is sharded.
+            axis: The axis along which ``value`` is sharded. May be negative to
+                count from the back (in the range ``[-rank, rank)`` following the
+                ONNX convention), when the rank of ``value`` is known.
             num_shards: The number of shards along ``axis``. Must be ``>= 1``.
             devices: Optional device indices the tensor is placed on.
-            pipeline_stage: Optional pipeline stage for the configuration.
+            pipeline_stage: Optional pipeline stage for the configuration. Must
+                not conflict with a stage already set on the configuration.
 
         Raises:
             ValueError: If ``value`` is not an input or output of the node, if
                 ``num_shards < 1``, if ``axis`` is out of range when the rank of
-                ``value`` is known, or if ``value`` is already sharded along
-                ``axis`` for this ``configuration``.
+                ``value`` is known, if ``value`` is already sharded along
+                ``axis`` for this ``configuration``, or if ``pipeline_stage``
+                conflicts with the configuration's existing stage.
         """
         from onnx_ir import _multi_device
 
@@ -2515,7 +2519,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             raise ValueError(f"num_shards must be >= 1, got {num_shards}.")
         shape = value.shape
         rank = len(shape) if shape is not None else None
-        if axis < 0 or (rank is not None and axis >= rank):
+        if rank is not None and not -rank <= axis < rank:
             raise ValueError(
                 f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
             )
@@ -2529,17 +2533,34 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             value=value, device=devices, sharded_dim=(new_dim,)
         )
 
+        def _normalize_axis(a: int) -> int:
+            # Treat axis -1 and axis rank-1 as the same axis when the rank is known.
+            return a + rank if (rank is not None and a < 0) else a
+
         configurations = list(self.device_configurations)
         for i, existing in enumerate(configurations):
             if existing.configuration is not configuration:
                 continue
+            if (
+                pipeline_stage is not None
+                and existing.pipeline_stage is not None
+                and pipeline_stage != existing.pipeline_stage
+            ):
+                raise ValueError(
+                    f"Conflicting pipeline_stage for configuration "
+                    f"{configuration.name!r} on node {self.name!r}: existing "
+                    f"{existing.pipeline_stage}, new {pipeline_stage}."
+                )
             stage = pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
             specs = list(existing.sharding_spec)
             for j, spec in enumerate(specs):
                 if spec.value is not value:
                     continue
                 # Extend the existing spec for this value with another axis.
-                if any(sharded.axis == axis for sharded in spec.sharded_dim):
+                if any(
+                    _normalize_axis(sharded.axis) == _normalize_axis(axis)
+                    for sharded in spec.sharded_dim
+                ):
                     raise ValueError(
                         f"Value {value.name!r} is already sharded along axis {axis} "
                         f"for configuration {configuration.name!r} on node {self.name!r}."

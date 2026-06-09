@@ -1226,6 +1226,26 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertNotIn(new_config.configuration, deserialized.device_configurations)
 
     @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_negative_axis_roundtrip(self):
+        # ONNX allows negative axes; a model using one must round-trip and pass
+        # the checker (regression for the negative-axis false positive).
+        x = ir.Value(name="x", shape=ir.Shape([4, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=10)
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=-1, num_shards=2)
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        spec = deserialized.graph[0].device_configurations[0].sharding_spec[0]
+        self.assertEqual(spec.sharded_dim[0].axis, -1)
+        self.assertEqual(ir.check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )

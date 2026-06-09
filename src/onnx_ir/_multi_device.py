@@ -355,12 +355,26 @@ def _check_sharding_spec(
             "or output of the node."
         )
     rank = len(spec.value.shape) if spec.value.shape is not None else None
+
+    def normalize_axis(axis: int) -> int:
+        return axis + rank if (rank is not None and axis < 0) else axis
+
+    seen_axes: set[int] = set()
     for sharded_dim in spec.sharded_dim:
-        if sharded_dim.axis < 0 or (rank is not None and sharded_dim.axis >= rank):
+        # ONNX allows negative axes in the range [-rank, rank - 1].
+        if rank is not None and not -rank <= sharded_dim.axis < rank:
             errors.append(
                 f"Node '{label}': sharded axis {sharded_dim.axis} of value "
                 f"'{spec.value.name}' is out of range (rank={rank})."
             )
+        else:
+            normalized = normalize_axis(sharded_dim.axis)
+            if normalized in seen_axes:
+                errors.append(
+                    f"Node '{label}': value '{spec.value.name}' is sharded along "
+                    f"axis {sharded_dim.axis} more than once."
+                )
+            seen_axes.add(normalized)
         for simple in sharded_dim.simple_sharding:
             if simple.num_shards < 1:
                 errors.append(
