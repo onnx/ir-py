@@ -52,30 +52,9 @@ inputs or outputs.
 ```
 
 {py:meth}`Node.sharding_of <onnx_ir.Node.sharding_of>` returns the live sharding
-specs that target a particular value (matched by object identity).
-
-Calling `shard` again with the same `configuration` appends to the existing
-{py:class}`onnx_ir.NodeDeviceConfiguration <onnx_ir.NodeDeviceConfiguration>`
-rather than creating a new one:
-
-```{eval-rst}
-.. exec_code::
-
-    import onnx_ir as ir
-
-    x = ir.Value(name="x", shape=ir.Shape([8, 16]), type=ir.TensorType(ir.DataType.FLOAT))
-    relu = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
-    graph = ir.Graph([x], [relu.outputs[0]], nodes=[relu], opset_imports={"": 18})
-    model = ir.Model(graph, ir_version=11)
-    conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-
-    relu.shard(x, configuration=conf, axis=0, num_shards=2)
-    relu.shard(relu.outputs[0], configuration=conf, axis=0, num_shards=2)
-
-    # Both specs live under a single configuration.
-    print(len(relu.device_configurations))               # 1
-    print(len(relu.device_configurations[0].sharding_spec))  # 2
-```
+specs that target a particular value (matched by object identity). Calling
+`shard` again with the same `configuration` reuses its
+{py:class}`~onnx_ir.NodeDeviceConfiguration` rather than creating a new one.
 
 ## Patterns at a glance
 
@@ -228,8 +207,7 @@ replicated across a 2-device group (4 devices total).
 
 ### Querying shardings
 
-Walk a node's configurations to read back how each tensor is sharded. Values are
-bound objects, so you get the live {py:class}`~onnx_ir.Value` back, not a name.
+Walk a node's configurations to read back how each tensor is sharded:
 
 ```{eval-rst}
 .. exec_code::
@@ -269,17 +247,15 @@ sharding spec. {py:meth}`Node.set_pipeline_stage
 node. How a stage maps to a physical device is by convention; a common choice is
 ``stage == device index`` into ``configuration.device``.
 
-There are two reasons to place different parts of a model on different devices,
-and they lead to different split strategies:
+Two situations call for placing parts of a model on different devices, with
+different split strategies:
 
-- **Capacity (homogeneous devices).** The model is too large for one accelerator,
-  so a contiguous run of layers is split across several *identical* devices (for
-  example two GPUs), purely to fit memory. The split is by position — e.g. the
-  first half of the layers on GPU 0 and the second half on GPU 1. The example
-  below shows this.
-- **Capability / affinity (heterogeneous devices).** Different operators run best
-  on different kinds of hardware (CPU, NPU, GPU). Here the split follows *what
-  each op is good for*, not the layer index — see the end-to-end example below.
+- **Capacity (identical devices).** The model is too big for one accelerator, so
+  a run of layers is split by position across identical devices (e.g. two GPUs)
+  to fit memory. The example below shows this.
+- **Affinity (heterogeneous devices).** Different ops run best on different
+  hardware (CPU, NPU, GPU), so the split follows what each op is good for — see
+  the end-to-end example below.
 
 ```{eval-rst}
 .. exec_code::
@@ -313,38 +289,26 @@ and they lead to different split strategies:
         print(f"{layer.name}: stage {stage} -> {device_names[stage]}")
 ```
 
-A node can be both sharded and staged: :meth:`Node.shard <onnx_ir.Node.shard>`
-and :meth:`set_pipeline_stage <onnx_ir.Node.set_pipeline_stage>` share a single
-{py:class}`~onnx_ir.NodeDeviceConfiguration` per configuration, so you can shard a
-layer's tensors *and* assign it to a pipeline stage. If you instead want to bind a
-specific tensor to a specific device explicitly (rather than rely on the
-``stage == device index`` convention), attach a placement-only
-{py:class}`~onnx_ir.ShardingSpec` — one with a ``device`` but no ``sharded_dim``,
-meaning the tensor lives wholly on those devices without being split.
+A node can be both sharded and staged: {py:meth}`Node.shard <onnx_ir.Node.shard>`
+and {py:meth}`Node.set_pipeline_stage <onnx_ir.Node.set_pipeline_stage>` share one
+{py:class}`~onnx_ir.NodeDeviceConfiguration` per configuration, so a layer can be
+tensor-sharded *and* assigned to a stage at once.
 
 ## End-to-end: splitting a model across devices
 
-This worked example places a small decoder-style model — an embedding, ten
-decoder layers, and an LM head — across a **CPU, an NPU, and a GPU**. With
-heterogeneous hardware the split follows *operator affinity*: each part of the
-model goes to the device that runs it best, rather than being split by layer
-index.
+This worked example places a small decoder — an embedding, ten decoder layers,
+and an LM head — across a **CPU, NPU, and GPU** by *operator affinity*, each part
+going to the device that runs it best:
 
-A typical rationale for an on-device / edge LLM:
+- **CPU** — the **embedding** (`Gather`): a memory-bound lookup over a large table
+  that accelerators handle poorly.
+- **NPU** — the **decoder layers**: dense, quantization-friendly matmuls at high
+  performance-per-watt; the bulk of the compute.
+- **GPU** — the **LM head**: a large hidden→vocab projection that wants the GPU's
+  throughput and precision.
 
-- **CPU** — the token **embedding** (`Gather`). The embedding table is large and
-  the op is a memory-bound lookup that accelerators handle poorly; keeping it on
-  CPU avoids staging a huge table into accelerator memory.
-- **NPU** — the **decoder layers**. These are dense, quantization-friendly matmuls
-  that an NPU runs at high performance-per-watt; this is the steady-state compute
-  and the bulk of the model.
-- **GPU** — the **LM head** (the large hidden→vocab projection). It benefits from
-  the GPU's throughput and higher precision for the final logits, and the big
-  vocab weight may not fit the NPU's on-chip memory.
-
-The multi-device annotations are hints; the runtime inserts the cross-device
-transfers (CPU→NPU→GPU) implicitly. The whole plan round-trips through
-``to_proto`` / ``from_proto``.
+The annotations are hints; the runtime inserts the cross-device transfers
+implicitly, and the plan round-trips through ``to_proto`` / ``from_proto``.
 
 ```{eval-rst}
 .. exec_code::
@@ -403,13 +367,12 @@ transfers (CPU→NPU→GPU) implicitly. The whole plan round-trips through
     print("nodes placed:", len(placed))
 ```
 
-If a stage is itself served by **several identical devices** — say the NPU stage
-is actually two NPUs — you additionally tensor-shard the heavy ops across them
-with {py:meth}`Node.shard <onnx_ir.Node.shard>` (using that homogeneous group's
-device indices). Tensor parallelism is normally kept within a group of identical
-devices, while pipeline placement spans the different device *types*. Because
-`shard` and `set_pipeline_stage` share one
-{py:class}`~onnx_ir.NodeDeviceConfiguration`, a layer can carry both at once.
+If a stage is served by several identical devices (say two NPUs), tensor-shard
+the heavy ops across them with {py:meth}`Node.shard <onnx_ir.Node.shard>`: tensor
+parallelism stays within a homogeneous group, while pipeline placement spans the
+device *types*. To bind a tensor to a device explicitly instead of relying on the
+``stage == device index`` convention, attach a placement-only
+{py:class}`~onnx_ir.ShardingSpec` — one with a ``device`` but no ``sharded_dim``.
 
 ## Removing a configuration
 
