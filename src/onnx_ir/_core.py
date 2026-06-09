@@ -2479,6 +2479,13 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         The sharding is bound to ``value`` and ``configuration`` by object
         identity, so it follows renames and survives as long as the objects do.
 
+        Calling this method repeatedly for the same ``value`` and
+        ``configuration`` but different axes builds a single
+        :class:`~onnx_ir.ShardingSpec` with one
+        :class:`~onnx_ir.ShardedDim` per axis (the canonical representation for
+        sharding a tensor across a multi-axis device mesh). ``devices`` are
+        unioned across those calls.
+
         Args:
             value: The input or output value to shard. Must be one of this node's
                 own inputs or outputs.
@@ -2491,8 +2498,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         Raises:
             ValueError: If ``value`` is not an input or output of the node, if
-                ``num_shards < 1``, or if ``axis`` is out of range when the rank
-                of ``value`` is known.
+                ``num_shards < 1``, if ``axis`` is out of range when the rank of
+                ``value`` is known, or if ``value`` is already sharded along
+                ``axis`` for this ``configuration``.
         """
         from onnx_ir import _multi_device
 
@@ -2512,37 +2520,51 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
             )
         dim = shape[axis] if shape is not None else None
-        spec = _multi_device.ShardingSpec(
-            value=value,
-            device=tuple(devices),
-            sharded_dim=(
-                _multi_device.ShardedDim(
-                    axis=axis,
-                    simple_sharding=(
-                        _multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),
-                    ),
-                ),
-            ),
+        new_dim = _multi_device.ShardedDim(
+            axis=axis,
+            simple_sharding=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
         )
-        # Find an existing configuration bound to the same ModelConfiguration and
-        # append to it, otherwise create a new one.
+        devices = tuple(devices)
+        new_spec = _multi_device.ShardingSpec(
+            value=value, device=devices, sharded_dim=(new_dim,)
+        )
+
         configurations = list(self.device_configurations)
         for i, existing in enumerate(configurations):
-            if existing.configuration is configuration:
-                stage = (
-                    pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
+            if existing.configuration is not configuration:
+                continue
+            stage = pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
+            specs = list(existing.sharding_spec)
+            for j, spec in enumerate(specs):
+                if spec.value is not value:
+                    continue
+                # Extend the existing spec for this value with another axis.
+                if any(sharded.axis == axis for sharded in spec.sharded_dim):
+                    raise ValueError(
+                        f"Value {value.name!r} is already sharded along axis {axis} "
+                        f"for configuration {configuration.name!r} on node {self.name!r}."
+                    )
+                merged_devices = (
+                    *spec.device,
+                    *(d for d in devices if d not in spec.device),
                 )
-                configurations[i] = dataclasses.replace(
-                    existing,
-                    sharding_spec=(*existing.sharding_spec, spec),
-                    pipeline_stage=stage,
+                specs[j] = dataclasses.replace(
+                    spec,
+                    device=merged_devices,
+                    sharded_dim=(*spec.sharded_dim, new_dim),
                 )
                 break
+            else:
+                specs.append(new_spec)
+            configurations[i] = dataclasses.replace(
+                existing, sharding_spec=tuple(specs), pipeline_stage=stage
+            )
+            break
         else:
             configurations.append(
                 _multi_device.NodeDeviceConfiguration(
                     configuration=configuration,
-                    sharding_spec=(spec,),
+                    sharding_spec=(new_spec,),
                     pipeline_stage=pipeline_stage,
                 )
             )

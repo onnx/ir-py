@@ -177,9 +177,54 @@ class ConvenienceApiTest(unittest.TestCase):
         y = node.outputs[0]
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         node.shard(y, configuration=conf, axis=0, num_shards=2)
-        # Both specs live under a single NodeDeviceConfiguration.
+        # Two different values -> two specs under a single NodeDeviceConfiguration.
         self.assertEqual(len(node.device_configurations), 1)
         self.assertEqual(len(node.device_configurations[0].sharding_spec), 2)
+
+    def test_shard_same_value_multiple_axes_builds_one_spec(self):
+        # Sharding the same value along two axes (a 2D device mesh) produces a
+        # single ShardingSpec with one ShardedDim per axis.
+        x = ir.Value(name="w", shape=ir.Shape([8, 16]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        mesh = model.add_device_configuration("mesh2x2", num_devices=4)
+        node.shard(x, configuration=mesh, axis=0, num_shards=2, devices=(0, 1, 2, 3))
+        node.shard(x, configuration=mesh, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+
+        specs = node.sharding_of(x)
+        self.assertEqual(len(specs), 1)
+        self.assertEqual([d.axis for d in specs[0].sharded_dim], [0, 1])
+        self.assertEqual(specs[0].device, (0, 1, 2, 3))
+
+    def test_shard_same_value_unions_devices(self):
+        x = ir.Value(name="w", shape=ir.Shape([8, 16]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        mesh = model.add_device_configuration("mesh", num_devices=4)
+        node.shard(x, configuration=mesh, axis=0, num_shards=2, devices=(0, 1))
+        node.shard(x, configuration=mesh, axis=1, num_shards=2, devices=(1, 2, 3))
+        # Devices are unioned, order-preserving, without duplicates.
+        self.assertEqual(node.sharding_of(x)[0].device, (0, 1, 2, 3))
+
+    def test_shard_same_axis_twice_raises(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        with self.assertRaises(ValueError):
+            node.shard(x, configuration=conf, axis=0, num_shards=2)
+
+    def test_shard_same_value_different_configurations(self):
+        # Sharding the same value under two different configurations keeps the
+        # specs in separate NodeDeviceConfigurations.
+        model, node, x = _identity_model()
+        a = model.add_device_configuration("a", devices=("CPU",))
+        b = model.add_device_configuration("b", devices=("CUDA:0",))
+        node.shard(x, configuration=a, axis=0, num_shards=2)
+        node.shard(x, configuration=b, axis=1, num_shards=2)
+        self.assertEqual(len(node.device_configurations), 2)
+        self.assertEqual(len(node.sharding_of(x)), 2)
 
     def test_shard_rejects_foreign_value(self):
         model, node, _ = _identity_model()

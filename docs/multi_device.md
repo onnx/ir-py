@@ -77,6 +77,143 @@ rather than creating a new one:
     print(len(relu.device_configurations[0].sharding_spec))  # 2
 ```
 
+## Common sharding patterns
+
+The examples below build a small `W @ x` matmul and show how typical shardings
+map onto the IR. They follow the same vocabulary as systems like
+[Shardy](https://openxla.org/shardy/sharding_representation): a tensor dimension
+is *sharded* across some devices and *replicated* along the rest.
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    # W: [1024, 4096], x: [4096, 8]  ->  y: [1024, 8]
+    w = ir.Value(name="W", shape=ir.Shape([1024, 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+    x = ir.Value(name="x", shape=ir.Shape([4096, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+    matmul = ir.Node("", "MatMul", [w, x], outputs=[ir.Value(name="y")], name="mm")
+    graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+
+    # --- 1D mesh: 4 devices ---
+    mesh1d = model.add_device_configuration("mesh1d", num_devices=4)
+
+    # Row-parallel: shard W along axis 0 (its rows) across all 4 devices.
+    # Each device holds a [256, 4096] shard; x is replicated.
+    matmul.shard(w, configuration=mesh1d, axis=0, num_shards=4, devices=(0, 1, 2, 3))
+
+    # Column-parallel would instead shard W along axis 1:
+    #   matmul.shard(w, configuration=mesh1d, axis=1, num_shards=4, ...)
+
+    spec = matmul.sharding_of(w)[0]
+    print(spec.sharded_dim[0].axis)                       # 0
+    print(spec.sharded_dim[0].simple_sharding[0].num_shards)  # 4
+```
+
+### 2D device mesh
+
+To shard a tensor across a 2-axis mesh (for example a ``2 x 2`` grid of 4
+devices), shard the same value along each axis. The calls merge into a single
+{py:class}`~onnx_ir.ShardingSpec` with one {py:class}`~onnx_ir.ShardedDim` per
+axis — the canonical representation for a multi-axis mesh.
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    w = ir.Value(name="W", shape=ir.Shape([1024, 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+    x = ir.Value(name="x", shape=ir.Shape([4096, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+    matmul = ir.Node("", "MatMul", [w, x], outputs=[ir.Value(name="y")], name="mm")
+    graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+
+    mesh2x2 = model.add_device_configuration("mesh2x2", num_devices=4)
+    # Shard rows along the first mesh axis and columns along the second.
+    matmul.shard(w, configuration=mesh2x2, axis=0, num_shards=2, devices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh2x2, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+
+    spec = matmul.sharding_of(w)[0]
+    print(len(matmul.sharding_of(w)))                # 1 (single spec)
+    print([d.axis for d in spec.sharded_dim])        # [0, 1]
+    print(spec.device)                               # (0, 1, 2, 3)
+```
+
+### Replication across device groups
+
+A single shard can be *replicated* across a group of devices. The proto models
+this with ``ShardingSpec.device`` entries that are group indices, plus
+``index_to_device_group_map`` mapping each index to the devices in the group.
+This is expressed by constructing the {py:class}`~onnx_ir.ShardingSpec` directly:
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    w = ir.Value(name="W", shape=ir.Shape([1024, 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+    x = ir.Value(name="x", shape=ir.Shape([4096, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+    matmul = ir.Node("", "MatMul", [w, x], outputs=[ir.Value(name="y")], name="mm")
+    graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+    conf = model.add_device_configuration("conf", num_devices=4)
+
+    # Shard W into 2 row-shards across 2 device *groups* (indices 0 and 1).
+    # Group 0 = devices {0, 1}, group 1 = devices {2, 3}: each shard is
+    # replicated across the two devices in its group.
+    spec = ir.ShardingSpec(
+        value=w,
+        device=(0, 1),
+        index_to_device_group_map=(
+            ir.IndexToDeviceGroupMapEntry(key=0, value=(0, 1)),
+            ir.IndexToDeviceGroupMapEntry(key=1, value=(2, 3)),
+        ),
+        sharded_dim=(
+            ir.ShardedDim(
+                axis=0,
+                simple_sharding=(ir.SimpleShardedDim(dim=1024, num_shards=2),),
+            ),
+        ),
+    )
+    matmul.device_configurations = (
+        ir.NodeDeviceConfiguration(configuration=conf, sharding_spec=(spec,)),
+    )
+    print(spec.index_to_device_group_map[0].value)   # (0, 1)
+```
+
+### Querying shardings
+
+Walk a node's configurations to read back how each tensor is sharded. Values are
+bound objects, so you get the live {py:class}`~onnx_ir.Value` back, not a name.
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    w = ir.Value(name="W", shape=ir.Shape([1024, 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+    x = ir.Value(name="x", shape=ir.Shape([4096, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+    matmul = ir.Node("", "MatMul", [w, x], outputs=[ir.Value(name="y")], name="mm")
+    graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+    mesh = model.add_device_configuration("mesh2x2", num_devices=4)
+    matmul.shard(w, configuration=mesh, axis=0, num_shards=2, devices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+
+    for config in matmul.device_configurations:
+        print("configuration:", config.configuration.name)
+        for spec in config.sharding_spec:
+            sharded = {
+                sd.axis: sd.simple_sharding[0].num_shards for sd in spec.sharded_dim
+            }
+            print(f"  {spec.value.name}: axis->num_shards = {sharded}, devices={spec.device}")
+
+    # Direct lookup for one value:
+    for spec in matmul.sharding_of(w):
+        print("axes sharded:", [sd.axis for sd in spec.sharded_dim])
+```
+
 ## Removing a configuration
 
 {py:meth}`Model.remove_device_configuration <onnx_ir.Model.remove_device_configuration>`
