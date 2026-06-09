@@ -280,7 +280,7 @@ def _save_file(
                     data = spec["data"]
                     if not isinstance(data, bytearray):
                         data = bytearray(data)
-                    data_view = ctypes.c_char.from_buffer(data)
+                    data_view = (ctypes.c_char * len(data)).from_buffer(data)
                     tensor_data_refs.append((data, data_view))
                     tensor_specs[name] = safetensors.TensorSpec(
                         dtype=spec["dtype"],
