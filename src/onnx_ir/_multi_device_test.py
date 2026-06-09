@@ -498,6 +498,78 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         self.assertTrue(any("axis" in e for e in errors), errors)
         self.assertTrue(any("device index" in e for e in errors), errors)
 
+    def test_device_group_replication_is_valid(self):
+        # Spec "Sharding as a Broadcast": device key -1 names a group of real
+        # devices the tensor is replicated across; empty sharded_dim = no split.
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        device=(-1,),
+                        index_to_device_group_map=(
+                            _multi_device.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
+
+    def test_device_group_member_out_of_range_reported(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        device=(-1,),
+                        index_to_device_group_map=(
+                            _multi_device.IndexToDeviceGroupMapEntry(
+                                key=-1,
+                                value=(0, 9),  # 9 >= num_devices
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        errors = _multi_device._check_device_configurations(model)
+        self.assertTrue(any("in group" in e for e in errors), errors)
+
+    def test_mixed_split_and_replication_is_valid(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=4)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        device=(-1, -2),
+                        index_to_device_group_map=(
+                            _multi_device.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
+                            _multi_device.IndexToDeviceGroupMapEntry(key=-2, value=(2, 3)),
+                        ),
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=0,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
+
     def test_negative_axis_within_range_is_valid(self):
         model, node, x = _identity_model()  # x rank 2
         conf = model.add_device_configuration("conf0", num_devices=2)

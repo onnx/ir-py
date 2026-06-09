@@ -142,10 +142,44 @@ axis — the canonical representation for a multi-axis mesh.
 
 ### Replication across device groups
 
-A single shard can be *replicated* across a group of devices. The proto models
-this with ``ShardingSpec.device`` entries that are group indices, plus
-``index_to_device_group_map`` mapping each index to the devices in the group.
-This is expressed by constructing the {py:class}`~onnx_ir.ShardingSpec` directly:
+A single shard can also be *replicated* across a group of devices. Following the
+ONNX multi-device proposal, a ``ShardingSpec.device`` entry is either a direct
+device id, or a (typically negative) key into ``index_to_device_group_map`` that
+names a group of real device ids the shard is replicated across. This is
+expressed by constructing the {py:class}`~onnx_ir.ShardingSpec` directly.
+
+A pure replication (the same tensor on every device, no splitting) uses a single
+group key and an empty ``sharded_dim``:
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    w = ir.Value(name="W", shape=ir.Shape([1024, 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+    x = ir.Value(name="x", shape=ir.Shape([4096, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+    matmul = ir.Node("", "MatMul", [w, x], outputs=[ir.Value(name="y")], name="mm")
+    graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+    conf = model.add_device_configuration("conf", num_devices=2)
+
+    # Replicate W across devices {0, 1}: device key -1 maps to that group,
+    # and there is no sharded_dim (nothing is split).
+    replicated = ir.ShardingSpec(
+        value=w,
+        device=(-1,),
+        index_to_device_group_map=(
+            ir.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
+        ),
+    )
+    matmul.device_configurations = (
+        ir.NodeDeviceConfiguration(configuration=conf, sharding_spec=(replicated,)),
+    )
+    print(replicated.index_to_device_group_map[0].value)   # (0, 1)
+```
+
+Splitting and replication can be mixed: shard ``W`` into 2 row-shards, each
+replicated across a 2-device group (4 devices total).
 
 ```{eval-rst}
 .. exec_code::
@@ -159,15 +193,13 @@ This is expressed by constructing the {py:class}`~onnx_ir.ShardingSpec` directly
     model = ir.Model(graph, ir_version=11)
     conf = model.add_device_configuration("conf", num_devices=4)
 
-    # Shard W into 2 row-shards across 2 device *groups* (indices 0 and 1).
-    # Group 0 = devices {0, 1}, group 1 = devices {2, 3}: each shard is
-    # replicated across the two devices in its group.
+    # Row-shard 0 -> group -1 = devices {0, 1}; row-shard 1 -> group -2 = {2, 3}.
     spec = ir.ShardingSpec(
         value=w,
-        device=(0, 1),
+        device=(-1, -2),
         index_to_device_group_map=(
-            ir.IndexToDeviceGroupMapEntry(key=0, value=(0, 1)),
-            ir.IndexToDeviceGroupMapEntry(key=1, value=(2, 3)),
+            ir.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
+            ir.IndexToDeviceGroupMapEntry(key=-2, value=(2, 3)),
         ),
         sharded_dim=(
             ir.ShardedDim(
@@ -179,7 +211,7 @@ This is expressed by constructing the {py:class}`~onnx_ir.ShardingSpec` directly
     matmul.device_configurations = (
         ir.NodeDeviceConfiguration(configuration=conf, sharding_spec=(spec,)),
     )
-    print(spec.index_to_device_group_map[0].value)   # (0, 1)
+    print(spec.index_to_device_group_map[1].value)   # (2, 3)
 ```
 
 ### Querying shardings

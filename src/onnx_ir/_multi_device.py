@@ -381,8 +381,21 @@ def _check_sharding_spec(
                     f"'{spec.value.name}' must be >= 1."
                 )
     if num_devices is not None:
+        # An entry in ``device`` is either a direct device id in
+        # [0, num_devices), or a key into ``index_to_device_group_map`` (often
+        # negative) that names a group of real device ids — used to replicate a
+        # shard across a set of devices. Validate accordingly.
+        group_map = {entry.key: entry.value for entry in spec.index_to_device_group_map}
         for device_index in spec.device:
-            if device_index < 0 or device_index >= num_devices:
+            if device_index in group_map:
+                for member in group_map[device_index]:
+                    if not 0 <= member < num_devices:
+                        errors.append(
+                            f"Node '{label}': device {member} in group "
+                            f"{device_index} for value '{spec.value.name}' is out "
+                            f"of range (num_devices={num_devices})."
+                        )
+            elif not 0 <= device_index < num_devices:
                 errors.append(
                     f"Node '{label}': device index {device_index} for value "
                     f"'{spec.value.name}' is out of range (num_devices={num_devices})."
