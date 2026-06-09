@@ -44,6 +44,7 @@ def save(
     format: str | None = None,
     external_data: str | os.PathLike | None = None,
     size_threshold_bytes: int = 256,
+    max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
 ) -> None:
@@ -92,16 +93,42 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
             Effective only when ``external_data`` is set.
+        max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
+            When ``None`` (the default) all external tensors are written to the single file
+            given by ``external_data``. When set, tensors are distributed across numbered shard
+            files (e.g. ``model-00001-of-00003.data``). Because the ONNX format stores
+            ``location``, ``offset``, and ``length`` per tensor, no separate index file is
+            created — the saved ONNX proto itself encodes which shard each tensor lives in.
+            If a single tensor is larger than this value, it is written in its own oversized
+            shard file.
+            Effective only when ``external_data`` is set.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes.
 
     Raises:
         ValueError: If the external data path is an absolute path.
+        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        ValueError: If ``max_shard_size_bytes`` is set without ``external_data``.
+        FileExistsError: When ``max_shard_size_bytes`` is set and any
+            destination shard file already exists on disk. The sharded write
+            path never overwrites existing files; delete the conflicting
+            files or choose a different external data path to re-save. The
+            single-file path (``max_shard_size_bytes is None``) instead
+            overwrites ``external_data`` unconditionally and never raises here.
     """
+    if max_shard_size_bytes is not None and external_data is None:
+        raise ValueError(
+            "max_shard_size_bytes can only be used together with external_data; "
+            "set external_data to the relative path where shards should be written."
+        )
     if external_data is not None:
         if os.path.isabs(external_data):
             raise ValueError(
                 f"The external data path must be relative to the ONNX file path, not '{external_data}'."
+            )
+        if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
+            raise ValueError(
+                f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
             )
         base_dir = os.path.dirname(path)
 
@@ -118,6 +145,7 @@ def save(
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
+                max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
             )
             proto = serde.serialize_model(model)

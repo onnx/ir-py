@@ -31,6 +31,8 @@ _ALIGN_OFFSET = True
 _ALIGN_THRESHOLD = 1048576  # 1MB
 # allocation_granularity: The allocation Granularity for mmap() support. Typically 64KB for Windows & 4KB for other OSes.
 _ALLOCATION_GRANULARITY = 65536  # 64KB
+# The factor that tensor offsets are aligned to when alignment is enabled.
+_ALIGNMENT_FACTOR = max(4096, _ALLOCATION_GRANULARITY)
 
 
 logger = logging.getLogger(__name__)
@@ -118,6 +120,157 @@ def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
             tensor.base_dir = base_dir
 
 
+def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
+    """Generate a filename for a shard of external data.
+
+    Args:
+        base_name: The base filename (e.g., 'model.data').
+        shard_idx: The index of this shard (1-indexed).
+        total_shards: The total number of shards.
+
+    Returns:
+        The shard filename (e.g., 'model-00001-of-00003.data').
+    """
+    if total_shards == 1:
+        return base_name
+
+    dir_name, filename = os.path.split(base_name)
+    name, ext = os.path.splitext(filename)
+
+    # Always use 5 digits to follow transformers convention
+    shard_filename = f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
+    return os.path.join(dir_name, shard_filename) if dir_name else shard_filename
+
+
+def _make_shard_callback(
+    callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
+    total: int,
+    index_offset: int,
+) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
+    def _shard_callback(
+        tensor: _protocols.TensorProtocol,
+        info: CallbackInfo,
+    ) -> None:
+        callback(
+            tensor,
+            CallbackInfo(
+                total=total,
+                index=index_offset + info.index,
+                offset=info.offset,
+                filename=info.filename,
+            ),
+        )
+
+    return _shard_callback
+
+
+@dataclasses.dataclass
+class _ShardSizeAccumulator:
+    """Incrementally track the on-disk size of a shard in O(1) per tensor.
+
+    The size matches :func:`_estimate_shard_size_bytes` (tensors written in
+    size-sorted order with offset alignment) but is maintained incrementally so
+    that sharding does not need to re-sort the shard on every tensor append.
+
+    Load-bearing invariants:
+
+    * :func:`convert_tensors_to_external` writes tensors in ascending-``nbytes``
+      order, so every *unaligned* tensor (``nbytes <= _ALIGN_THRESHOLD``) is
+      written strictly before every *aligned* tensor (``nbytes > _ALIGN_THRESHOLD``).
+      The final on-disk size therefore only depends on a few running aggregates,
+      not on the order in which we observe the tensors here.
+    * Because aligned tensors are written largest-last, the largest aligned
+      tensor sits at the end of the file and contributes only its raw
+      (unpadded) length — that's why ``size`` subtracts
+      ``largest_aligned_padded`` and adds back ``largest_aligned_raw``.
+    * The transition from the unaligned prefix to the first aligned tensor
+      forces the writer to pad up to the next alignment boundary, which the
+      ``leading`` computation accounts for.
+    """
+
+    sum_unaligned: int = 0
+    # ``sum_aligned_padded`` is the *padded* (aligned) total for every aligned
+    # tensor seen so far. The last aligned tensor's padding is subtracted in
+    # ``size`` because it's written last and never followed by another tensor.
+    sum_aligned_padded: int = 0
+    largest_aligned_raw: int = 0
+    largest_aligned_padded: int = 0
+
+    def add(self, tensor: _protocols.TensorProtocol) -> None:
+        size = tensor.nbytes
+        if _ALIGN_OFFSET and size > _ALIGN_THRESHOLD:
+            padded = (size + _ALIGNMENT_FACTOR - 1) // _ALIGNMENT_FACTOR * _ALIGNMENT_FACTOR
+            self.sum_aligned_padded += padded
+            if size >= self.largest_aligned_raw:
+                self.largest_aligned_raw = size
+                self.largest_aligned_padded = padded
+        else:
+            self.sum_unaligned += size
+
+    @property
+    def size(self) -> int:
+        if self.largest_aligned_raw == 0:
+            return self.sum_unaligned
+        # The first aligned tensor pads the unaligned prefix up to an alignment
+        # boundary; the largest aligned tensor is written last and is not padded.
+        leading = (
+            (self.sum_unaligned + _ALIGNMENT_FACTOR - 1)
+            // _ALIGNMENT_FACTOR
+            * _ALIGNMENT_FACTOR
+        )
+        return (
+            leading
+            + self.sum_aligned_padded
+            - self.largest_aligned_padded
+            + self.largest_aligned_raw
+        )
+
+
+def _shard_tensors(
+    tensors: Sequence[_protocols.TensorProtocol],
+    max_shard_size_bytes: int,
+) -> list[list[_protocols.TensorProtocol]]:
+    """Shard tensors into multiple groups based on max_shard_size_bytes.
+
+    Each tensor is always placed in exactly one shard. A new shard is started when
+    adding the next tensor would exceed the limit once the shard is written using
+    the same layout as :func:`convert_tensors_to_external` (size-sorted write order
+    plus offset alignment).
+
+    Args:
+        tensors: The tensors to shard.
+        max_shard_size_bytes: Maximum cumulative size in bytes for each shard.
+
+    Returns:
+        A list of tensor groups, one per shard.
+    """
+    shards: list[list[_protocols.TensorProtocol]] = [[]]
+    accumulator = _ShardSizeAccumulator()
+
+    for tensor in tensors:
+        if tensor.nbytes > max_shard_size_bytes:
+            logger.warning(
+                "Tensor %s (%d bytes) exceeds max_shard_size_bytes=%d and will be written in an oversized shard.",
+                tensor.name,
+                tensor.nbytes,
+                max_shard_size_bytes,
+            )
+        candidate = dataclasses.replace(accumulator)
+        candidate.add(tensor)
+        # Start a new shard when the current one would be exceeded
+        # (but never leave a shard empty).
+        if candidate.size > max_shard_size_bytes and len(shards[-1]) > 0:
+            shards.append([])
+            accumulator = _ShardSizeAccumulator()
+            accumulator.add(tensor)
+        else:
+            accumulator = candidate
+
+        shards[-1].append(tensor)
+
+    return shards
+
+
 def _external_tensor_to_memory_tensor(
     tensor: _protocols.TensorProtocol,
 ) -> _protocols.TensorProtocol:
@@ -163,6 +316,100 @@ def _compute_new_offset(
         # Align to the next page or alloc granularity
         return (current_offset + alignment_factor - 1) // alignment_factor * alignment_factor
     return current_offset
+
+
+def _estimate_shard_size_bytes(tensors: Sequence[_protocols.TensorProtocol]) -> int:
+    """Estimate the shard file size in bytes for tensors written to one file."""
+    current_offset = 0
+    sorted_tensors = sorted(tensors, key=lambda tensor: tensor.nbytes)
+    for tensor in sorted_tensors:
+        current_offset = _compute_new_offset(current_offset, tensor.nbytes)
+        current_offset += tensor.nbytes
+    return current_offset
+
+
+def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike) -> bool:
+    """Return True if both paths exist and refer to the same file.
+
+    Uses :func:`os.path.samefile` so that hard links and symlinks pointing to the
+    same underlying file are correctly detected.
+    """
+    try:
+        return os.path.samefile(path1, path2)
+    except OSError:
+        # One of the paths does not exist (or cannot be stat'd).
+        return False
+
+
+def _materialize_external_tensors_for_destination_paths(
+    tensors: Sequence[_protocols.TensorProtocol],
+    destination_paths: Sequence[str | os.PathLike],
+) -> list[_protocols.TensorProtocol]:
+    """Load into memory any external tensor whose backing file is about to be overwritten or deleted.
+
+    Safety-critical: this is what allows ``unload_from_model`` to re-save a
+    loaded sharded model — even when the new shard layout differs from the
+    old one — without reading from a file that has already been clobbered or
+    cleaned up. Callers must pass *every* path that will be written, renamed,
+    or deleted by the upcoming save, not just the immediate destination.
+    """
+    existing_destination_paths = [path for path in destination_paths if os.path.exists(path)]
+    if not existing_destination_paths:
+        return list(tensors)
+
+    converted_tensors: list[_protocols.TensorProtocol] = []
+    for tensor in tensors:
+        if isinstance(tensor, _core.ExternalTensor) and any(
+            _paths_refer_to_same_file(tensor.path, destination_path)
+            for destination_path in existing_destination_paths
+        ):
+            # TODO(justinchuby): If there is a non-initializer tensor that
+            # is referring to this file, that tensor is now invalid.
+            # This is a special case we are ok not handling right now.
+            converted_tensors.append(_external_tensor_to_memory_tensor(tensor))
+            # Mark the original external tensor as invalid because it is now pointing
+            # to a file that is going to be overwritten.
+            tensor.invalidate()
+            logger.warning(
+                "External tensor %s is referring to the destination path. "
+                "It has been invalidated because the data file is changed. To avoid this, "
+                "save the external data to a different path or load the newly saved model back "
+                "with ir.load().",
+                tensor,
+            )
+        else:
+            converted_tensors.append(tensor)
+
+    return converted_tensors
+
+
+def _check_no_existing_shard_files(
+    destination_paths: Sequence[str | os.PathLike],
+) -> None:
+    """Raise if any destination shard file already exists on disk.
+
+    The sharded write path never overwrites a pre-existing file. Different
+    shard counts produce different filenames (``-of-00002`` vs ``-of-00004``),
+    so silently overwriting is ambiguous and dangerous: it can both clobber a
+    foreign model's shards and leave our own stale shards behind as orphans.
+    By refusing to touch any existing destination we keep the contract simple
+    and avoid having to materialize tensors or stage temporary files: because
+    no destination is ever overwritten, no in-memory tensor can be reading
+    from a file we are about to write.
+
+    To re-save a model whose shards already exist on disk, the caller must
+    either delete the existing files first or choose a different external data
+    path/directory.
+    """
+    existing = [os.fspath(path) for path in destination_paths if os.path.exists(path)]
+    if existing:
+        listing = ", ".join(repr(p) for p in existing)
+        raise FileExistsError(
+            "Refusing to overwrite existing external data shard file(s): "
+            f"{listing}. The sharded write path never overwrites existing "
+            "files. Delete the conflicting files or save into a different "
+            "directory or under a different external data path."
+        )
 
 
 def _compute_external_data_info(
@@ -298,34 +545,7 @@ def convert_tensors_to_external(
         should match the input tensor order.
     """
     path = os.path.join(base_dir, relative_path)
-
-    # Check if output path exists. Load pre-existing external data if it does.
-    if os.path.exists(path):
-        # Check if any tensor provided is using the destination file
-        new_tensors = []
-        for tensor in tensors:
-            if (
-                isinstance(tensor, _core.ExternalTensor)
-                and os.path.exists(tensor.path)
-                and os.path.samefile(path, tensor.path)
-            ):
-                # FIXME(shubhambhokare1): If there is a non-initializer tensor that
-                # is referring to this file, that tensor is now invalid.
-                # This is a special case we are ok not handling right now.
-                new_tensors.append(_external_tensor_to_memory_tensor(tensor))
-                # Mark the original external tensor as invalid because it is now pointing
-                # to a file that is going to be overwritten.
-                tensor.invalidate()
-                logger.warning(
-                    "External tensor %s is referring to the same file as the destination path. "
-                    "It has been invalidated because the data file is changed. To avoid this, "
-                    "save the external data to a different path or load the newly saved model back "
-                    "with ir.load().",
-                    tensor,
-                )
-            else:
-                new_tensors.append(tensor)
-        tensors = new_tensors
+    tensors = _materialize_external_tensors_for_destination_paths(tensors, [path])
 
     external_data_infos: list[_ExternalDataInfo] = []
     # Sort all tensors based on tensor sizes, in order to avoid unnecessary alignment.
@@ -390,9 +610,10 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
+    max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
 ) -> _core.Model:
-    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to a single data file.
+    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
 
     It should only replace the initializers in the model with external tensors
     and not make any other modifications to the model.
@@ -405,19 +626,52 @@ def unload_from_model(
 
     All initializers in the main graph and subgraphs are handled.
 
+    When ``max_shard_size_bytes`` is set, tensors are distributed across multiple
+    shard files named like ``model-00001-of-00003.data``. Because each ONNX tensor
+    already carries its own ``location``, ``offset``, and ``length`` fields, no
+    separate index file is required — the ONNX proto itself encodes the routing.
+
     Args:
         model: Model to process.
         base_dir: Path the directory where the ONNX model file is.
         relative_path: Path to which external data is to be stored, relative to the ONNX file.
-            E.g. "model.data"
+            E.g. "model.data". When sharding is enabled this becomes the base name used to
+            generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
+            When ``None`` (the default) all tensors are written to a single file given by
+            ``relative_path``.  When set, tensors are written to multiple numbered shard
+            files. If a single tensor is larger than this value, that tensor is written
+            in its own oversized shard.
         callback: A callback function that is called for each tensor that is saved to external data
-            for debugging or logging purposes.
+            for debugging or logging purposes. Under sharding the callback index reflects
+            each shard's size-sorted write order while remaining globally contiguous.
 
     Returns:
         An ir.Model with all initializer data equal or above ``size_threshold_bytes``
         converted to external tensors.
+
+    Raises:
+        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        FileExistsError: When ``max_shard_size_bytes`` is set and any
+            destination shard file already exists on disk. The sharded write
+            path never overwrites existing files (re-saving a model whose
+            shards already exist therefore requires deleting them first or
+            choosing a different external data path). The single-file path
+            (``max_shard_size_bytes is None``) instead overwrites
+            ``relative_path`` unconditionally.
+
+    Notes:
+        Stale shards from a previous save (when the new layout produces
+        fewer or differently named shard files) are the caller's
+        responsibility to clean up. This function will neither delete nor
+        rename pre-existing files that are not in the new destination set.
     """
+    if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
+        raise ValueError(
+            f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
+        )
+
     # In-memory or external tensors, if equal to or above the threshold, should be converted to or re-saved as external tensors
     initializers_to_become_external = []
     # Existing external tensors, if below the threshold, should be loaded to memory
@@ -437,12 +691,80 @@ def unload_from_model(
     memory_tensors = convert_tensors_from_external(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
     )
-    external_tensors = convert_tensors_to_external(
-        [v.const_value for v in initializers_to_become_external],  # type: ignore[misc]
-        base_dir=base_dir,
-        relative_path=relative_path,
-        callback=callback,
-    )
+
+    external_tensors: list[_core.ExternalTensor]
+    if max_shard_size_bytes is None:
+        # No sharding: write all tensors to the single destination file. The
+        # single-file write path keeps its long-standing permissive semantics
+        # of overwriting whatever happens to be at ``relative_path``; the
+        # collision check below is sharded-only because shard layouts are
+        # ambiguous (different shard counts produce different filenames) and
+        # so silent overwrite is much more dangerous there.
+        # TODO(justinchuby): the single-file and sharded paths should
+        # eventually share the same overwrite policy.
+        tensors_to_externalize: list[_protocols.TensorProtocol] = [
+            v.const_value  # type: ignore[misc]
+            for v in initializers_to_become_external
+        ]
+        external_tensors = convert_tensors_to_external(
+            tensors_to_externalize,
+            base_dir=base_dir,
+            relative_path=relative_path,
+            callback=callback,
+        )
+    else:
+        # Sharding: distribute tensors across multiple numbered shard files
+        tensors_to_externalize = [
+            v.const_value  # type: ignore[misc]
+            for v in initializers_to_become_external
+        ]
+        tensor_shards = _shard_tensors(tensors_to_externalize, max_shard_size_bytes)
+        total_shards = len(tensor_shards)
+        total_tensors = len(tensors_to_externalize)
+        shard_relative_paths = [
+            _get_shard_filename(str(relative_path), shard_idx, total_shards)
+            for shard_idx in range(1, total_shards + 1)
+        ]
+        destination_paths = [
+            os.path.join(base_dir, shard_relative_path)
+            for shard_relative_path in shard_relative_paths
+        ]
+        # Contract: the sharded write path never overwrites a pre-existing
+        # file. If any destination shard already exists on disk we raise
+        # FileExistsError so the caller cannot silently clobber another
+        # model's shards or leave stale shards behind. Because no destination
+        # is ever overwritten, no input ExternalTensor can be backed by a file
+        # we are about to write — so there is no need to pre-materialize
+        # tensors or stage temporary files before writing the shards.
+        _check_no_existing_shard_files(destination_paths)
+
+        external_tensors = []
+        global_index = 0
+
+        for shard_relative_path, shard_tensor_count in zip(
+            shard_relative_paths,
+            [len(shard) for shard in tensor_shards],
+            strict=True,
+        ):
+            shard_tensors = tensors_to_externalize[
+                global_index : global_index + shard_tensor_count
+            ]
+            # Wrap the callback so that index/total reflect the global position across shards
+            shard_callback: (
+                Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None
+            ) = None
+            if callback is not None:
+                shard_callback = _make_shard_callback(callback, total_tensors, global_index)
+
+            shard_external_tensors = convert_tensors_to_external(
+                shard_tensors,
+                base_dir=base_dir,
+                relative_path=shard_relative_path,
+                callback=shard_callback,
+            )
+
+            external_tensors.extend(shard_external_tensors)
+            global_index += shard_tensor_count
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(
