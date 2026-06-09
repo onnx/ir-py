@@ -13,7 +13,7 @@ from typing import TypeVar
 
 from typing_extensions import Concatenate, ParamSpec
 
-from onnx_ir import _core, _enums
+from onnx_ir import _core, _enums, _multi_device
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -232,7 +232,6 @@ class Cloner:
         """Rewrite ``ShardingSpec.value`` references through the value map."""
         if not device_configurations:
             return device_configurations
-        from onnx_ir import _multi_device
 
         new_configurations = []
         changed = False
