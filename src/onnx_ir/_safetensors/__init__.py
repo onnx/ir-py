@@ -280,6 +280,8 @@ def _save_file(
                     data = spec["data"]
                     if not isinstance(data, bytearray):
                         data = bytearray(data)
+                    # Create a ctypes view over the backing buffer so we can pass
+                    # a stable raw pointer to TensorSpec.
                     data_view = (ctypes.c_char * len(data)).from_buffer(data)
                     tensor_data_refs.append((data, data_view))
                     tensor_specs[name] = safetensors.TensorSpec(
