@@ -659,11 +659,7 @@ def _resolve_node_device_configurations(model: _core.Model) -> None:
     configuration for that object. Unmatched (dangling) references keep their
     placeholder so the ``configuration_id`` still round-trips.
     """
-    known_configs = {
-        config.name: config
-        for config in model.device_configurations
-        if isinstance(config, _multi_device.ModelConfiguration)
-    }
+    known_configs = {config.name: config for config in model.device_configurations}
     if not known_configs:
         return
 
@@ -679,8 +675,7 @@ def _resolve_node_device_configurations(model: _core.Model) -> None:
         changed = False
         for config in device_configurations:
             if (
-                isinstance(config, _multi_device.NodeDeviceConfiguration)
-                and config.configuration is not None
+                config.configuration is not None
                 and config.configuration.name in known_configs
                 and config.configuration is not known_configs[config.configuration.name]
             ):
@@ -1481,21 +1476,12 @@ def _serialize_device_configurations_into(
     if not device_configurations:
         return
     for model_configuration in device_configurations:
-        configuration_proto = model_proto.configuration.add()
-        if isinstance(model_configuration, bytes):
-            configuration_proto.ParseFromString(model_configuration)
-            continue
-        if isinstance(model_configuration, _multi_device.ModelConfiguration):
-            configuration_proto.CopyFrom(
-                _multi_device.serialize_model_configuration(model_configuration)
+        if not isinstance(model_configuration, _multi_device.ModelConfiguration):
+            raise TypeError(
+                f"Expected ModelConfiguration, got {type(model_configuration)}"
             )
-            continue
-        if isinstance(model_configuration, onnx.DeviceConfigurationProto):
-            configuration_proto.CopyFrom(model_configuration)
-            continue
-        raise TypeError(
-            "Expected bytes, ModelConfiguration, or DeviceConfigurationProto, "
-            f"got {type(model_configuration)}"
+        model_proto.configuration.add().CopyFrom(
+            _multi_device.serialize_model_configuration(model_configuration)
         )
 
 
@@ -1851,24 +1837,15 @@ def _serialize_node_multi_device_into(
     if not node_multi_device:
         return
     for node_device_configuration in node_multi_device:
-        device_configuration_proto = node_proto.device_configurations.add()
-        if isinstance(node_device_configuration, bytes):
-            device_configuration_proto.ParseFromString(node_device_configuration)
-            continue
-        if isinstance(
-            node_device_configuration,
-            _multi_device.NodeDeviceConfiguration,
+        if not isinstance(
+            node_device_configuration, _multi_device.NodeDeviceConfiguration
         ):
-            device_configuration_proto.CopyFrom(
-                _multi_device.serialize_node_device_configuration(node_device_configuration)
+            raise TypeError(
+                "Expected NodeDeviceConfiguration, got "
+                f"{type(node_device_configuration)}"
             )
-            continue
-        if isinstance(node_device_configuration, onnx.NodeDeviceConfigurationProto):
-            device_configuration_proto.CopyFrom(node_device_configuration)
-            continue
-        raise TypeError(
-            "Expected bytes, NodeDeviceConfiguration, or NodeDeviceConfigurationProto, "
-            f"got {type(node_device_configuration)}"
+        node_proto.device_configurations.add().CopyFrom(
+            _multi_device.serialize_node_device_configuration(node_device_configuration)
         )
 
 

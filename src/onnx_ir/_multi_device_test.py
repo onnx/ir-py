@@ -227,14 +227,6 @@ class ConvenienceApiTest(unittest.TestCase):
         node.shard(node.outputs[0], configuration=conf, axis=0, num_shards=2, pipeline_stage=3)
         self.assertEqual(node.device_configurations[0].pipeline_stage, 3)
 
-    def test_sharding_of_ignores_passthrough_configurations(self):
-        model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
-        node.shard(x, configuration=conf, axis=0, num_shards=2)
-        node.device_configurations = (b"\x08\x01", *node.device_configurations)
-        # The bytes passthrough is skipped; the real spec is still found.
-        self.assertEqual(len(node.sharding_of(x)), 1)
-
     def test_add_device_configuration_explicit_num_devices(self):
         model, _, _ = _identity_model()
         conf = model.add_device_configuration("conf0", num_devices=4)
@@ -386,13 +378,6 @@ class CloneTest(unittest.TestCase):
         model, _, _ = _identity_model()
         cloned = model.clone()
         self.assertEqual(cloned.graph[0].device_configurations, ())
-
-    def test_clone_passthrough_bytes_configuration(self):
-        # Raw bytes configurations are passed through unchanged on clone.
-        model, node, _ = _identity_model()
-        node.device_configurations = (b"\x08\x01",)
-        cloned = model.clone()
-        self.assertEqual(cloned.graph[0].device_configurations, (b"\x08\x01",))
 
     def test_clone_spec_with_unmapped_value_is_preserved(self):
         # A ShardingSpec whose value is None (not in the value map) is preserved
@@ -564,11 +549,25 @@ class CheckEdgeCaseTest(unittest.TestCase):
         errors = _multi_device.check_device_configurations(model)
         self.assertTrue(any("ghost" in e for e in errors), errors)
 
-    def test_raw_passthrough_config_is_not_validated(self):
+    def test_serialize_rejects_non_dataclass_node_configuration(self):
+        # The strict type contract: only NodeDeviceConfiguration is accepted;
+        # raw bytes or protos are rejected at the serialization boundary.
+        import onnx_ir as ir_module
+        from onnx_ir import serde
+
         model, node, _ = _identity_model()
         model.add_device_configuration("conf0", devices=("CPU",))
-        node.device_configurations = (b"\x08\x01",)  # raw bytes passthrough
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        node.device_configurations = (b"\x08\x01",)  # not a NodeDeviceConfiguration
+        with self.assertRaises((TypeError, ir_module.serde.SerdeError)):
+            serde.serialize_model(model)
+
+    def test_serialize_rejects_non_dataclass_model_configuration(self):
+        from onnx_ir import serde
+
+        model, _, _ = _identity_model()
+        model.device_configurations = (b"\x08\x01",)  # not a ModelConfiguration
+        with self.assertRaises((TypeError, serde.SerdeError)):
+            serde.serialize_model(model)
 
     def test_missing_configuration_reference_reported(self):
         model, node, x = _identity_model()

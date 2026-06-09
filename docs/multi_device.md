@@ -188,3 +188,8 @@ These mirror the corresponding ONNX protos field-for-field, except that
 ``ShardingSpec`` holds a `value` object instead of a `tensor_name` string and
 ``NodeDeviceConfiguration`` holds a `configuration` object instead of a
 `configuration_id` string.
+
+`Model.device_configurations` only accepts `ModelConfiguration` objects, and
+`Node.device_configurations` only accepts `NodeDeviceConfiguration` objects.
+Assigning any other type (for example raw ``bytes`` or a protobuf message) is
+rejected at the serialization boundary with a `TypeError`.

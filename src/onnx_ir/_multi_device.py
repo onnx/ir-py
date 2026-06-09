@@ -292,11 +292,7 @@ def check_device_configurations(model: _core.Model) -> list[str]:
           known, ``num_shards >= 1``, and device indices are within ``num_devices``.
     """
     errors: list[str] = []
-    known_configs = {
-        config.name: config
-        for config in model.device_configurations
-        if isinstance(config, ModelConfiguration)
-    }
+    known_configs = {config.name: config for config in model.device_configurations}
 
     def node_label(node: _core.Node) -> str:
         return node.name or f"<anonymous {node.op_type}>"
@@ -306,14 +302,11 @@ def check_device_configurations(model: _core.Model) -> list[str]:
         all_nodes.extend(func.all_nodes())
 
     for node in all_nodes:
-        device_configurations = getattr(node, "device_configurations", ())
+        device_configurations = node.device_configurations
         if not device_configurations:
             continue
         node_io = set(node.inputs) | set(node.outputs)
         for config in device_configurations:
-            if not isinstance(config, NodeDeviceConfiguration):
-                # Raw bytes / proto passthrough is not validated here.
-                continue
             if config.configuration is None:
                 errors.append(
                     f"Node '{node_label(node)}' has a device configuration without a "

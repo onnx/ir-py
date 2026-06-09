@@ -2528,10 +2528,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         # append to it, otherwise create a new one.
         configurations = list(self.device_configurations)
         for i, existing in enumerate(configurations):
-            if (
-                isinstance(existing, _multi_device.NodeDeviceConfiguration)
-                and existing.configuration is configuration
-            ):
+            if existing.configuration is configuration:
                 stage = (
                     pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
                 )
@@ -2557,12 +2554,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         Matching is by object identity, so this returns the live specs that
         reference exactly ``value``.
         """
-        from onnx_ir import _multi_device
-
         result = []
         for configuration in self.device_configurations:
-            if not isinstance(configuration, _multi_device.NodeDeviceConfiguration):
-                continue
             for spec in configuration.sharding_spec:
                 if spec.value is value:
                     result.append(spec)
@@ -4191,10 +4184,7 @@ Model(
         from onnx_ir import _multi_device
 
         for existing in self.device_configurations:
-            if (
-                isinstance(existing, _multi_device.ModelConfiguration)
-                and existing.name == name
-            ):
+            if existing.name == name:
                 raise ValueError(
                     f"A device configuration named {name!r} already exists on the model."
                 )
@@ -4233,15 +4223,10 @@ Model(
         Raises:
             ValueError: If no matching configuration is registered on the model.
         """
-        from onnx_ir import _multi_device
-
         if isinstance(configuration, str):
             target: ModelConfiguration | None = None
             for existing in self.device_configurations:
-                if (
-                    isinstance(existing, _multi_device.ModelConfiguration)
-                    and existing.name == configuration
-                ):
+                if existing.name == configuration:
                     target = existing
                     break
             if target is None:
@@ -4270,10 +4255,7 @@ Model(
                 filtered = tuple(
                     config
                     for config in device_configurations
-                    if not (
-                        isinstance(config, _multi_device.NodeDeviceConfiguration)
-                        and config.configuration is target
-                    )
+                    if config.configuration is not target
                 )
                 if len(filtered) != len(device_configurations):
                     node.device_configurations = filtered
