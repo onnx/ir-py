@@ -19,7 +19,6 @@ __all__ = [
     "ShardedDim",
     "ShardingSpec",
     "SimpleShardedDim",
-    "check_device_configurations",
     "deserialize_model_configuration",
     "deserialize_node_device_configuration",
     "serialize_model_configuration",
@@ -275,7 +274,7 @@ def serialize_node_device_configuration(
     return proto
 
 
-def check_device_configurations(model: _core.Model) -> list[str]:
+def _check_device_configurations(model: _core.Model) -> list[str]:
     """Validate the multi-device invariants of a model.
 
     Returns a list of human-readable violation messages. An empty list means the

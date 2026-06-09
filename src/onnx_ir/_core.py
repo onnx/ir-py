@@ -4257,8 +4257,8 @@ Model(
                 :class:`~onnx_ir.NodeDeviceConfiguration` that references this
                 configuration from all nodes in the model's graph and functions,
                 so that no dangling references remain. When ``False`` (default),
-                node references are left intact; they become dangling and are
-                reported by :func:`onnx_ir.check_device_configurations`.
+                node references are left intact; they become dangling and can be
+                detected by the internal device-configuration checker.
 
         Returns:
             The removed configuration.

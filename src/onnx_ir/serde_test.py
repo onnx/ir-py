@@ -1197,7 +1197,7 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertIs(new_config.configuration, deserialized.device_configurations[0])
         # tensor_name resolved to the actual node input value object.
         self.assertIs(new_config.sharding_spec[0].value, new_node.inputs[0])
-        self.assertEqual(ir.check_device_configurations(deserialized), [])
+        self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
 
     @unittest.skipUnless(
         hasattr(onnx.ModelProto(), "configuration")
@@ -1243,7 +1243,7 @@ class NodeSerializationTest(unittest.TestCase):
         deserialized = serde.deserialize_model(serde.serialize_model(model))
         spec = deserialized.graph[0].device_configurations[0].sharding_spec[0]
         self.assertEqual(spec.sharded_dim[0].axis, -1)
-        self.assertEqual(ir.check_device_configurations(deserialized), [])
+        self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),

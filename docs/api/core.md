@@ -23,7 +23,6 @@
     onnx_ir.val
     onnx_ir.node
     onnx_ir.set_value_magic_handler
-    onnx_ir.check_device_configurations
 ```
 
 ## Classes

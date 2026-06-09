@@ -220,9 +220,8 @@ bound objects, so you get the live {py:class}`~onnx_ir.Value` back, not a name.
 is the counterpart of `add_device_configuration`. It accepts either the
 {py:class}`~onnx_ir.ModelConfiguration` object or its name. By default it removes
 only the model-level configuration and leaves node references intact, so any
-dangling references are surfaced by `check_device_configurations`. Pass
-``cascade=True`` to also strip every node sharding that referenced it, leaving no
-dangling references behind.
+dangling references remain detectable. Pass ``cascade=True`` to also strip every
+node sharding that referenced it, leaving no dangling references behind.
 
 ```{eval-rst}
 .. exec_code::
@@ -240,7 +239,6 @@ dangling references behind.
     model.remove_device_configuration(conf, cascade=True)
     print(model.device_configurations)   # ()
     print(relu.device_configurations)    # ()
-    print(ir.check_device_configurations(model))  # []
 ```
 
 ## Validating the configuration
@@ -248,38 +246,20 @@ dangling references behind.
 Because metadata can be edited freely, the IR follows the common compiler-IR
 convention: intermediate states may be temporarily invalid, and validity is
 checked at well-defined points rather than on every edit.
-{py:func}`onnx_ir.check_device_configurations <onnx_ir.check_device_configurations>`
-returns a list of human-readable problems (an empty list means the model is
-valid). It never raises for invariant violations, so you decide whether to warn
-or fail.
 
-```{eval-rst}
-.. exec_code::
-
-    import onnx_ir as ir
-
-    x = ir.Value(name="x", shape=ir.Shape([8, 16]), type=ir.TensorType(ir.DataType.FLOAT))
-    relu = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
-    graph = ir.Graph([x], [relu.outputs[0]], nodes=[relu], opset_imports={"": 18})
-    model = ir.Model(graph, ir_version=11)
-    conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-    relu.shard(x, configuration=conf, axis=0, num_shards=2, devices=(0, 1))
-
-    print(ir.check_device_configurations(model))   # []
-```
-
-The checker reports:
-
-- references to a {py:class}`~onnx_ir.ModelConfiguration` that is not declared on
-  the model,
-- shardings whose value is not an input or output of the node,
-- values or configurations with empty names (which cannot be serialized), and
-- out-of-range axes, ``num_shards`` below one, and device indices outside the
-  configuration's ``num_devices``.
-
-The convenience methods validate eagerly as well: {py:meth}`Node.shard
+The convenience methods validate eagerly: {py:meth}`Node.shard
 <onnx_ir.Node.shard>` raises immediately if you pass a value that is not one of
-the node's own inputs or outputs, an out-of-range axis, or ``num_shards < 1``.
+the node's own inputs or outputs, an out-of-range axis, ``num_shards < 1``, an
+axis that is already sharded, or a conflicting ``pipeline_stage``. Serialization
+is the hard boundary — it raises rather than emitting a malformed proto (for
+example when a sharded value has no name).
+
+An internal checker (``onnx_ir._multi_device._check_device_configurations``) is
+also used to surface dangling references and structural problems such as a
+configuration that is not declared on the model, a sharded value that is not an
+input or output of its node, empty names, out-of-range or duplicated axes, and
+device indices outside the configuration's ``num_devices``. It is not part of the
+public API yet.
 
 ## Serialization
 

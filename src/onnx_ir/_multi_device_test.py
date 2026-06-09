@@ -242,7 +242,7 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertEqual(spec.sharded_dim[0].axis, -1)
         # The dim is resolved from the last axis (size 8).
         self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, 8)
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_shard_negative_axis_aliases_positive(self):
         # On a rank-2 tensor, axis=1 and axis=-1 are the same axis.
@@ -341,7 +341,7 @@ class ConvenienceApiTest(unittest.TestCase):
         model.remove_device_configuration(conf)
         # The node reference is left intact and is reported by the checker.
         self.assertIs(node.device_configurations[0].configuration, conf)
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("conf0" in e for e in errors), errors)
 
     def test_remove_device_configuration_cascade_cleans_node_references(self):
@@ -350,7 +350,7 @@ class ConvenienceApiTest(unittest.TestCase):
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         model.remove_device_configuration("conf0", cascade=True)
         self.assertEqual(node.device_configurations, ())
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_remove_device_configuration_cascade_keeps_other_configurations(self):
         model, node, x = _identity_model()
@@ -389,7 +389,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         model, node, x = _identity_model()
         conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
         node.shard(x, configuration=conf, axis=0, num_shards=2, devices=(0, 1))
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_unknown_configuration_reported(self):
         model, node, x = _identity_model()
@@ -401,7 +401,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=x),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("ghost" in e for e in errors), errors)
 
     def test_foreign_value_reported(self):
@@ -414,7 +414,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=foreign),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("foreign" in e for e in errors), errors)
 
     def test_out_of_range_axis_and_device_reported(self):
@@ -439,7 +439,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 ),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("axis" in e for e in errors), errors)
         self.assertTrue(any("device index" in e for e in errors), errors)
 
@@ -464,7 +464,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 ),
             ),
         )
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_out_of_range_negative_axis_reported(self):
         model, node, x = _identity_model()  # x rank 2, valid [-2, 1]
@@ -487,7 +487,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 ),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("axis" in e for e in errors), errors)
 
     def test_duplicate_axis_within_spec_reported(self):
@@ -518,7 +518,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                 ),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("more than once" in e for e in errors), errors)
 
 
@@ -536,7 +536,7 @@ class CloneTest(unittest.TestCase):
         self.assertIs(specs[0].value, cloned_node.inputs[0])
         self.assertIs(specs[1].value, cloned_node.outputs[0])
         self.assertIsNot(specs[0].value, x)
-        self.assertEqual(_multi_device.check_device_configurations(cloned), [])
+        self.assertEqual(_multi_device._check_device_configurations(cloned), [])
 
     def test_clone_node_without_configurations(self):
         # Cloning a node that has no device configurations is a no-op for them.
@@ -703,7 +703,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
 
 
 class CheckEdgeCaseTest(unittest.TestCase):
-    """Cover the remaining branches of check_device_configurations."""
+    """Cover the remaining branches of _check_device_configurations."""
 
     def test_node_without_configurations_is_skipped(self):
         model, node, x = _identity_model()
@@ -712,7 +712,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         extra = ir.Node("", "Identity", [node.outputs[0]], num_outputs=1, name="id1")
         model.graph.append(extra)
         node.shard(x, configuration=conf, axis=0, num_shards=2)
-        self.assertEqual(_multi_device.check_device_configurations(model), [])
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_function_node_is_checked(self):
         model, _, _ = _identity_model()
@@ -728,7 +728,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
             ),
         )
         model.functions[func.identifier()] = func
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("ghost" in e for e in errors), errors)
 
     def test_serialize_rejects_non_dataclass_node_configuration(self):
@@ -759,7 +759,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=x),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("without a" in e for e in errors), errors)
 
     def test_empty_configuration_name_reported(self):
@@ -770,7 +770,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=x),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("empty name" in e for e in errors), errors)
 
     def test_spec_without_value_reported(self):
@@ -782,7 +782,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=None),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("without a value" in e for e in errors), errors)
 
     def test_spec_value_with_empty_name_reported(self):
@@ -796,7 +796,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=unnamed),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("empty name" in e for e in errors), errors)
 
     def test_num_shards_below_one_reported(self):
@@ -820,7 +820,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 ),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("num_shards" in e for e in errors), errors)
 
     def test_device_index_not_checked_without_configuration(self):
@@ -833,7 +833,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
                 sharding_spec=(_multi_device.ShardingSpec(value=x, device=(99,)),),
             ),
         )
-        errors = _multi_device.check_device_configurations(model)
+        errors = _multi_device._check_device_configurations(model)
         self.assertFalse(any("device index" in e for e in errors), errors)
         self.assertTrue(any("without a" in e for e in errors), errors)
 
