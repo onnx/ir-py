@@ -62,6 +62,7 @@ __all__ = [
 ]
 
 import collections
+import dataclasses
 import logging
 import os
 from collections.abc import Iterable, Mapping, Sequence
@@ -71,7 +72,7 @@ import numpy as np
 import onnx  # noqa: TID251
 import onnx.external_data_helper  # noqa: TID251
 
-from onnx_ir import _convenience, _core, _multi_device, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _enums, _multi_device, _protocols, _type_casting
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
@@ -643,7 +644,56 @@ def deserialize_model(proto: onnx.ModelProto) -> _core.Model:
             model.functions, proto.graph.value_info
         )
 
+    # Resolve node configuration_id placeholders to the real model configuration objects
+    _resolve_node_device_configurations(model)
+
     return model
+
+
+def _resolve_node_device_configurations(model: _core.Model) -> None:
+    """Replace placeholder node configurations with the real model configuration.
+
+    During node deserialization the ``configuration_id`` string is captured as a
+    placeholder :class:`~onnx_ir._multi_device.ModelConfiguration`. Once the model's
+    configurations are known, swap any placeholder whose name matches a real
+    configuration for that object. Unmatched (dangling) references keep their
+    placeholder so the ``configuration_id`` still round-trips.
+    """
+    known_configs = {
+        config.name: config
+        for config in model.device_configurations
+        if isinstance(config, _multi_device.ModelConfiguration)
+    }
+    if not known_configs:
+        return
+
+    nodes: list[_core.Node] = list(model.graph.all_nodes())
+    for func in model.functions.values():
+        nodes.extend(func.all_nodes())
+
+    for node in nodes:
+        device_configurations = node.device_configurations
+        if not device_configurations:
+            continue
+        resolved = []
+        changed = False
+        for config in device_configurations:
+            if (
+                isinstance(config, _multi_device.NodeDeviceConfiguration)
+                and config.configuration is not None
+                and config.configuration.name in known_configs
+                and config.configuration is not known_configs[config.configuration.name]
+            ):
+                resolved.append(
+                    dataclasses.replace(
+                        config, configuration=known_configs[config.configuration.name]
+                    )
+                )
+                changed = True
+            else:
+                resolved.append(config)
+        if changed:
+            node.device_configurations = tuple(resolved)
 
 
 def _deserialized_experimental_value_info_for_function_ir9(
@@ -1340,8 +1390,15 @@ def _deserialize_node(
         node_outputs.append(value)
     node_multi_device: tuple[_multi_device.NodeDeviceConfiguration, ...] = ()
     if hasattr(proto, "device_configurations") and proto.device_configurations:
+        # Merge all scopes so sharding references resolve to the value object,
+        # with inner scopes shadowing outer ones (same precedence as inputs).
+        merged_values: dict[str, _core.Value] = {}
+        for values in scoped_values:
+            merged_values.update(values)
         node_multi_device = tuple(
-            _multi_device.deserialize_node_device_configuration(device_configuration)
+            _multi_device.deserialize_node_device_configuration(
+                device_configuration, values=merged_values
+            )
             for device_configuration in proto.device_configurations
         )
     node = _core.Node(

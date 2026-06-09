@@ -82,6 +82,7 @@ __all__ = [
     "ShardedDim",
     "SimpleShardedDim",
     "IndexToDeviceGroupMapEntry",
+    "check_device_configurations",
     # Convenience constructors
     "tensor",
     "node",
@@ -152,6 +153,7 @@ from onnx_ir._enums import (
     AttributeType,
     DataType,
 )
+from onnx_ir._io import load, save
 from onnx_ir._multi_device import (
     IndexToDeviceGroupMapEntry,
     ModelConfiguration,
@@ -159,8 +161,8 @@ from onnx_ir._multi_device import (
     ShardedDim,
     ShardingSpec,
     SimpleShardedDim,
+    check_device_configurations,
 )
-from onnx_ir._io import load, save
 from onnx_ir._protocols import (
     ArrayCompatible,
     AttributeProtocol,

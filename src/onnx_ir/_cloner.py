@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import functools
 import typing
 from collections.abc import Callable, Mapping
@@ -218,8 +219,44 @@ class Cloner:
             if output.meta:
                 self.clone_meta(output.meta, new_output.meta, deep_copy=deep_copy)
 
+        # Remap object-bound sharding references to the cloned values so the
+        # cloned node's device configurations point at the cloned graph's values.
+        new_node.device_configurations = self._remap_device_configurations(
+            new_node.device_configurations
+        )
+
         self._post_process(new_node)
         return new_node
+
+    def _remap_device_configurations(self, device_configurations: tuple) -> tuple:
+        """Rewrite ``ShardingSpec.value`` references through the value map."""
+        if not device_configurations:
+            return device_configurations
+        from onnx_ir import _multi_device
+
+        new_configurations = []
+        changed = False
+        for configuration in device_configurations:
+            if not isinstance(configuration, _multi_device.NodeDeviceConfiguration):
+                new_configurations.append(configuration)
+                continue
+            new_specs = []
+            spec_changed = False
+            for spec in configuration.sharding_spec:
+                mapped = self._value_map.get(spec.value) if spec.value is not None else None
+                if mapped is not None and mapped is not spec.value:
+                    new_specs.append(dataclasses.replace(spec, value=mapped))
+                    spec_changed = True
+                else:
+                    new_specs.append(spec)
+            if spec_changed:
+                new_configurations.append(
+                    dataclasses.replace(configuration, sharding_spec=tuple(new_specs))
+                )
+                changed = True
+            else:
+                new_configurations.append(configuration)
+        return tuple(new_configurations) if changed else device_configurations
 
     @_capture_error_context
     def clone_graph(

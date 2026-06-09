@@ -1149,34 +1149,25 @@ class NodeSerializationTest(unittest.TestCase):
         sharded_dim.simple_sharding.add(dim_value=4, num_shards=2)
 
         node = serde.deserialize_node(node_proto)
-        self.assertEqual(
-            node.device_configurations,
-            (
-                _multi_device.NodeDeviceConfiguration(
-                    configuration_id="conf0",
-                    sharding_spec=(
-                        _multi_device.ShardingSpec(
-                            tensor_name="x",
-                            device=(0, 1),
-                            sharded_dim=(
-                                _multi_device.ShardedDim(
-                                    axis=0,
-                                    simple_sharding=(
-                                        _multi_device.SimpleShardedDim(
-                                            dim=4,
-                                            num_shards=2,
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                    pipeline_stage=1,
-                ),
-            ),
-        )
-        serialized = serde.serialize_node(node)
 
+        # The sharding is bound to the node's actual input value (object identity).
+        self.assertEqual(len(node.device_configurations), 1)
+        config = node.device_configurations[0]
+        self.assertEqual(config.pipeline_stage, 1)
+        # Configuration is a placeholder carrying the id (no model post-pass here).
+        self.assertEqual(config.configuration.name, "conf0")
+        spec = config.sharding_spec[0]
+        self.assertIs(spec.value, node.inputs[0])
+        self.assertEqual(spec.value.name, "x")
+        self.assertEqual(spec.device, (0, 1))
+        self.assertEqual(spec.sharded_dim[0].axis, 0)
+        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, 4)
+        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].num_shards, 2)
+
+        # sharding_of returns the live spec for the value.
+        self.assertEqual(node.sharding_of(node.inputs[0]), (spec,))
+
+        serialized = serde.serialize_node(node)
         self.assertEqual(len(serialized.device_configurations), 1)
         result = serialized.device_configurations[0]
         self.assertEqual(result.configuration_id, "conf0")
@@ -1186,17 +1177,41 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertEqual(list(result.sharding_spec[0].device), [0, 1])
 
     @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_model_roundtrip_resolves_objects(self):
+        # x -> Relu -> y with model-level configuration and node sharding.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=10)
+        conf0 = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf0, axis=0, num_shards=2, devices=(0, 1))
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_node = deserialized.graph[0]
+        new_config = new_node.device_configurations[0]
+        # configuration_id resolved to the actual model configuration object.
+        self.assertIs(new_config.configuration, deserialized.device_configurations[0])
+        # tensor_name resolved to the actual node input value object.
+        self.assertIs(new_config.sharding_spec[0].value, new_node.inputs[0])
+        self.assertEqual(ir.check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )
     def test_device_configurations_from_dataclass(self):
-        node = ir.Node("", "Relu", [ir.Value(name="x")], outputs=[ir.Value(name="y")])
+        x = ir.Value(name="x")
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")])
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
-                configuration_id="conf0",
+                configuration=_multi_device.ModelConfiguration(name="conf0", num_devices=2),
                 sharding_spec=(
                     _multi_device.ShardingSpec(
-                        tensor_name="x",
+                        value=x,
                         device=(0, 1),
                         index_to_device_group_map=(
                             _multi_device.IndexToDeviceGroupMapEntry(
@@ -1239,6 +1254,22 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertEqual(
             result.sharding_spec[0].sharded_dim[0].simple_sharding[0].dim_param, "BATCH"
         )
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_sharding_with_unnamed_value_raises(self):
+        x = ir.Value(name="")  # no name
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")])
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        with self.assertRaises(serde.SerdeError):
+            serde.serialize_node(node)
 
 
 class StringTensorSerializationTest(unittest.TestCase):

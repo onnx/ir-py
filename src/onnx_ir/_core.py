@@ -68,7 +68,11 @@ if typing.TYPE_CHECKING:
     import numpy.typing as npt
     from typing_extensions import TypeGuard
 
-    from onnx_ir._multi_device import ModelConfiguration, NodeDeviceConfiguration
+    from onnx_ir._multi_device import (
+        ModelConfiguration,
+        NodeDeviceConfiguration,
+        ShardingSpec,
+    )
 
 TArrayCompatible = typing.TypeVar(
     "TArrayCompatible",
@@ -2021,8 +2025,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         "_outputs",
         "_overload",
         "_version",
-        "doc_string",
         "device_configurations",
+        "doc_string",
     )
 
     def __init__(
@@ -2457,6 +2461,112 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         The operator identifier is a tuple of the domain, op_type and overload.
         """
         return self._domain, self._op_type, self._overload
+
+    def shard(
+        self,
+        value: Value,
+        *,
+        configuration: ModelConfiguration,
+        axis: int,
+        num_shards: int,
+        devices: Sequence[int] = (),
+        pipeline_stage: int | None = None,
+    ) -> None:
+        """Record a sharding of ``value`` along ``axis`` for this node.
+
+        This is a convenience wrapper that builds and attaches the appropriate
+        multi-device configuration metadata in :attr:`device_configurations`.
+        The sharding is bound to ``value`` and ``configuration`` by object
+        identity, so it follows renames and survives as long as the objects do.
+
+        Args:
+            value: The input or output value to shard. Must be one of this node's
+                own inputs or outputs.
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the sharding
+                belongs to.
+            axis: The axis along which ``value`` is sharded.
+            num_shards: The number of shards along ``axis``. Must be ``>= 1``.
+            devices: Optional device indices the tensor is placed on.
+            pipeline_stage: Optional pipeline stage for the configuration.
+
+        Raises:
+            ValueError: If ``value`` is not an input or output of the node, if
+                ``num_shards < 1``, or if ``axis`` is out of range when the rank
+                of ``value`` is known.
+        """
+        from onnx_ir import _multi_device
+
+        if value is None:
+            raise ValueError("Cannot shard a None value.")
+        if value not in set(self._inputs) | set(self._outputs):
+            raise ValueError(
+                f"Value {value!r} is not an input or output of node {self.name!r}; "
+                "only a node's own inputs or outputs can be sharded."
+            )
+        if num_shards < 1:
+            raise ValueError(f"num_shards must be >= 1, got {num_shards}.")
+        shape = value.shape
+        rank = len(shape) if shape is not None else None
+        if axis < 0 or (rank is not None and axis >= rank):
+            raise ValueError(
+                f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
+            )
+        dim = shape[axis] if shape is not None else None
+        spec = _multi_device.ShardingSpec(
+            value=value,
+            device=tuple(devices),
+            sharded_dim=(
+                _multi_device.ShardedDim(
+                    axis=axis,
+                    simple_sharding=(
+                        _multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),
+                    ),
+                ),
+            ),
+        )
+        # Find an existing configuration bound to the same ModelConfiguration and
+        # append to it, otherwise create a new one.
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if (
+                isinstance(existing, _multi_device.NodeDeviceConfiguration)
+                and existing.configuration is configuration
+            ):
+                stage = (
+                    pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
+                )
+                configurations[i] = dataclasses.replace(
+                    existing,
+                    sharding_spec=(*existing.sharding_spec, spec),
+                    pipeline_stage=stage,
+                )
+                break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration,
+                    sharding_spec=(spec,),
+                    pipeline_stage=pipeline_stage,
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
+    def sharding_of(self, value: Value) -> tuple[ShardingSpec, ...]:
+        """Return all sharding specs on this node that target ``value``.
+
+        Matching is by object identity, so this returns the live specs that
+        reference exactly ``value``.
+        """
+        from onnx_ir import _multi_device
+
+        result = []
+        for configuration in self.device_configurations:
+            if not isinstance(configuration, _multi_device.NodeDeviceConfiguration):
+                continue
+            for spec in configuration.sharding_spec:
+                if spec.value is value:
+                    result.append(spec)
+        return tuple(result)
 
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
@@ -3928,11 +4038,11 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         "_functions",
         "_metadata",
         "_metadata_props",
+        "device_configurations",
         "doc_string",
         "domain",
         "graph",
         "ir_version",
-        "device_configurations",
         "model_version",
         "producer_name",
         "producer_version",
@@ -4053,6 +4163,49 @@ Model(
         # `traversal.py`.
         yield self.graph
         yield from self.graph.subgraphs()
+
+    def add_device_configuration(
+        self,
+        name: str,
+        *,
+        num_devices: int | None = None,
+        devices: Sequence[str] = (),
+    ) -> ModelConfiguration:
+        """Create a :class:`~onnx_ir.ModelConfiguration` and register it on the model.
+
+        The returned object can be passed to :meth:`Node.shard` to bind node
+        shardings to this configuration.
+
+        Args:
+            name: A unique name for the configuration.
+            num_devices: The number of devices. Defaults to ``len(devices)``.
+            devices: Optional device names (e.g. ``("CPU", "CUDA:0")``).
+
+        Returns:
+            The newly created configuration, already appended to
+            :attr:`device_configurations`.
+
+        Raises:
+            ValueError: If a configuration with ``name`` already exists.
+        """
+        from onnx_ir import _multi_device
+
+        for existing in self.device_configurations:
+            if (
+                isinstance(existing, _multi_device.ModelConfiguration)
+                and existing.name == name
+            ):
+                raise ValueError(
+                    f"A device configuration named {name!r} already exists on the model."
+                )
+        devices = tuple(devices)
+        if num_devices is None:
+            num_devices = len(devices)
+        configuration = _multi_device.ModelConfiguration(
+            name=name, num_devices=num_devices, device=devices
+        )
+        self.device_configurations = (*self.device_configurations, configuration)
+        return configuration
 
     def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
