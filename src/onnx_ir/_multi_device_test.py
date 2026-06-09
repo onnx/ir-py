@@ -241,6 +241,69 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertEqual(conf.num_devices, 4)
         self.assertEqual(conf.device, ())
 
+    def test_remove_device_configuration_by_object(self):
+        model, _, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        removed = model.remove_device_configuration(conf)
+        self.assertIs(removed, conf)
+        self.assertEqual(model.device_configurations, ())
+
+    def test_remove_device_configuration_by_name(self):
+        model, _, _ = _identity_model()
+        model.add_device_configuration("conf0", devices=("CPU",))
+        other = model.add_device_configuration("conf1", devices=("CUDA:0",))
+        model.remove_device_configuration("conf0")
+        self.assertEqual(model.device_configurations, (other,))
+
+    def test_remove_device_configuration_leaves_dangling_by_default(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        model.remove_device_configuration(conf)
+        # The node reference is left intact and is reported by the checker.
+        self.assertIs(node.device_configurations[0].configuration, conf)
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("conf0" in e for e in errors), errors)
+
+    def test_remove_device_configuration_cascade_cleans_node_references(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        model.remove_device_configuration("conf0", cascade=True)
+        self.assertEqual(node.device_configurations, ())
+        self.assertEqual(_multi_device.check_device_configurations(model), [])
+
+    def test_remove_device_configuration_cascade_keeps_other_configurations(self):
+        model, node, x = _identity_model()
+        keep = model.add_device_configuration("keep", devices=("CPU",))
+        drop = model.add_device_configuration("drop", devices=("CUDA:0",))
+        node.shard(x, configuration=keep, axis=0, num_shards=2)
+        node.shard(node.outputs[0], configuration=drop, axis=0, num_shards=2)
+        model.remove_device_configuration(drop, cascade=True)
+        # Only the dropped configuration's node entry is removed.
+        self.assertEqual(len(node.device_configurations), 1)
+        self.assertIs(node.device_configurations[0].configuration, keep)
+
+    def test_remove_device_configuration_cascade_covers_functions(self):
+        model, _, _ = _identity_model()
+        fx = ir.Value(name="fx")
+        fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="frelu")
+        fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
+        func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
+        model.functions[func.identifier()] = func
+        model.remove_device_configuration(conf, cascade=True)
+        self.assertEqual(fnode.device_configurations, ())
+
+    def test_remove_unknown_configuration_raises(self):
+        model, _, _ = _identity_model()
+        with self.assertRaises(ValueError):
+            model.remove_device_configuration("missing")
+        stray = _multi_device.ModelConfiguration("stray", num_devices=1)
+        with self.assertRaises(ValueError):
+            model.remove_device_configuration(stray)
+
 
 class CheckDeviceConfigurationsTest(unittest.TestCase):
     def test_valid_model_has_no_errors(self):

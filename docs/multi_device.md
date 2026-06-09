@@ -77,6 +77,35 @@ rather than creating a new one:
     print(len(relu.device_configurations[0].sharding_spec))  # 2
 ```
 
+## Removing a configuration
+
+{py:meth}`Model.remove_device_configuration <onnx_ir.Model.remove_device_configuration>`
+is the counterpart of `add_device_configuration`. It accepts either the
+{py:class}`~onnx_ir.ModelConfiguration` object or its name. By default it removes
+only the model-level configuration and leaves node references intact, so any
+dangling references are surfaced by `check_device_configurations`. Pass
+``cascade=True`` to also strip every node sharding that referenced it, leaving no
+dangling references behind.
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    x = ir.Value(name="x", shape=ir.Shape([8, 16]), type=ir.TensorType(ir.DataType.FLOAT))
+    relu = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
+    graph = ir.Graph([x], [relu.outputs[0]], nodes=[relu], opset_imports={"": 18})
+    model = ir.Model(graph, ir_version=11)
+    conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+    relu.shard(x, configuration=conf, axis=0, num_shards=2)
+
+    # Cascade removal also clears the node's sharding that used ``conf``.
+    model.remove_device_configuration(conf, cascade=True)
+    print(model.device_configurations)   # ()
+    print(relu.device_configurations)    # ()
+    print(ir.check_device_configurations(model))  # []
+```
+
 ## Validating the configuration
 
 Because metadata can be edited freely, the IR follows the common compiler-IR

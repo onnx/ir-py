@@ -4207,6 +4207,79 @@ Model(
         self.device_configurations = (*self.device_configurations, configuration)
         return configuration
 
+    def remove_device_configuration(
+        self,
+        configuration: ModelConfiguration | str,
+        *,
+        cascade: bool = False,
+    ) -> ModelConfiguration:
+        """Remove a device configuration from the model.
+
+        This is the counterpart of :meth:`add_device_configuration`.
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` object to
+                remove, or the name of the configuration to remove.
+            cascade: When ``True``, also remove every
+                :class:`~onnx_ir.NodeDeviceConfiguration` that references this
+                configuration from all nodes in the model's graph and functions,
+                so that no dangling references remain. When ``False`` (default),
+                node references are left intact; they become dangling and are
+                reported by :func:`onnx_ir.check_device_configurations`.
+
+        Returns:
+            The removed configuration.
+
+        Raises:
+            ValueError: If no matching configuration is registered on the model.
+        """
+        from onnx_ir import _multi_device
+
+        if isinstance(configuration, str):
+            target: ModelConfiguration | None = None
+            for existing in self.device_configurations:
+                if (
+                    isinstance(existing, _multi_device.ModelConfiguration)
+                    and existing.name == configuration
+                ):
+                    target = existing
+                    break
+            if target is None:
+                raise ValueError(
+                    f"No device configuration named {configuration!r} on the model."
+                )
+        else:
+            if not any(c is configuration for c in self.device_configurations):
+                raise ValueError(
+                    f"Configuration {configuration!r} is not registered on the model."
+                )
+            target = configuration
+
+        self.device_configurations = tuple(
+            c for c in self.device_configurations if c is not target
+        )
+
+        if cascade:
+            nodes: list[Node] = list(self.graph.all_nodes())
+            for func in self.functions.values():
+                nodes.extend(func.all_nodes())
+            for node in nodes:
+                device_configurations = node.device_configurations
+                if not device_configurations:
+                    continue
+                filtered = tuple(
+                    config
+                    for config in device_configurations
+                    if not (
+                        isinstance(config, _multi_device.NodeDeviceConfiguration)
+                        and config.configuration is target
+                    )
+                )
+                if len(filtered) != len(device_configurations):
+                    node.device_configurations = filtered
+
+        return target
+
     def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
 
