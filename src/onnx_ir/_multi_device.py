@@ -31,65 +31,192 @@ if TYPE_CHECKING:
 
 @dataclasses.dataclass(frozen=True)
 class ModelConfiguration:
-    """A model-level device configuration (mirrors ``DeviceConfigurationProto``)."""
+    """A model-level set of devices that a multi-device plan runs on.
+
+    A model declares one or more configurations (mirroring ONNX's
+    ``DeviceConfigurationProto``). Each one names a group of devices; the
+    per-node :class:`NodeDeviceConfiguration` entries then reference a
+    configuration by object identity to say how that node is sharded or staged
+    across those devices.
+
+    Device *indices* used elsewhere (for example :attr:`ShardingSpec.device` and
+    :meth:`onnx_ir.Node.shard`) are 0-based positions into :attr:`device`.
+    """
 
     name: str
+    """Unique name of the configuration within the model.
+
+    Used as the ``configuration_id`` that node configurations refer to, so it
+    must be non-empty to serialize.
+    """
+
     num_devices: int
+    """Number of devices in this configuration.
+
+    Device indices are expected to fall in ``range(num_devices)``.
+    """
+
     device: tuple[str, ...] = ()
+    """Optional human-readable device names, one per device.
+
+    For example ``("CPU", "CUDA:0")`` or ``("NPU", "GPU")``. When provided it
+    should have length :attr:`num_devices`, and ``device[i]`` is the name of the
+    device referenced by index ``i``. An empty tuple means the names are
+    unspecified (the devices are then known only by index).
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class IndexToDeviceGroupMapEntry:
+    """One entry of a :attr:`ShardingSpec.index_to_device_group_map`.
+
+    It maps a single key appearing in :attr:`ShardingSpec.device` to the group of
+    real device indices that key stands for. This is how a shard is *replicated*
+    across several devices: instead of naming one device, an entry in ``device``
+    names a group, and this map expands that group.
+    """
+
     key: int
+    """The value that appears in :attr:`ShardingSpec.device` and is expanded here.
+
+    Group keys are conventionally negative (e.g. ``-1``, ``-2``) so they cannot be
+    confused with direct device indices, which are ``>= 0``.
+    """
+
     value: tuple[int, ...] = ()
+    """The real device indices (into :attr:`ModelConfiguration.device`) in the group.
+
+    The shard assigned to :attr:`key` is replicated onto every device listed here.
+    For example ``value=(0, 1)`` replicates the shard onto devices 0 and 1.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class SimpleShardedDim:
-    """A dimension with a sharding specification.
-
-    The ``dim`` field represents the size of the dimension and follows the same
-    convention as :class:`onnx_ir.Shape` dimensions: an :class:`int` for a
-    fixed size, a :class:`~onnx_ir.SymbolicDim` for a symbolic/unknown size,
-    or ``None`` when the dimension is unspecified.
-    """
+    """How one axis is divided into shards (``N`` blocks split into ``num_shards``)."""
 
     dim: int | SymbolicDim | None = None
+    """Size of the axis being sharded.
+
+    Follows the same convention as :class:`onnx_ir.Shape` dimensions:
+
+    * an :class:`int` for a fixed, known size (e.g. ``1024``);
+    * a :class:`~onnx_ir.SymbolicDim` for a symbolic/unknown size (e.g. a dynamic
+      ``"batch"`` dimension);
+    * ``None`` when the size is unspecified.
+
+    ONNX permits the size to be symbolic, but :attr:`num_shards` must be a concrete
+    integer.
+    """
+
     num_shards: int = 0
+    """Number of equal shards the axis is split into.
+
+    ``1`` means the axis is not split (a single shard); a value ``>= 1`` is
+    required. For example ``dim=1024, num_shards=4`` splits the axis into four
+    blocks of 256.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class ShardedDim:
+    """The sharding of a single tensor axis."""
+
     axis: int
+    """The tensor axis this sharding applies to.
+
+    Follows the ONNX axis convention: it must be in ``[-rank, rank - 1]``, where
+    negative values count from the back (``-1`` is the last axis).
+    """
+
     simple_sharding: tuple[SimpleShardedDim, ...] = ()
+    """How the axis is divided, as a tuple of :class:`SimpleShardedDim`.
+
+    The common case is a single entry. Multiple entries are used when a reshape
+    has fused several original axes into this one, describing the sharding of each
+    fused component in order.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class ShardingSpec:
-    """Sharding for a single tensor.
+    """How a single tensor is sharded and/or replicated across devices.
 
-    ``value`` binds directly to the :class:`~onnx_ir.Value` being sharded. The
-    proto ``tensor_name`` is derived from ``value.name`` on serialization.
+    A spec describes the distribution of one input or output tensor of a node.
+    The unsharded axes are implicitly replicated; :attr:`sharded_dim` lists only
+    the axes that are split.
     """
 
     value: Value | None = None
+    """The :class:`~onnx_ir.Value` being sharded, bound by object identity.
+
+    The proto ``tensor_name`` is derived from ``value.name`` on serialization, so
+    the reference follows renames. It must be an input or output of the node that
+    owns this spec. ``None`` leaves the tensor unspecified.
+    """
+
     device: tuple[int, ...] = ()
+    """The devices the tensor is distributed over, in shard order.
+
+    The ``i``-th shard goes to ``device[i]``. Each entry is either a direct device
+    index into :attr:`ModelConfiguration.device` (``>= 0``), or a key
+    (conventionally negative) into :attr:`index_to_device_group_map`, which
+    expands to a group of devices the shard is *replicated* across. An empty tuple
+    leaves placement unspecified.
+    """
+
     index_to_device_group_map: tuple[IndexToDeviceGroupMapEntry, ...] = ()
+    """Optional expansion of the group keys used in :attr:`device`.
+
+    Each :class:`IndexToDeviceGroupMapEntry` maps one key to the real device
+    indices in that group. Only needed when a shard is replicated across a set of
+    devices; direct device indices do not need an entry.
+    """
+
     sharded_dim: tuple[ShardedDim, ...] = ()
+    """One :class:`ShardedDim` per axis that is split.
+
+    Axes not listed here are replicated across the devices in :attr:`device`. An
+    empty tuple means the tensor is not split on any axis — i.e. it is fully
+    replicated onto every device in :attr:`device` (or device group).
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class NodeDeviceConfiguration:
-    """Per-node device configuration.
+    """The multi-device annotation of a single node under one configuration.
 
-    ``configuration`` binds directly to the :class:`ModelConfiguration` object.
-    The proto ``configuration_id`` is derived from ``configuration.name`` on
-    serialization.
+    Attached to :attr:`onnx_ir.Node.device_configurations`, it says how the node
+    participates in a :class:`ModelConfiguration`: which of its tensors are
+    sharded (tensor parallelism) and/or which pipeline stage it belongs to
+    (pipeline parallelism). A node may carry several of these, one per
+    configuration it takes part in.
     """
 
     configuration: ModelConfiguration | None = None
+    """The :class:`ModelConfiguration` this annotation applies to.
+
+    Bound by object identity (the proto ``configuration_id`` is derived from
+    ``configuration.name`` on serialization). It should be one of the model's
+    declared configurations. ``None`` leaves it unspecified.
+    """
+
     sharding_spec: tuple[ShardingSpec, ...] = ()
+    """The :class:`ShardingSpec` entries for this node's tensors.
+
+    At most one per sharded input/output value. An empty tuple means the node is
+    not tensor-sharded under this configuration (it may still be placed via
+    :attr:`pipeline_stage`).
+    """
+
     pipeline_stage: int | None = None
+    """The pipeline stage this node belongs to, or ``None``.
+
+    ``None`` means the node does not participate in pipeline parallelism under
+    this configuration. Stages are non-negative integers; nodes sharing a stage
+    run together, and a common convention maps ``stage`` to the device index in
+    :attr:`ModelConfiguration.device`.
+    """
 
 
 def _check_device_configurations(model: _core.Model) -> list[str]:
