@@ -2021,8 +2021,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         "_outputs",
         "_overload",
         "_version",
-        "doc_string",
         "device_configurations",
+        "doc_string",
     )
 
     def __init__(
@@ -3928,11 +3928,11 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         "_functions",
         "_metadata",
         "_metadata_props",
+        "device_configurations",
         "doc_string",
         "domain",
         "graph",
         "ir_version",
-        "device_configurations",
         "model_version",
         "producer_name",
         "producer_version",

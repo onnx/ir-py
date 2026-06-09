@@ -71,7 +71,7 @@ import numpy as np
 import onnx  # noqa: TID251
 import onnx.external_data_helper  # noqa: TID251
 
-from onnx_ir import _convenience, _core, _multi_device, _enums, _protocols, _type_casting
+from onnx_ir import _convenience, _core, _enums, _multi_device, _protocols, _type_casting
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers

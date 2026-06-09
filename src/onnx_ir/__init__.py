@@ -152,6 +152,7 @@ from onnx_ir._enums import (
     AttributeType,
     DataType,
 )
+from onnx_ir._io import load, save
 from onnx_ir._multi_device import (
     IndexToDeviceGroupMapEntry,
     ModelConfiguration,
@@ -160,7 +161,6 @@ from onnx_ir._multi_device import (
     ShardingSpec,
     SimpleShardedDim,
 )
-from onnx_ir._io import load, save
 from onnx_ir._protocols import (
     ArrayCompatible,
     AttributeProtocol,
