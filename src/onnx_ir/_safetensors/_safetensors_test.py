@@ -628,5 +628,97 @@ class SaveSafetensorsTest(unittest.TestCase):
         )
 
 
+    @unittest.skipUnless(hasattr(safetensors, "TensorSpec"), "Requires safetensors.TensorSpec")
+    def test_save_safetensors_sharding_tensor_spec_zero_length_tensor(self):
+        """Test TensorSpec sharding path handles a zero-element tensor payload."""
+        # regular_tensor (4000 bytes) goes into shard 1; zero_tensor (0 bytes) goes into shard 2.
+        regular_tensor = ir.tensor(
+            np.arange(1000, dtype=np.float32),
+            dtype=ir.DataType.FLOAT,
+            name="regular_tensor",
+        )
+        zero_tensor = ir.tensor(
+            np.array([], dtype=np.float32),
+            dtype=ir.DataType.FLOAT,
+            name="zero_tensor",
+        )
+        regular_init = _create_initializer(regular_tensor)
+        zero_init = _create_initializer(zero_tensor)
+
+        identity_node = ir.Node("", "Identity", inputs=(regular_init,))
+        identity_node.outputs[0].shape = ir.Shape([1000])
+        identity_node.outputs[0].dtype = ir.DataType.FLOAT
+        identity_node.outputs[0].name = "identity_0"
+
+        graph = ir.Graph(
+            inputs=[regular_init, zero_init],
+            outputs=[*identity_node.outputs],
+            nodes=[identity_node],
+            initializers=[regular_init, zero_init],
+            name="test_graph",
+        )
+        model = ir.Model(graph, ir_version=10)
+        path = os.path.join(self.tmpdir, "model.onnx")
+
+        # shard_size=1000 forces regular (4000 B) and zero (0 B) into separate shards.
+        ir.save_safetensors(model, path, size_threshold_bytes=0, max_shard_size_bytes=1000)
+
+        shard_files = [f for f in os.listdir(self.tmpdir) if f.endswith(".safetensors")]
+        self.assertGreater(len(shard_files), 1, "Expected multiple shard files")
+
+        loaded_model = ir.load(path)
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["regular_tensor"].const_value.numpy(),
+            np.arange(1000, dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["zero_tensor"].const_value.numpy(),
+            np.array([], dtype=np.float32),
+        )
+
+    @unittest.skipUnless(hasattr(safetensors, "TensorSpec"), "Requires safetensors.TensorSpec")
+    def test_save_safetensors_sharding_tensor_spec_bytes_data(self):
+        """Test TensorSpec sharding path correctly converts bytes data from tobytes()."""
+        # tensor.tobytes() returns bytes (not bytearray); the TensorSpec branch must
+        # convert bytes → bytearray before creating the ctypes-backed view.
+        tensors = [
+            ir.tensor(
+                np.arange(i * 100, (i + 1) * 100, dtype=np.float32),
+                dtype=ir.DataType.FLOAT,
+                name=f"tensor_{i}",
+            )
+            for i in range(4)
+        ]
+        initializers = [_create_initializer(t) for t in tensors]
+
+        identity_node = ir.Node("", "Identity", inputs=(initializers[0],))
+        identity_node.outputs[0].shape = ir.Shape([100])
+        identity_node.outputs[0].dtype = ir.DataType.FLOAT
+        identity_node.outputs[0].name = "identity_0"
+
+        graph = ir.Graph(
+            inputs=initializers,
+            outputs=[*identity_node.outputs],
+            nodes=[identity_node],
+            initializers=initializers,
+            name="test_graph",
+        )
+        model = ir.Model(graph, ir_version=10)
+        path = os.path.join(self.tmpdir, "model.onnx")
+
+        # Each tensor is 400 bytes; use 500-byte shards so tensors land in separate shards.
+        ir.save_safetensors(model, path, size_threshold_bytes=0, max_shard_size_bytes=500)
+
+        shard_files = [f for f in os.listdir(self.tmpdir) if f.endswith(".safetensors")]
+        self.assertGreater(len(shard_files), 1, "Expected multiple shard files")
+
+        loaded_model = ir.load(path)
+        for i, t in enumerate(tensors):
+            np.testing.assert_array_equal(
+                loaded_model.graph.initializers[f"tensor_{i}"].const_value.numpy(),
+                t.numpy(),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
