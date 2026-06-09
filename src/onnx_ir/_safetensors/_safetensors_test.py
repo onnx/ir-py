@@ -627,7 +627,6 @@ class SaveSafetensorsTest(unittest.TestCase):
             else_tensor.numpy(),
         )
 
-
     @unittest.skipUnless(hasattr(safetensors, "TensorSpec"), "Requires safetensors.TensorSpec")
     def test_save_safetensors_sharding_tensor_spec_zero_length_tensor(self):
         """Test TensorSpec sharding path handles a zero-element tensor payload."""
