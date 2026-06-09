@@ -269,26 +269,23 @@ def _save_file(
                 current_offset += tensor.nbytes
                 current_index += 1
 
-            try:
+            if not hasattr(safetensors, "TensorSpec"):
                 safetensors.serialize_file(shard_dict, shard_path)
-            except TypeError as e:
-                if "TensorSpec" not in str(e):
-                    raise
-                if not hasattr(safetensors, "TensorSpec"):
-                    raise
+            else:
                 # Keep strong references alive until serialize_file returns because
                 # TensorSpec stores raw data pointers.
-                tensor_data_buffers = []
+                tensor_data_refs = []
                 tensor_specs = {}
                 for name, spec in shard_dict.items():
                     data = spec["data"]
                     if not isinstance(data, bytearray):
                         data = bytearray(data)
-                    tensor_data_buffers.append(data)
+                    data_view = ctypes.c_char.from_buffer(data)
+                    tensor_data_refs.append((data, data_view))
                     tensor_specs[name] = safetensors.TensorSpec(
                         dtype=spec["dtype"],
                         shape=spec["shape"],
-                        data_ptr=ctypes.addressof(ctypes.c_char.from_buffer(data)),
+                        data_ptr=ctypes.addressof(data_view),
                         data_len=len(data),
                     )
                 safetensors.serialize_file(tensor_specs, shard_path)
