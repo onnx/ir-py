@@ -214,6 +214,60 @@ bound objects, so you get the live {py:class}`~onnx_ir.Value` back, not a name.
         print("axes sharded:", [sd.axis for sd in spec.sharded_dim])
 ```
 
+## Pipeline parallelism (device placement)
+
+Sharding splits a single tensor across devices. *Pipeline parallelism* is the
+complementary case: whole blocks of the graph are placed on different devices and
+activations are handed off from one stage to the next. For example, an LLM decoder
+whose first few layers run on an NPU and the rest on a GPU.
+
+This is expressed with the ``pipeline_stage`` of a
+{py:class}`~onnx_ir.NodeDeviceConfiguration` rather than a sharding spec.
+{py:meth}`Node.set_pipeline_stage <onnx_ir.Node.set_pipeline_stage>` attaches a
+pure placement (no sharding) to a node. How a stage maps to a physical device is
+by convention; a common choice is ``stage == device index`` into
+``configuration.device``.
+
+```{eval-rst}
+.. exec_code::
+
+    import onnx_ir as ir
+
+    # A 10-"layer" decoder (one node per layer for illustration).
+    h = [
+        ir.Value(name=f"h{i}", shape=ir.Shape(["B", "T", 4096]), type=ir.TensorType(ir.DataType.FLOAT))
+        for i in range(11)
+    ]
+    layers = [
+        ir.Node("custom", "DecoderLayer", [h[i]], outputs=[h[i + 1]], name=f"layer{i}")
+        for i in range(10)
+    ]
+    graph = ir.Graph([h[0]], [h[10]], nodes=layers, opset_imports={"": 18, "custom": 1})
+    model = ir.Model(graph, ir_version=11)
+
+    # Device index 0 = NPU, index 1 = GPU.
+    pipeline = model.add_device_configuration("pipeline", num_devices=2, devices=("NPU", "GPU"))
+
+    # First 4 layers -> stage 0 (NPU); last 6 layers -> stage 1 (GPU).
+    for i, layer in enumerate(layers):
+        layer.set_pipeline_stage(pipeline, 0 if i < 4 else 1)
+
+    # Query the placement back, resolving the stage to a device name.
+    device_names = model.device_configurations[0].device
+    for layer in layers:
+        stage = layer.device_configurations[0].pipeline_stage
+        print(f"{layer.name}: stage {stage} -> {device_names[stage]}")
+```
+
+A node can be both sharded and staged: :meth:`Node.shard <onnx_ir.Node.shard>`
+and :meth:`set_pipeline_stage <onnx_ir.Node.set_pipeline_stage>` share a single
+{py:class}`~onnx_ir.NodeDeviceConfiguration` per configuration, so you can shard a
+layer's tensors *and* assign it to a pipeline stage. If you instead want to bind a
+specific tensor to a specific device explicitly (rather than rely on the
+``stage == device index`` convention), attach a placement-only
+{py:class}`~onnx_ir.ShardingSpec` — one with a ``device`` but no ``sharded_dim``,
+meaning the tensor lives wholly on those devices without being split.
+
 ## Removing a configuration
 
 {py:meth}`Model.remove_device_configuration <onnx_ir.Model.remove_device_configuration>`

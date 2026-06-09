@@ -2604,6 +2604,48 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     result.append(spec)
         return tuple(result)
 
+    def set_pipeline_stage(self, configuration: ModelConfiguration, stage: int) -> None:
+        """Assign this node to a pipeline ``stage`` for ``configuration``.
+
+        This expresses pure device placement / pipeline parallelism — for
+        example putting a contiguous block of decoder layers on one device.
+        Unlike :meth:`shard`, it attaches no sharding spec; the node is placed
+        as a whole.
+
+        If the node already has a
+        :class:`~onnx_ir.NodeDeviceConfiguration` for ``configuration`` (for
+        example one created by :meth:`shard`), its ``pipeline_stage`` is updated
+        in place; otherwise a new placement-only configuration is created.
+        Calling this method again replaces the stage.
+
+        How a stage maps to a physical device is by convention: a common choice
+        is ``stage == device index`` into ``configuration.device``.
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
+                belongs to.
+            stage: The pipeline stage index. Must be ``>= 0``.
+
+        Raises:
+            ValueError: If ``stage`` is negative.
+        """
+        from onnx_ir import _multi_device
+
+        if stage < 0:
+            raise ValueError(f"pipeline stage must be >= 0, got {stage}.")
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if existing.configuration is configuration:
+                configurations[i] = dataclasses.replace(existing, pipeline_stage=stage)
+                break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration, pipeline_stage=stage
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
 

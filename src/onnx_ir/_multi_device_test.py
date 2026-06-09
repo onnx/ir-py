@@ -275,6 +275,61 @@ class ConvenienceApiTest(unittest.TestCase):
         node.shard(y, configuration=conf, axis=0, num_shards=2, pipeline_stage=1)
         self.assertEqual(node.device_configurations[0].pipeline_stage, 1)
 
+    def test_set_pipeline_stage_pure_placement(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration(
+            "pipeline", num_devices=2, devices=("NPU", "GPU")
+        )
+        node.set_pipeline_stage(conf, 0)
+        self.assertEqual(len(node.device_configurations), 1)
+        config = node.device_configurations[0]
+        self.assertIs(config.configuration, conf)
+        self.assertEqual(config.pipeline_stage, 0)
+        # No sharding is attached for a pure placement.
+        self.assertEqual(config.sharding_spec, ())
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
+
+    def test_set_pipeline_stage_overwrites(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("pipeline", num_devices=2)
+        node.set_pipeline_stage(conf, 0)
+        node.set_pipeline_stage(conf, 1)
+        self.assertEqual(len(node.device_configurations), 1)
+        self.assertEqual(node.device_configurations[0].pipeline_stage, 1)
+
+    def test_set_pipeline_stage_rejects_negative(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("pipeline", num_devices=2)
+        with self.assertRaises(ValueError):
+            node.set_pipeline_stage(conf, -1)
+
+    def test_set_pipeline_stage_shares_configuration_with_shard(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        node.set_pipeline_stage(conf, 3)
+        # The stage and the sharding live under one NodeDeviceConfiguration.
+        self.assertEqual(len(node.device_configurations), 1)
+        config = node.device_configurations[0]
+        self.assertEqual(config.pipeline_stage, 3)
+        self.assertEqual(len(config.sharding_spec), 1)
+
+    def test_set_pipeline_stage_preserved_by_later_shard(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.set_pipeline_stage(conf, 2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        self.assertEqual(node.device_configurations[0].pipeline_stage, 2)
+
+    def test_set_pipeline_stage_separate_configurations(self):
+        model, node, _ = _identity_model()
+        a = model.add_device_configuration("a", num_devices=2)
+        b = model.add_device_configuration("b", num_devices=2)
+        node.set_pipeline_stage(a, 0)
+        node.set_pipeline_stage(b, 1)
+        stages = {c.configuration.name: c.pipeline_stage for c in node.device_configurations}
+        self.assertEqual(stages, {"a": 0, "b": 1})
+
     def test_shard_rejects_bad_axis_and_shards(self):
         model, node, x = _identity_model()
         conf = model.add_device_configuration("conf0", devices=("CPU",))
