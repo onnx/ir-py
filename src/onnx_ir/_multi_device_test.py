@@ -203,6 +203,44 @@ class ConvenienceApiTest(unittest.TestCase):
         x.name = "renamed"
         self.assertEqual(node.sharding_of(x)[0].value.name, "renamed")
 
+    def test_shard_rejects_none_value(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        with self.assertRaises(ValueError):
+            node.shard(None, configuration=conf, axis=0, num_shards=2)
+
+    def test_shard_value_without_shape_infers_no_dim(self):
+        # A value with unknown shape can still be sharded; dim is left unspecified.
+        x = ir.Value(name="x")
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=10)
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.shard(x, configuration=conf, axis=3, num_shards=2)
+        spec = node.sharding_of(x)[0]
+        self.assertIsNone(spec.sharded_dim[0].simple_sharding[0].dim)
+
+    def test_shard_updates_pipeline_stage_on_existing_configuration(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        node.shard(node.outputs[0], configuration=conf, axis=0, num_shards=2, pipeline_stage=3)
+        self.assertEqual(node.device_configurations[0].pipeline_stage, 3)
+
+    def test_sharding_of_ignores_passthrough_configurations(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        node.device_configurations = (b"\x08\x01", *node.device_configurations)
+        # The bytes passthrough is skipped; the real spec is still found.
+        self.assertEqual(len(node.sharding_of(x)), 1)
+
+    def test_add_device_configuration_explicit_num_devices(self):
+        model, _, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=4)
+        self.assertEqual(conf.num_devices, 4)
+        self.assertEqual(conf.device, ())
+
 
 class CheckDeviceConfigurationsTest(unittest.TestCase):
     def test_valid_model_has_no_errors(self):
@@ -279,6 +317,281 @@ class CloneTest(unittest.TestCase):
         self.assertIs(specs[1].value, cloned_node.outputs[0])
         self.assertIsNot(specs[0].value, x)
         self.assertEqual(_multi_device.check_device_configurations(cloned), [])
+
+    def test_clone_node_without_configurations(self):
+        # Cloning a node that has no device configurations is a no-op for them.
+        model, _, _ = _identity_model()
+        cloned = model.clone()
+        self.assertEqual(cloned.graph[0].device_configurations, ())
+
+    def test_clone_passthrough_bytes_configuration(self):
+        # Raw bytes configurations are passed through unchanged on clone.
+        model, node, _ = _identity_model()
+        node.device_configurations = (b"\x08\x01",)
+        cloned = model.clone()
+        self.assertEqual(cloned.graph[0].device_configurations, (b"\x08\x01",))
+
+    def test_clone_spec_with_unmapped_value_is_preserved(self):
+        # A ShardingSpec whose value is None (not in the value map) is preserved
+        # as-is, and a configuration with no remapped spec is left unchanged.
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        original = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
+            ),
+        )
+        node.device_configurations = original
+        cloned = model.clone()
+        cloned_config = cloned.graph[0].device_configurations[0]
+        self.assertIsNone(cloned_config.sharding_spec[0].value)
+        self.assertEqual(cloned_config.sharding_spec[0].device, (0,))
+
+
+class SerdeHelperEdgeCaseTest(unittest.TestCase):
+    """Cover the lower-level serde helper branches directly."""
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_simple_sharded_dim_unspecified(self):
+        # dim is None -> neither dim_value nor dim_param is set.
+        config = _multi_device.NodeDeviceConfiguration(
+            configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
+            sharding_spec=(
+                _multi_device.ShardingSpec(
+                    value=ir.Value(name="x"),
+                    sharded_dim=(
+                        _multi_device.ShardedDim(
+                            axis=0,
+                            simple_sharding=(
+                                _multi_device.SimpleShardedDim(dim=None, num_shards=2),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        proto = _multi_device.serialize_node_device_configuration(config)
+        simple = proto.sharding_spec[0].sharded_dim[0].simple_sharding[0]
+        self.assertFalse(simple.HasField("dim_value"))
+        self.assertFalse(simple.HasField("dim_param"))
+        self.assertEqual(simple.num_shards, 2)
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_skips_symbolic_dim_without_value(self):
+        config = _multi_device.NodeDeviceConfiguration(
+            configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
+            sharding_spec=(
+                _multi_device.ShardingSpec(
+                    value=ir.Value(name="x"),
+                    sharded_dim=(
+                        _multi_device.ShardedDim(
+                            axis=0,
+                            simple_sharding=(
+                                _multi_device.SimpleShardedDim(
+                                    dim=ir.SymbolicDim(None), num_shards=1
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        proto = _multi_device.serialize_node_device_configuration(config)
+        simple = proto.sharding_spec[0].sharded_dim[0].simple_sharding[0]
+        self.assertFalse(simple.HasField("dim_param"))
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_deserialize_dim_param_and_unspecified(self):
+        proto = onnx.NodeDeviceConfigurationProto()
+        spec = proto.sharding_spec.add()
+        spec.tensor_name = "x"
+        sharded = spec.sharded_dim.add()
+        sharded.axis = 0
+        sharded.simple_sharding.add(dim_param="BATCH", num_shards=2)
+        sharded.simple_sharding.add(num_shards=1)  # neither dim_value nor dim_param
+
+        result = _multi_device.deserialize_node_device_configuration(proto)
+        simple = result.sharding_spec[0].sharded_dim[0].simple_sharding
+        self.assertEqual(simple[0].dim, ir.SymbolicDim("BATCH"))
+        self.assertIsNone(simple[1].dim)
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_deserialize_empty_tensor_name_resolves_to_none(self):
+        proto = onnx.NodeDeviceConfigurationProto()
+        proto.sharding_spec.add()  # tensor_name left empty
+        result = _multi_device.deserialize_node_device_configuration(proto, values={})
+        self.assertIsNone(result.sharding_spec[0].value)
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_deserialize_without_values_argument(self):
+        proto = onnx.NodeDeviceConfigurationProto()
+        spec = proto.sharding_spec.add()
+        spec.tensor_name = "x"
+        # values defaults to None -> treated as empty mapping.
+        result = _multi_device.deserialize_node_device_configuration(proto)
+        self.assertEqual(result.sharding_spec[0].value.name, "x")
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_spec_without_value(self):
+        config = _multi_device.NodeDeviceConfiguration(
+            configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
+            sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
+        )
+        proto = _multi_device.serialize_node_device_configuration(config)
+        self.assertEqual(proto.sharding_spec[0].tensor_name, "")
+        self.assertEqual(list(proto.sharding_spec[0].device), [0])
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_config_with_empty_name_raises(self):
+        config = _multi_device.NodeDeviceConfiguration(
+            configuration=_multi_device.ModelConfiguration("", num_devices=1),
+        )
+        with self.assertRaises(ValueError):
+            _multi_device.serialize_node_device_configuration(config)
+
+
+class CheckEdgeCaseTest(unittest.TestCase):
+    """Cover the remaining branches of check_device_configurations."""
+
+    def test_node_without_configurations_is_skipped(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        # Add a second, unsharded node.
+        extra = ir.Node("", "Identity", [node.outputs[0]], num_outputs=1, name="id1")
+        model.graph.append(extra)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        self.assertEqual(_multi_device.check_device_configurations(model), [])
+
+    def test_function_node_is_checked(self):
+        model, _, _ = _identity_model()
+        # Build a function with a sharded node that references an unknown config.
+        fx = ir.Value(name="fx")
+        fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="frelu")
+        fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
+        func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
+        fnode.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),
+                sharding_spec=(_multi_device.ShardingSpec(value=fx),),
+            ),
+        )
+        model.functions[func.identifier()] = func
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("ghost" in e for e in errors), errors)
+
+    def test_raw_passthrough_config_is_not_validated(self):
+        model, node, _ = _identity_model()
+        model.add_device_configuration("conf0", devices=("CPU",))
+        node.device_configurations = (b"\x08\x01",)  # raw bytes passthrough
+        self.assertEqual(_multi_device.check_device_configurations(model), [])
+
+    def test_missing_configuration_reference_reported(self):
+        model, node, x = _identity_model()
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=None,
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("without a" in e for e in errors), errors)
+
+    def test_empty_configuration_name_reported(self):
+        model, node, x = _identity_model()
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("", num_devices=1),
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("empty name" in e for e in errors), errors)
+
+    def test_spec_without_value_reported(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(_multi_device.ShardingSpec(value=None),),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("without a value" in e for e in errors), errors)
+
+    def test_spec_value_with_empty_name_reported(self):
+        model, node, _ = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        unnamed = ir.Value(name="")
+        node._inputs = (*node.inputs, unnamed)  # make it part of node IO
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(_multi_device.ShardingSpec(value=unnamed),),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("empty name" in e for e in errors), errors)
+
+    def test_num_shards_below_one_reported(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=conf,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=0,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=0),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertTrue(any("num_shards" in e for e in errors), errors)
+
+    def test_device_index_not_checked_without_configuration(self):
+        # configuration is None -> num_devices is None -> device range check is skipped,
+        # but the missing-configuration error is still reported.
+        model, node, x = _identity_model()
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=None,
+                sharding_spec=(_multi_device.ShardingSpec(value=x, device=(99,)),),
+            ),
+        )
+        errors = _multi_device.check_device_configurations(model)
+        self.assertFalse(any("device index" in e for e in errors), errors)
+        self.assertTrue(any("without a" in e for e in errors), errors)
 
 
 if __name__ == "__main__":

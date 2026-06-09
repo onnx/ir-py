@@ -1200,6 +1200,32 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertEqual(ir.check_device_configurations(deserialized), [])
 
     @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_dangling_id_roundtrips_as_placeholder(self):
+        # A node references a configuration that is not declared on the model.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=10)
+        # Register conf0 on the model but point the node at an unrelated id.
+        model.add_device_configuration("conf0", devices=("CPU",))
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_config = deserialized.graph[0].device_configurations[0]
+        # The dangling id is preserved as a placeholder, not silently dropped.
+        self.assertEqual(new_config.configuration.name, "ghost")
+        self.assertNotIn(new_config.configuration, deserialized.device_configurations)
+
+    @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )
