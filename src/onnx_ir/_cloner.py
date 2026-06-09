@@ -13,7 +13,7 @@ from typing import TypeVar
 
 from typing_extensions import Concatenate, ParamSpec
 
-from onnx_ir import _core, _enums, _multi_device
+from onnx_ir import _core, _enums
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -236,9 +236,6 @@ class Cloner:
         new_configurations = []
         changed = False
         for configuration in device_configurations:
-            if not isinstance(configuration, _multi_device.NodeDeviceConfiguration):
-                new_configurations.append(configuration)
-                continue
             new_specs = []
             spec_changed = False
             for spec in configuration.sharding_spec:
@@ -246,14 +243,10 @@ class Cloner:
                     # No mapping (e.g. an outer-scope value): keep as-is.
                     new_specs.append(spec)
                     continue
-                mapped = self._value_map[spec.value]
-                # ``mapped`` may be None when the value was intentionally dropped
-                # from the clone; propagate that so the reference is not stale.
-                if mapped is not spec.value:
-                    new_specs.append(dataclasses.replace(spec, value=mapped))
-                    spec_changed = True
-                else:
-                    new_specs.append(spec)
+                # The mapped value is authoritative; it may be None when the
+                # value was intentionally dropped from the clone.
+                new_specs.append(dataclasses.replace(spec, value=self._value_map[spec.value]))
+                spec_changed = True
             if spec_changed:
                 new_configurations.append(
                     dataclasses.replace(configuration, sharding_spec=tuple(new_specs))
