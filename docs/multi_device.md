@@ -41,8 +41,8 @@ inputs or outputs.
     model = ir.Model(graph, ir_version=11)
 
     # Declare a configuration with two devices and shard ``x`` along axis 0.
-    conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-    relu.shard(x, configuration=conf, axis=0, num_shards=2, devices=(0, 1))
+    conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+    relu.shard(x, configuration=conf, axis=0, num_shards=2, device_indices=(0, 1))
 
     # The sharding is bound to the value object, so it follows renames.
     x.name = "input"
@@ -92,7 +92,7 @@ is *sharded* across some devices and *replicated* along the rest.
 
     # Row-parallel: shard W along axis 0 (its rows) across all 4 devices.
     # Each device holds a [256, 4096] shard; x is replicated.
-    matmul.shard(w, configuration=mesh1d, axis=0, num_shards=4, devices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh1d, axis=0, num_shards=4, device_indices=(0, 1, 2, 3))
 
     # Column-parallel would instead shard W along axis 1:
     #   matmul.shard(w, configuration=mesh1d, axis=1, num_shards=4, ...)
@@ -122,8 +122,8 @@ axis — the canonical representation for a multi-axis mesh.
 
     mesh2x2 = model.add_device_configuration("mesh2x2", num_devices=4)
     # Shard rows along the first mesh axis and columns along the second.
-    matmul.shard(w, configuration=mesh2x2, axis=0, num_shards=2, devices=(0, 1, 2, 3))
-    matmul.shard(w, configuration=mesh2x2, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh2x2, axis=0, num_shards=2, device_indices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh2x2, axis=1, num_shards=2, device_indices=(0, 1, 2, 3))
 
     spec = matmul.sharding_of(w)[0]
     print(len(matmul.sharding_of(w)))                # 1 (single spec)
@@ -220,8 +220,8 @@ Walk a node's configurations to read back how each tensor is sharded:
     graph = ir.Graph([w, x], [matmul.outputs[0]], nodes=[matmul], opset_imports={"": 18})
     model = ir.Model(graph, ir_version=11)
     mesh = model.add_device_configuration("mesh2x2", num_devices=4)
-    matmul.shard(w, configuration=mesh, axis=0, num_shards=2, devices=(0, 1, 2, 3))
-    matmul.shard(w, configuration=mesh, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh, axis=0, num_shards=2, device_indices=(0, 1, 2, 3))
+    matmul.shard(w, configuration=mesh, axis=1, num_shards=2, device_indices=(0, 1, 2, 3))
 
     for config in matmul.device_configurations:
         print("configuration:", config.configuration.name)
@@ -276,7 +276,7 @@ different split strategies:
     model = ir.Model(graph, ir_version=11)
 
     # Two identical GPUs: device index 0 = GPU:0, index 1 = GPU:1.
-    pipeline = model.add_device_configuration("pipeline", num_devices=2, devices=("GPU:0", "GPU:1"))
+    pipeline = model.add_device_configuration("pipeline", num_devices=2, device_names=("GPU:0", "GPU:1"))
 
     # First half of the layers -> stage 0 (GPU:0); second half -> stage 1 (GPU:1).
     for i, layer in enumerate(layers):
@@ -345,7 +345,7 @@ implicitly, and the plan round-trips through ``to_proto`` / ``from_proto``.
     model = ir.Model(graph, ir_version=11)
 
     # --- Heterogeneous plan: device 0 = CPU, 1 = NPU, 2 = GPU ---
-    plan = model.add_device_configuration("plan", num_devices=3, devices=("CPU", "NPU", "GPU"))
+    plan = model.add_device_configuration("plan", num_devices=3, device_names=("CPU", "NPU", "GPU"))
 
     # Place each op on the device that suits it (stage == device index here).
     embed.set_pipeline_stage(plan, 0)              # embedding lookup -> CPU
@@ -392,7 +392,7 @@ node sharding that referenced it, leaving no dangling references behind.
     relu = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
     graph = ir.Graph([x], [relu.outputs[0]], nodes=[relu], opset_imports={"": 18})
     model = ir.Model(graph, ir_version=11)
-    conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+    conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
     relu.shard(x, configuration=conf, axis=0, num_shards=2)
 
     # Cascade removal also clears the node's sharding that used ``conf``.

@@ -1187,8 +1187,8 @@ class NodeSerializationTest(unittest.TestCase):
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
         model = ir.Model(graph, ir_version=10)
-        conf0 = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-        node.shard(x, configuration=conf0, axis=0, num_shards=2, devices=(0, 1))
+        conf0 = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf0, axis=0, num_shards=2, device_indices=(0, 1))
 
         deserialized = serde.deserialize_model(serde.serialize_model(model))
         new_node = deserialized.graph[0]
@@ -1211,7 +1211,7 @@ class NodeSerializationTest(unittest.TestCase):
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
         model = ir.Model(graph, ir_version=10)
         # Register conf0 on the model but point the node at an unrelated id.
-        model.add_device_configuration("conf0", devices=("CPU",))
+        model.add_device_configuration("conf0", device_names=("CPU",))
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),

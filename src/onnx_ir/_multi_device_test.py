@@ -149,20 +149,20 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
 class ConvenienceApiTest(unittest.TestCase):
     def test_add_device_configuration_returns_and_registers(self):
         model, _, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         self.assertEqual(conf.num_devices, 2)
         self.assertEqual(model.device_configurations, (conf,))
 
     def test_add_device_configuration_duplicate_name_raises(self):
         model, _, _ = _identity_model()
-        model.add_device_configuration("conf0", devices=("CPU",))
+        model.add_device_configuration("conf0", device_names=("CPU",))
         with self.assertRaises(ValueError):
-            model.add_device_configuration("conf0", devices=("CUDA:0",))
+            model.add_device_configuration("conf0", device_names=("CUDA:0",))
 
     def test_shard_records_and_infers_dim(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-        node.shard(x, configuration=conf, axis=0, num_shards=2, devices=(0, 1))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf, axis=0, num_shards=2, device_indices=(0, 1))
 
         specs = node.sharding_of(x)
         self.assertEqual(len(specs), 1)
@@ -173,7 +173,7 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_shard_groups_specs_under_same_configuration(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         y = node.outputs[0]
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         node.shard(y, configuration=conf, axis=0, num_shards=2)
@@ -189,8 +189,8 @@ class ConvenienceApiTest(unittest.TestCase):
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
         model = ir.Model(graph, ir_version=11)
         mesh = model.add_device_configuration("mesh2x2", num_devices=4)
-        node.shard(x, configuration=mesh, axis=0, num_shards=2, devices=(0, 1, 2, 3))
-        node.shard(x, configuration=mesh, axis=1, num_shards=2, devices=(0, 1, 2, 3))
+        node.shard(x, configuration=mesh, axis=0, num_shards=2, device_indices=(0, 1, 2, 3))
+        node.shard(x, configuration=mesh, axis=1, num_shards=2, device_indices=(0, 1, 2, 3))
 
         specs = node.sharding_of(x)
         self.assertEqual(len(specs), 1)
@@ -203,14 +203,14 @@ class ConvenienceApiTest(unittest.TestCase):
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
         model = ir.Model(graph, ir_version=11)
         mesh = model.add_device_configuration("mesh", num_devices=4)
-        node.shard(x, configuration=mesh, axis=0, num_shards=2, devices=(0, 1))
-        node.shard(x, configuration=mesh, axis=1, num_shards=2, devices=(1, 2, 3))
+        node.shard(x, configuration=mesh, axis=0, num_shards=2, device_indices=(0, 1))
+        node.shard(x, configuration=mesh, axis=1, num_shards=2, device_indices=(1, 2, 3))
         # Devices are unioned, order-preserving, without duplicates.
         self.assertEqual(node.sharding_of(x)[0].device, (0, 1, 2, 3))
 
     def test_shard_same_axis_twice_raises(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         with self.assertRaises(ValueError):
             node.shard(x, configuration=conf, axis=0, num_shards=2)
@@ -219,8 +219,8 @@ class ConvenienceApiTest(unittest.TestCase):
         # Sharding the same value under two different configurations keeps the
         # specs in separate NodeDeviceConfigurations.
         model, node, x = _identity_model()
-        a = model.add_device_configuration("a", devices=("CPU",))
-        b = model.add_device_configuration("b", devices=("CUDA:0",))
+        a = model.add_device_configuration("a", device_names=("CPU",))
+        b = model.add_device_configuration("b", device_names=("CUDA:0",))
         node.shard(x, configuration=a, axis=0, num_shards=2)
         node.shard(x, configuration=b, axis=1, num_shards=2)
         self.assertEqual(len(node.device_configurations), 2)
@@ -228,7 +228,7 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_shard_rejects_foreign_value(self):
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         foreign = ir.Value(name="z")
         with self.assertRaises(ValueError):
             node.shard(foreign, configuration=conf, axis=0, num_shards=2)
@@ -278,7 +278,7 @@ class ConvenienceApiTest(unittest.TestCase):
     def test_set_pipeline_stage_pure_placement(self):
         model, node, _ = _identity_model()
         conf = model.add_device_configuration(
-            "pipeline", num_devices=2, devices=("NPU", "GPU")
+            "pipeline", num_devices=2, device_names=("NPU", "GPU")
         )
         node.set_pipeline_stage(conf, 0)
         self.assertEqual(len(node.device_configurations), 1)
@@ -332,7 +332,7 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_shard_rejects_bad_axis_and_shards(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         with self.assertRaises(ValueError):
             node.shard(x, configuration=conf, axis=5, num_shards=2)
         with self.assertRaises(ValueError):
@@ -340,14 +340,14 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_sharding_follows_rename(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         x.name = "renamed"
         self.assertEqual(node.sharding_of(x)[0].value.name, "renamed")
 
     def test_shard_rejects_none_value(self):
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         with self.assertRaises(ValueError):
             node.shard(None, configuration=conf, axis=0, num_shards=2)
 
@@ -357,14 +357,14 @@ class ConvenienceApiTest(unittest.TestCase):
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
         model = ir.Model(graph, ir_version=10)
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=3, num_shards=2)
         spec = node.sharding_of(x)[0]
         self.assertIsNone(spec.sharded_dim[0].simple_sharding[0].dim)
 
     def test_shard_updates_pipeline_stage_on_existing_configuration(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         node.shard(node.outputs[0], configuration=conf, axis=0, num_shards=2, pipeline_stage=3)
         self.assertEqual(node.device_configurations[0].pipeline_stage, 3)
@@ -377,21 +377,21 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_remove_device_configuration_by_object(self):
         model, _, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         removed = model.remove_device_configuration(conf)
         self.assertIs(removed, conf)
         self.assertEqual(model.device_configurations, ())
 
     def test_remove_device_configuration_by_name(self):
         model, _, _ = _identity_model()
-        model.add_device_configuration("conf0", devices=("CPU",))
-        other = model.add_device_configuration("conf1", devices=("CUDA:0",))
+        model.add_device_configuration("conf0", device_names=("CPU",))
+        other = model.add_device_configuration("conf1", device_names=("CUDA:0",))
         model.remove_device_configuration("conf0")
         self.assertEqual(model.device_configurations, (other,))
 
     def test_remove_device_configuration_leaves_dangling_by_default(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         model.remove_device_configuration(conf)
         # The node reference is left intact and is reported by the checker.
@@ -401,7 +401,7 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_remove_device_configuration_cascade_cleans_node_references(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         model.remove_device_configuration("conf0", cascade=True)
         self.assertEqual(node.device_configurations, ())
@@ -409,8 +409,8 @@ class ConvenienceApiTest(unittest.TestCase):
 
     def test_remove_device_configuration_cascade_keeps_other_configurations(self):
         model, node, x = _identity_model()
-        keep = model.add_device_configuration("keep", devices=("CPU",))
-        drop = model.add_device_configuration("drop", devices=("CUDA:0",))
+        keep = model.add_device_configuration("keep", device_names=("CPU",))
+        drop = model.add_device_configuration("drop", device_names=("CUDA:0",))
         node.shard(x, configuration=keep, axis=0, num_shards=2)
         node.shard(node.outputs[0], configuration=drop, axis=0, num_shards=2)
         model.remove_device_configuration(drop, cascade=True)
@@ -424,7 +424,7 @@ class ConvenienceApiTest(unittest.TestCase):
         fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="frelu")
         fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
         func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
         model.functions[func.identifier()] = func
         model.remove_device_configuration(conf, cascade=True)
@@ -442,8 +442,8 @@ class ConvenienceApiTest(unittest.TestCase):
 class CheckDeviceConfigurationsTest(unittest.TestCase):
     def test_valid_model_has_no_errors(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
-        node.shard(x, configuration=conf, axis=0, num_shards=2, devices=(0, 1))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf, axis=0, num_shards=2, device_indices=(0, 1))
         self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_unknown_configuration_reported(self):
@@ -461,7 +461,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
 
     def test_foreign_value_reported(self):
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         foreign = ir.Value(name="foreign")
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
@@ -474,7 +474,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
 
     def test_out_of_range_axis_and_device_reported(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
@@ -652,7 +652,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
 class CloneTest(unittest.TestCase):
     def test_clone_remaps_sharding_values(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU", "CUDA:0"))
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         node.shard(x, configuration=conf, axis=0, num_shards=2)
         node.shard(node.outputs[0], configuration=conf, axis=0, num_shards=2)
 
@@ -675,7 +675,7 @@ class CloneTest(unittest.TestCase):
         # A ShardingSpec whose value is None (not in the value map) is preserved
         # as-is, and a configuration with no remapped spec is left unchanged.
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         original = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
@@ -834,7 +834,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
 
     def test_node_without_configurations_is_skipped(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         # Add a second, unsharded node.
         extra = ir.Node("", "Identity", [node.outputs[0]], num_outputs=1, name="id1")
         model.graph.append(extra)
@@ -865,7 +865,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         from onnx_ir import serde
 
         model, node, _ = _identity_model()
-        model.add_device_configuration("conf0", devices=("CPU",))
+        model.add_device_configuration("conf0", device_names=("CPU",))
         node.device_configurations = (b"\x08\x01",)  # not a NodeDeviceConfiguration
         with self.assertRaises((TypeError, ir_module.serde.SerdeError)):
             serde.serialize_model(model)
@@ -902,7 +902,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
 
     def test_spec_without_value_reported(self):
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
@@ -914,7 +914,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
 
     def test_spec_value_with_empty_name_reported(self):
         model, node, _ = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         unnamed = ir.Value(name="")
         node._inputs = (*node.inputs, unnamed)  # make it part of node IO
         node.device_configurations = (
@@ -928,7 +928,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
 
     def test_num_shards_below_one_reported(self):
         model, node, x = _identity_model()
-        conf = model.add_device_configuration("conf0", devices=("CPU",))
+        conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,

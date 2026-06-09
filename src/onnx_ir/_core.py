@@ -2469,7 +2469,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         configuration: ModelConfiguration,
         axis: int,
         num_shards: int,
-        devices: Sequence[int] = (),
+        device_indices: Sequence[int] = (),
         pipeline_stage: int | None = None,
     ) -> None:
         """Record a sharding of ``value`` along ``axis`` for this node.
@@ -2483,8 +2483,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         ``configuration`` but different axes builds a single
         :class:`~onnx_ir.ShardingSpec` with one
         :class:`~onnx_ir.ShardedDim` per axis (the canonical representation for
-        sharding a tensor across a multi-axis device mesh). ``devices`` are
-        unioned across those calls.
+        sharding a tensor across a multi-axis device mesh). ``device_indices``
+        are unioned across those calls.
 
         Args:
             value: The input or output value to shard. Must be one of this node's
@@ -2495,7 +2495,10 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 count from the back (in the range ``[-rank, rank)`` following the
                 ONNX convention), when the rank of ``value`` is known.
             num_shards: The number of shards along ``axis``. Must be ``>= 1``.
-            devices: Optional device indices the tensor is placed on.
+            device_indices: Optional indices (into ``configuration.device``) of
+                the devices the tensor is placed on. These are device *indices*,
+                not the device *names* passed to
+                :meth:`Model.add_device_configuration`.
             pipeline_stage: Optional pipeline stage for the configuration. Must
                 not conflict with a stage already set on the configuration.
 
@@ -2528,9 +2531,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             axis=axis,
             simple_sharding=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
         )
-        devices = tuple(devices)
+        device_indices = tuple(device_indices)
         new_spec = _multi_device.ShardingSpec(
-            value=value, device=devices, sharded_dim=(new_dim,)
+            value=value, device=device_indices, sharded_dim=(new_dim,)
         )
 
         def _normalize_axis(a: int) -> int:
@@ -2567,7 +2570,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     )
                 merged_devices = (
                     *spec.device,
-                    *(d for d in devices if d not in spec.device),
+                    *(d for d in device_indices if d not in spec.device),
                 )
                 specs[j] = dataclasses.replace(
                     spec,
@@ -4247,7 +4250,7 @@ Model(
         name: str,
         *,
         num_devices: int | None = None,
-        devices: Sequence[str] = (),
+        device_names: Sequence[str] = (),
     ) -> ModelConfiguration:
         """Create a :class:`~onnx_ir.ModelConfiguration` and register it on the model.
 
@@ -4256,8 +4259,10 @@ Model(
 
         Args:
             name: A unique name for the configuration.
-            num_devices: The number of devices. Defaults to ``len(devices)``.
-            devices: Optional device names (e.g. ``("CPU", "CUDA:0")``).
+            num_devices: The number of devices. Defaults to ``len(device_names)``.
+            device_names: Optional device names (e.g. ``("CPU", "CUDA:0")``).
+                These are human-readable *names*; the device *indices* used by
+                :meth:`Node.shard` index into this sequence.
 
         Returns:
             The newly created configuration, already appended to
@@ -4273,11 +4278,11 @@ Model(
                 raise ValueError(
                     f"A device configuration named {name!r} already exists on the model."
                 )
-        devices = tuple(devices)
+        device_names = tuple(device_names)
         if num_devices is None:
-            num_devices = len(devices)
+            num_devices = len(device_names)
         configuration = _multi_device.ModelConfiguration(
-            name=name, num_devices=num_devices, device=devices
+            name=name, num_devices=num_devices, device=device_names
         )
         self.device_configurations = (*self.device_configurations, configuration)
         return configuration
