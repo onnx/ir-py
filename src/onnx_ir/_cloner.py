@@ -243,9 +243,13 @@ class Cloner:
                     # No mapping (e.g. an outer-scope value): keep as-is.
                     new_specs.append(spec)
                     continue
-                # The mapped value is authoritative; it may be None when the
-                # value was intentionally dropped from the clone.
-                new_specs.append(dataclasses.replace(spec, value=self._value_map[spec.value]))
+                mapped = self._value_map[spec.value]
+                if mapped is None:
+                    # The value was dropped from the clone; drop the now-dangling
+                    # spec rather than emitting an unserializable value=None spec.
+                    spec_changed = True
+                    continue
+                new_specs.append(dataclasses.replace(spec, value=mapped))
                 spec_changed = True
             if spec_changed:
                 new_configurations.append(

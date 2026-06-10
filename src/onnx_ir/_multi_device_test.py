@@ -92,6 +92,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
     )
     def test_deserialize_unresolved_value_creates_placeholder(self):
         proto = onnx.NodeDeviceConfigurationProto()
+        proto.configuration_id = "conf0"
         spec = proto.sharding_spec.add()
         spec.tensor_name = "missing"
 
@@ -747,9 +748,9 @@ class CloneTest(unittest.TestCase):
         self.assertIsNone(cloned_config.sharding_spec[0].value)
         self.assertEqual(cloned_config.sharding_spec[0].device, (0,))
 
-    def test_clone_propagates_dropped_value_to_none(self):
+    def test_clone_drops_spec_when_value_is_dropped(self):
         # When the cloner is told a value maps to None (intentionally dropped),
-        # the sharding reference follows to None rather than staying stale.
+        # the now-dangling sharding spec is dropped rather than kept as value=None.
         from onnx_ir import _cloner
 
         model, node, x = _identity_model()
@@ -762,7 +763,7 @@ class CloneTest(unittest.TestCase):
             metadata_props={},
         )
         cloned_configs = cloner._remap_device_configurations(node.device_configurations)
-        self.assertIsNone(cloned_configs[0].sharding_spec[0].value)
+        self.assertEqual(cloned_configs[0].sharding_spec, ())
 
 
 class SerdeHelperEdgeCaseTest(unittest.TestCase):
@@ -867,14 +868,21 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         hasattr(onnx.NodeProto(), "device_configurations"),
         "NodeProto.device_configurations is not available",
     )
-    def test_serialize_spec_without_value(self):
+    def test_serialize_spec_without_value_raises(self):
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
             sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
         )
-        proto = serde.serialize_node_device_configuration(config)
-        self.assertEqual(proto.sharding_spec[0].tensor_name, "")
-        self.assertEqual(list(proto.sharding_spec[0].device), [0])
+        with self.assertRaises(ValueError):
+            serde.serialize_node_device_configuration(config)
+
+    def test_serialize_configuration_none_raises(self):
+        config = _multi_device.NodeDeviceConfiguration(
+            configuration=None,
+            sharding_spec=(),
+        )
+        with self.assertRaises(ValueError):
+            serde.serialize_node_device_configuration(config)
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),

@@ -1620,14 +1620,17 @@ def _serialize_sharding_spec(
     sharding_spec: _multi_device.ShardingSpec,
 ) -> onnx.ShardingSpecProto:
     proto = onnx.ShardingSpecProto()
-    if sharding_spec.value is not None:
-        name = sharding_spec.value.name
-        if not name:
-            raise ValueError(
-                "Cannot serialize a ShardingSpec whose value has no name. "
-                f"Value: {sharding_spec.value!r}"
-            )
-        proto.tensor_name = name
+    # ``tensor_name`` MUST be present, so serialization fails closed rather than
+    # emitting a spec with no tensor.
+    if sharding_spec.value is None:
+        raise ValueError("Cannot serialize a ShardingSpec without a value.")
+    name = sharding_spec.value.name
+    if not name:
+        raise ValueError(
+            "Cannot serialize a ShardingSpec whose value has no name. "
+            f"Value: {sharding_spec.value!r}"
+        )
+    proto.tensor_name = name
     proto.device.extend(sharding_spec.device)
     for entry in sharding_spec.index_to_device_group_map:
         map_entry = proto.index_to_device_group_map.add()
@@ -1642,14 +1645,19 @@ def serialize_node_device_configuration(
     node_device_configuration: _multi_device.NodeDeviceConfiguration,
 ) -> onnx.NodeDeviceConfigurationProto:
     proto = onnx.NodeDeviceConfigurationProto()
-    if node_device_configuration.configuration is not None:
-        name = node_device_configuration.configuration.name
-        if not name:
-            raise ValueError(
-                "Cannot serialize a NodeDeviceConfiguration whose configuration has "
-                f"no name. Configuration: {node_device_configuration.configuration!r}"
-            )
-        proto.configuration_id = name
+    # ``configuration_id`` MUST be present, so serialization fails closed rather
+    # than emitting a configuration with no id.
+    if node_device_configuration.configuration is None:
+        raise ValueError(
+            "Cannot serialize a NodeDeviceConfiguration without a configuration."
+        )
+    name = node_device_configuration.configuration.name
+    if not name:
+        raise ValueError(
+            "Cannot serialize a NodeDeviceConfiguration whose configuration has "
+            f"no name. Configuration: {node_device_configuration.configuration!r}"
+        )
+    proto.configuration_id = name
     for sharding_spec in node_device_configuration.sharding_spec:
         proto.sharding_spec.append(_serialize_sharding_spec(sharding_spec))
     if node_device_configuration.pipeline_stage is not None:
