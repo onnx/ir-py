@@ -2508,15 +2508,17 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 the devices the tensor is placed on. These are device *indices*,
                 not the device *names* passed to
                 :meth:`Model.add_device_configuration`.
-            pipeline_stage: Optional pipeline stage for the configuration. Must
-                not conflict with a stage already set on the configuration.
+            pipeline_stage: Optional pipeline stage for the configuration. Must be
+                ``>= 0`` and must not conflict with a stage already set on the
+                configuration.
 
         Raises:
             ValueError: If ``value`` is not an input or output of the node, if
-                ``num_shards < 1``, if ``axis`` is out of range when the rank of
-                ``value`` is known, if ``value`` is already sharded along
-                ``axis`` for this ``configuration``, or if ``pipeline_stage``
-                conflicts with the configuration's existing stage.
+                ``num_shards < 1``, if ``pipeline_stage`` is negative, if ``axis``
+                is out of range when the rank of ``value`` is known, if ``value``
+                is already sharded along ``axis`` for this ``configuration``, or
+                if ``pipeline_stage`` conflicts with the configuration's existing
+                stage.
         """
         from onnx_ir import _multi_device
 
@@ -2529,6 +2531,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             )
         if num_shards < 1:
             raise ValueError(f"num_shards must be >= 1, got {num_shards}.")
+        if pipeline_stage is not None and pipeline_stage < 0:
+            raise ValueError(f"pipeline_stage must be >= 0, got {pipeline_stage}.")
         shape = value.shape
         rank = len(shape) if shape is not None else None
         if rank is not None and not -rank <= axis < rank:
@@ -4269,16 +4273,20 @@ Model(
         Args:
             name: A unique name for the configuration.
             num_devices: The number of devices. Defaults to ``len(device_names)``.
+                Must be ``>= 1``.
             device_names: Optional device names (e.g. ``("CPU", "CUDA:0")``).
                 These are human-readable *names*; the device *indices* used by
-                :meth:`Node.shard` index into this sequence.
+                :meth:`Node.shard` index into this sequence. When provided, the
+                number of names must equal ``num_devices``.
 
         Returns:
             The newly created configuration, already appended to
             :attr:`device_configurations`.
 
         Raises:
-            ValueError: If a configuration with ``name`` already exists.
+            ValueError: If a configuration with ``name`` already exists, if
+                ``num_devices < 1``, or if ``device_names`` is given and its
+                length does not equal ``num_devices``.
         """
         from onnx_ir import _multi_device
 
@@ -4290,6 +4298,15 @@ Model(
         device_names = tuple(device_names)
         if num_devices is None:
             num_devices = len(device_names)
+        if num_devices < 1:
+            raise ValueError(
+                f"num_devices must be >= 1 for a registered configuration, got {num_devices}."
+            )
+        if device_names and len(device_names) != num_devices:
+            raise ValueError(
+                f"device_names has {len(device_names)} entries but num_devices is "
+                f"{num_devices}; they must match when names are provided."
+            )
         configuration = _multi_device.ModelConfiguration(
             name=name, num_devices=num_devices, device=device_names
         )

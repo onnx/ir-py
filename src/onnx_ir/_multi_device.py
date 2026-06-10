@@ -251,6 +251,10 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
             continue
         node_io = set(node.inputs) | set(node.outputs)
         for config in device_configurations:
+            # ``num_devices`` is taken from the *registered* configuration object
+            # so that device indices are validated against the model's ground
+            # truth rather than a possibly-mismatched node-local reference.
+            num_devices: int | None = None
             if config.configuration is None:
                 errors.append(
                     f"Node '{node_label(node)}' has a device configuration without a "
@@ -258,20 +262,33 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
                 )
             else:
                 config_name = config.configuration.name
+                registered = known_configs.get(config_name)
                 if not config_name:
                     errors.append(
                         f"Node '{node_label(node)}' references a configuration with an "
                         "empty name (cannot be serialized)."
                     )
-                elif config_name not in known_configs:
+                    num_devices = config.configuration.num_devices
+                elif registered is None:
                     errors.append(
                         f"Node '{node_label(node)}' references configuration "
                         f"'{config_name}' which is not declared in "
                         "model.device_configurations."
                     )
-            num_devices = (
-                config.configuration.num_devices if config.configuration is not None else None
-            )
+                    num_devices = config.configuration.num_devices
+                elif config.configuration is not registered:
+                    # Object-bound invariant: the node must reference the exact
+                    # ModelConfiguration object registered on the model, not a
+                    # same-named imposter (which would resolve to different
+                    # ``num_devices`` after a serialization round-trip).
+                    errors.append(
+                        f"Node '{node_label(node)}' references a configuration object "
+                        f"that is not the one registered under name '{config_name}' "
+                        "on the model."
+                    )
+                    num_devices = registered.num_devices
+                else:
+                    num_devices = registered.num_devices
             for spec in config.sharding_spec:
                 _check_sharding_spec(spec, node, node_io, num_devices, errors)
 
@@ -327,9 +344,9 @@ def _check_sharding_spec(
                 )
     if num_devices is not None:
         # An entry in ``device`` is either a direct device id in
-        # [0, num_devices), or a key into ``index_to_device_group_map`` (often
-        # negative) that names a group of real device ids — used to replicate a
-        # shard across a set of devices. Validate accordingly.
+        # [0, num_devices), or a key into ``index_to_device_group_map`` that
+        # names a group of real device ids — used to replicate a shard across a
+        # set of devices. Validate accordingly.
         group_map = {entry.key: entry.value for entry in spec.index_to_device_group_map}
         for device_index in spec.device:
             if device_index in group_map:

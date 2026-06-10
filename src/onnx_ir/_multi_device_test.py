@@ -375,6 +375,32 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertEqual(conf.num_devices, 4)
         self.assertEqual(conf.device, ())
 
+    def test_add_device_configuration_rejects_zero_devices(self):
+        model, _, _ = _identity_model()
+        with self.assertRaises(ValueError):
+            model.add_device_configuration("conf0")  # defaults to num_devices=0
+        with self.assertRaises(ValueError):
+            model.add_device_configuration("conf1", num_devices=0)
+
+    def test_add_device_configuration_rejects_name_count_mismatch(self):
+        model, _, _ = _identity_model()
+        with self.assertRaises(ValueError):
+            model.add_device_configuration("conf0", num_devices=4, device_names=("a", "b"))
+
+    def test_add_device_configuration_matching_names_ok(self):
+        model, _, _ = _identity_model()
+        conf = model.add_device_configuration(
+            "conf0", num_devices=2, device_names=("CPU", "GPU")
+        )
+        self.assertEqual(conf.num_devices, 2)
+        self.assertEqual(conf.device, ("CPU", "GPU"))
+
+    def test_shard_rejects_negative_pipeline_stage(self):
+        model, node, x = _identity_model()
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        with self.assertRaises(ValueError):
+            node.shard(x, configuration=conf, axis=0, num_shards=2, pipeline_stage=-1)
+
     def test_remove_device_configuration_by_object(self):
         model, _, _ = _identity_model()
         conf = model.add_device_configuration("conf0", device_names=("CPU",))
@@ -458,6 +484,39 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         )
         errors = _multi_device._check_device_configurations(model)
         self.assertTrue(any("ghost" in e for e in errors), errors)
+
+    def test_same_named_imposter_configuration_reported(self):
+        # A node bound to a same-named but different ModelConfiguration object
+        # (here with a larger num_devices) must be flagged: it breaks the
+        # object-bound invariant and would resolve to the registered config's
+        # num_devices after a round-trip.
+        model, node, x = _identity_model()  # x rank 2
+        model.add_device_configuration("conf0", num_devices=1)
+        imposter = _multi_device.ModelConfiguration("conf0", num_devices=100)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=imposter,
+                sharding_spec=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        device=(50,),  # in range for imposter, not for registered
+                        sharded_dim=(
+                            _multi_device.ShardedDim(
+                                axis=0,
+                                simple_sharding=(
+                                    _multi_device.SimpleShardedDim(num_shards=2),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        errors = _multi_device._check_device_configurations(model)
+        self.assertTrue(any("not the one registered" in e for e in errors), errors)
+        # Device index is validated against the registered num_devices (1), so 50
+        # is also reported as out of range.
+        self.assertTrue(any("device index 50" in e for e in errors), errors)
 
     def test_foreign_value_reported(self):
         model, node, _ = _identity_model()
