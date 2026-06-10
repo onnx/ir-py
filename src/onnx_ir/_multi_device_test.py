@@ -799,6 +799,15 @@ class CloneTest(unittest.TestCase):
         self.assertEqual(cloned_configs[0].sharding_spec, ())
 
 
+class NodeReprTest(unittest.TestCase):
+    def test_repr_shows_device_configurations_only_when_present(self):
+        model, node, x = _identity_model()
+        self.assertNotIn("device_configurations", repr(node))
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        self.assertIn("device_configurations=", repr(node))
+
+
 class GraphMutationTest(unittest.TestCase):
     """Sharding metadata is kept consistent when node I/O changes."""
 

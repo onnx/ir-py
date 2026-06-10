@@ -2190,11 +2190,16 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         return f"{outputs_text} ⬅️ {node_type_text}{inputs_text}{attributes_text}"
 
     def __repr__(self) -> str:
+        device_configurations = (
+            f", device_configurations={self.device_configurations!r}"
+            if self.device_configurations
+            else ""
+        )
         return (
             f"{self.__class__.__name__}(name={self._name!r}, domain={self._domain!r}, "
             f"op_type={self._op_type!r}, inputs={self._inputs!r}, attributes={self._attributes!r}, "
             f"overload={self._overload!r}, outputs={self._outputs!r}, "
-            f"version={self._version!r}, doc_string={self.doc_string!r})"
+            f"version={self._version!r}, doc_string={self.doc_string!r}{device_configurations})"
         )
 
     @property
@@ -2705,6 +2710,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         print(f"Node: {self.name!r}")
         if self.doc_string:
             print(f"Doc: {self.doc_string}")
+        if self.device_configurations:
+            print(f"Device configurations: {len(self.device_configurations)}")
         super().display(page=page)
 
 
