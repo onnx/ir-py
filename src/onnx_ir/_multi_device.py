@@ -42,7 +42,7 @@ class ModelConfiguration:
     across those devices.
 
     Device *indices* used elsewhere (for example :attr:`ShardingSpec.device` and
-    :meth:`onnx_ir.Node.shard`) are 0-based positions into :attr:`device`.
+    :meth:`onnx_ir.Node.shard`) are 0-based positions into :attr:`device_names`.
     """
 
     name: str
