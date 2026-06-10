@@ -460,6 +460,36 @@ class ConvenienceApiTest(unittest.TestCase):
         model.remove_device_configuration(conf, cascade=True)
         self.assertEqual(fnode.device_configurations, ())
 
+    def test_remove_by_name_cascade_drops_same_named_imposters(self):
+        # A node bound to a same-named but different configuration object is also
+        # cleaned up when removal is requested by name with cascade.
+        model, node, x = _identity_model()
+        model.add_device_configuration("conf0", num_devices=2)
+        imposter = _multi_device.ModelConfiguration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=imposter,
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        model.remove_device_configuration("conf0", cascade=True)
+        self.assertEqual(node.device_configurations, ())
+
+    def test_remove_by_object_cascade_keeps_same_named_imposters(self):
+        # Removal by object only matches that exact object; a same-named imposter
+        # on a node is left intact.
+        model, node, x = _identity_model()
+        registered = model.add_device_configuration("conf0", num_devices=2)
+        imposter = _multi_device.ModelConfiguration("conf0", num_devices=2)
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=imposter,
+                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        model.remove_device_configuration(registered, cascade=True)
+        self.assertEqual(len(node.device_configurations), 1)
+
     def test_remove_unknown_configuration_raises(self):
         model, _, _ = _identity_model()
         with self.assertRaises(ValueError):

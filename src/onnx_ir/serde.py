@@ -1387,14 +1387,14 @@ def _deserialize_node(
         )
         value = current_scope[output_name]
         node_outputs.append(value)
-    node_multi_device: tuple[_multi_device.NodeDeviceConfiguration, ...] = ()
+    device_configurations: tuple[_multi_device.NodeDeviceConfiguration, ...] = ()
     if hasattr(proto, "device_configurations") and proto.device_configurations:
         # Merge all scopes so sharding references resolve to the value object,
         # with inner scopes shadowing outer ones (same precedence as inputs).
         merged_values: dict[str, _core.Value] = {}
         for values in scoped_values:
             merged_values.update(values)
-        node_multi_device = tuple(
+        device_configurations = tuple(
             deserialize_node_device_configuration(
                 device_configuration, values=merged_values
             )
@@ -1410,7 +1410,7 @@ def _deserialize_node(
         name=proto.name,
         doc_string=_get_field(proto, "doc_string"),
         metadata_props=deserialize_metadata_props(proto.metadata_props),
-        device_configurations=node_multi_device,
+        device_configurations=device_configurations,
     )
     return node
 
@@ -1669,9 +1669,16 @@ def serialize_node_device_configuration(
 def _serialize_device_configurations_into(
     model_proto: onnx.ModelProto, from_: _protocols.ModelProtocol
 ) -> None:
-    if not hasattr(model_proto, "configuration"):
-        return
     device_configurations = getattr(from_, "device_configurations", ())
+    if not hasattr(model_proto, "configuration"):
+        if device_configurations:
+            logger.warning(
+                "Model has %d device configuration(s) but the target ModelProto does "
+                "not support the 'configuration' field (IR version < 11). They will "
+                "not be serialized.",
+                len(device_configurations),
+            )
+        return
     if not device_configurations:
         return
     for model_configuration in device_configurations:
@@ -2030,12 +2037,20 @@ def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtoc
 def _serialize_node_multi_device_into(
     node_proto: onnx.NodeProto, from_: _protocols.NodeProtocol
 ) -> None:
+    device_configurations = getattr(from_, "device_configurations", ())
     if not hasattr(node_proto, "device_configurations"):
+        if device_configurations:
+            logger.warning(
+                "Node '%s' has %d device configuration(s) but the target NodeProto "
+                "does not support the 'device_configurations' field (IR version < 11). "
+                "They will not be serialized.",
+                getattr(from_, "name", None),
+                len(device_configurations),
+            )
         return
-    node_multi_device = getattr(from_, "device_configurations", ())
-    if not node_multi_device:
+    if not device_configurations:
         return
-    for node_device_configuration in node_multi_device:
+    for node_device_configuration in device_configurations:
         if not isinstance(
             node_device_configuration, _multi_device.NodeDeviceConfiguration
         ):

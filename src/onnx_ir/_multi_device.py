@@ -221,6 +221,11 @@ class NodeDeviceConfiguration:
     """
 
 
+def _node_label(node: _core.Node) -> str:
+    """Return a human-readable label for ``node`` in checker messages."""
+    return node.name or f"<anonymous {node.op_type}>"
+
+
 def _check_device_configurations(model: _core.Model) -> list[str]:
     """Validate the multi-device invariants of a model.
 
@@ -229,19 +234,16 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
     callers decide whether to warn or raise.
 
     Checks:
-        * INV-2 reachability: every ``ShardingSpec.value`` is an input/output of
-          its node and every ``NodeDeviceConfiguration.configuration`` exists in
-          ``model.device_configurations``.
-        * INV-3 nameability: referenced values and configurations have non-empty
-          names (otherwise serialization fails).
-        * INV-4 structural: ``ShardedDim.axis`` is in range when the value rank is
-          known, ``num_shards >= 1``, and device indices are within ``num_devices``.
+        * Reachability: every ``ShardingSpec.value`` is an input or output of its
+          node, and every ``NodeDeviceConfiguration.configuration`` is the exact
+          object registered in ``model.device_configurations``.
+        * Nameability: referenced values and configurations have non-empty names
+          (otherwise serialization fails).
+        * Structure: ``ShardedDim.axis`` is in range and not repeated,
+          ``num_shards >= 1``, and device indices are within ``num_devices``.
     """
     errors: list[str] = []
     known_configs = {config.name: config for config in model.device_configurations}
-
-    def node_label(node: _core.Node) -> str:
-        return node.name or f"<anonymous {node.op_type}>"
 
     all_nodes = list(model.graph.all_nodes())
     for func in model.functions.values():
@@ -259,7 +261,7 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
             num_devices: int | None = None
             if config.configuration is None:
                 errors.append(
-                    f"Node '{node_label(node)}' has a device configuration without a "
+                    f"Node '{_node_label(node)}' has a device configuration without a "
                     "ModelConfiguration reference."
                 )
             else:
@@ -267,13 +269,13 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
                 registered = known_configs.get(config_name)
                 if not config_name:
                     errors.append(
-                        f"Node '{node_label(node)}' references a configuration with an "
+                        f"Node '{_node_label(node)}' references a configuration with an "
                         "empty name (cannot be serialized)."
                     )
                     num_devices = config.configuration.num_devices
                 elif registered is None:
                     errors.append(
-                        f"Node '{node_label(node)}' references configuration "
+                        f"Node '{_node_label(node)}' references configuration "
                         f"'{config_name}' which is not declared in "
                         "model.device_configurations."
                     )
@@ -284,7 +286,7 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
                     # same-named imposter (which would resolve to different
                     # ``num_devices`` after a serialization round-trip).
                     errors.append(
-                        f"Node '{node_label(node)}' references a configuration object "
+                        f"Node '{_node_label(node)}' references a configuration object "
                         f"that is not the one registered under name '{config_name}' "
                         "on the model."
                     )
@@ -304,7 +306,7 @@ def _check_sharding_spec(
     num_devices: int | None,
     errors: list[str],
 ) -> None:
-    label = node.name or f"<anonymous {node.op_type}>"
+    label = _node_label(node)
     if spec.value is None:
         errors.append(f"Node '{label}' has a ShardingSpec without a value.")
         return

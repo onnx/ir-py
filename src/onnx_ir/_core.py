@@ -4363,9 +4363,12 @@ Model(
             cascade: When ``True``, also remove every
                 :class:`~onnx_ir.NodeDeviceConfiguration` that references this
                 configuration from all nodes in the model's graph and functions,
-                so that no dangling references remain. When ``False`` (default),
-                node references are left intact; they become dangling and can be
-                detected by the internal device-configuration checker.
+                so that no dangling references remain. If removal was requested by
+                name, node configurations bound to any same-named configuration
+                object are dropped too; if requested by object, only that exact
+                object is matched. When ``False`` (default), node references are
+                left intact; they become dangling and can be detected by the
+                internal device-configuration checker.
 
         Returns:
             The removed configuration.
@@ -4374,6 +4377,7 @@ Model(
             ValueError: If no matching configuration is registered on the model.
         """
         if isinstance(configuration, str):
+            by_name = True
             target: ModelConfiguration | None = None
             for existing in self.device_configurations:
                 if existing.name == configuration:
@@ -4384,6 +4388,7 @@ Model(
                     f"No device configuration named {configuration!r} on the model."
                 )
         else:
+            by_name = False
             if not any(c is configuration for c in self.device_configurations):
                 raise ValueError(
                     f"Configuration {configuration!r} is not registered on the model."
@@ -4395,6 +4400,17 @@ Model(
         )
 
         if cascade:
+            # When removal was requested by name, also drop node configurations
+            # bound to a same-named (but non-identical) configuration object, so
+            # no dangling same-named references are left behind. When requested by
+            # object, only that exact object is removed.
+            def _is_target(config: NodeDeviceConfiguration) -> bool:
+                if config.configuration is None:
+                    return False
+                if config.configuration is target:
+                    return True
+                return by_name and config.configuration.name == target.name
+
             nodes: list[Node] = list(self.graph.all_nodes())
             for func in self.functions.values():
                 nodes.extend(func.all_nodes())
@@ -4403,9 +4419,7 @@ Model(
                 if not device_configurations:
                     continue
                 filtered = tuple(
-                    config
-                    for config in device_configurations
-                    if config.configuration is not target
+                    config for config in device_configurations if not _is_target(config)
                 )
                 if len(filtered) != len(device_configurations):
                     node.device_configurations = filtered
