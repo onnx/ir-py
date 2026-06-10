@@ -362,9 +362,7 @@ class ConvenienceApiTest(unittest.TestCase):
         conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=3, num_shards=2)
         spec = node.sharding_of(x)[0]
-        self.assertEqual(
-            spec.sharded_dim[0].simple_sharding[0].dim, ir.SymbolicDim(None)
-        )
+        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, ir.SymbolicDim(None))
 
     def test_shard_updates_pipeline_stage_on_existing_configuration(self):
         model, node, x = _identity_model()
@@ -873,9 +871,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
                     sharded_dim=(
                         _multi_device.ShardedDim(
                             axis=0,
-                            simple_sharding=(
-                                _multi_device.SimpleShardedDim(num_shards=2),
-                            ),
+                            simple_sharding=(_multi_device.SimpleShardedDim(num_shards=2),),
                         ),
                     ),
                 ),

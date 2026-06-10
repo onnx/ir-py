@@ -2646,13 +2646,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         new_configurations = []
         changed = False
         for config in self.device_configurations:
-            kept = tuple(
-                spec for spec in config.sharding_spec if spec.value is not value
-            )
+            kept = tuple(spec for spec in config.sharding_spec if spec.value is not value)
             if len(kept) != len(config.sharding_spec):
-                new_configurations.append(
-                    dataclasses.replace(config, sharding_spec=kept)
-                )
+                new_configurations.append(dataclasses.replace(config, sharding_spec=kept))
                 changed = True
             else:
                 new_configurations.append(config)

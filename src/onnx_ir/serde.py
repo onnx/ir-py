@@ -1395,9 +1395,7 @@ def _deserialize_node(
         for values in scoped_values:
             merged_values.update(values)
         device_configurations = tuple(
-            deserialize_node_device_configuration(
-                device_configuration, values=merged_values
-            )
+            deserialize_node_device_configuration(device_configuration, values=merged_values)
             for device_configuration in proto.device_configurations
         )
     node = _core.Node(
@@ -1649,9 +1647,7 @@ def serialize_node_device_configuration(
     # ``configuration_id`` MUST be present, so serialization fails closed rather
     # than emitting a configuration with no id.
     if node_device_configuration.configuration is None:
-        raise ValueError(
-            "Cannot serialize a NodeDeviceConfiguration without a configuration."
-        )
+        raise ValueError("Cannot serialize a NodeDeviceConfiguration without a configuration.")
     name = node_device_configuration.configuration.name
     if not name:
         raise ValueError(
@@ -1683,9 +1679,7 @@ def _serialize_device_configurations_into(
         return
     for model_configuration in device_configurations:
         if not isinstance(model_configuration, _multi_device.ModelConfiguration):
-            raise TypeError(
-                f"Expected ModelConfiguration, got {type(model_configuration)}"
-            )
+            raise TypeError(f"Expected ModelConfiguration, got {type(model_configuration)}")
         model_proto.configuration.add().CopyFrom(
             serialize_model_configuration(model_configuration)
         )
@@ -2051,12 +2045,9 @@ def _serialize_node_multi_device_into(
     if not device_configurations:
         return
     for node_device_configuration in device_configurations:
-        if not isinstance(
-            node_device_configuration, _multi_device.NodeDeviceConfiguration
-        ):
+        if not isinstance(node_device_configuration, _multi_device.NodeDeviceConfiguration):
             raise TypeError(
-                "Expected NodeDeviceConfiguration, got "
-                f"{type(node_device_configuration)}"
+                f"Expected NodeDeviceConfiguration, got {type(node_device_configuration)}"
             )
         node_proto.device_configurations.add().CopyFrom(
             serialize_node_device_configuration(node_device_configuration)
