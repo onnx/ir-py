@@ -24,9 +24,11 @@ __all__ = [
 import dataclasses
 from typing import TYPE_CHECKING
 
+from onnx_ir._core import SymbolicDim
+
 if TYPE_CHECKING:
     from onnx_ir import _core
-    from onnx_ir._core import SymbolicDim, Value
+    from onnx_ir._core import Value
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,15 +97,15 @@ class IndexToDeviceGroupMapEntry:
 class SimpleShardedDim:
     """How one axis is divided into shards (``N`` blocks split into ``num_shards``)."""
 
-    dim: int | SymbolicDim | None = None
+    dim: int | SymbolicDim = dataclasses.field(default_factory=lambda: SymbolicDim(None))
     """Size of the axis being sharded.
 
     Follows the same convention as :class:`onnx_ir.Shape` dimensions:
 
     * an :class:`int` for a fixed, known size (e.g. ``1024``);
-    * a :class:`~onnx_ir.SymbolicDim` for a symbolic/unknown size (e.g. a dynamic
-      ``"batch"`` dimension);
-    * ``None`` when the size is unspecified.
+    * a :class:`~onnx_ir.SymbolicDim` for a symbolic size — either named
+      (e.g. ``SymbolicDim("batch")``) or unspecified (``SymbolicDim(None)``,
+      the default).
 
     ONNX permits the size to be symbolic, but :attr:`num_shards` must be a concrete
     integer.

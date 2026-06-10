@@ -2544,7 +2544,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             raise ValueError(
                 f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
             )
-        dim = shape[axis] if shape is not None else None
+        dim = shape[axis] if shape is not None else SymbolicDim(None)
         new_dim = _multi_device.ShardedDim(
             axis=axis,
             simple_sharding=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),

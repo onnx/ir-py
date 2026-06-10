@@ -1454,11 +1454,12 @@ def _deserialize_simple_sharded_dim(
     proto: onnx.SimpleShardedDimProto,
 ) -> _multi_device.SimpleShardedDim:
     if proto.HasField("dim_value"):
-        dim: int | _core.SymbolicDim | None = proto.dim_value
+        dim: int | _core.SymbolicDim = proto.dim_value
     elif proto.HasField("dim_param"):
         dim = _core.SymbolicDim(proto.dim_param)
     else:
-        dim = None
+        # Unspecified size round-trips as SymbolicDim(None), not None.
+        dim = _core.SymbolicDim(None)
     return _multi_device.SimpleShardedDim(
         dim=dim,
         num_shards=proto.num_shards,

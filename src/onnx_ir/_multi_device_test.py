@@ -352,8 +352,9 @@ class ConvenienceApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             node.shard(None, configuration=conf, axis=0, num_shards=2)
 
-    def test_shard_value_without_shape_infers_no_dim(self):
-        # A value with unknown shape can still be sharded; dim is left unspecified.
+    def test_shard_value_without_shape_infers_unspecified_dim(self):
+        # A value with unknown shape can still be sharded; dim is left unspecified
+        # as SymbolicDim(None).
         x = ir.Value(name="x")
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="relu0")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
@@ -361,7 +362,9 @@ class ConvenienceApiTest(unittest.TestCase):
         conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=3, num_shards=2)
         spec = node.sharding_of(x)[0]
-        self.assertIsNone(spec.sharded_dim[0].simple_sharding[0].dim)
+        self.assertEqual(
+            spec.sharded_dim[0].simple_sharding[0].dim, ir.SymbolicDim(None)
+        )
 
     def test_shard_updates_pipeline_stage_on_existing_configuration(self):
         model, node, x = _identity_model()
@@ -822,7 +825,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         "NodeProto.device_configurations is not available",
     )
     def test_serialize_simple_sharded_dim_unspecified(self):
-        # dim is None -> neither dim_value nor dim_param is set.
+        # The default dim (SymbolicDim(None)) sets neither dim_value nor dim_param.
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
             sharding_spec=(
@@ -832,7 +835,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
                         _multi_device.ShardedDim(
                             axis=0,
                             simple_sharding=(
-                                _multi_device.SimpleShardedDim(dim=None, num_shards=2),
+                                _multi_device.SimpleShardedDim(num_shards=2),
                             ),
                         ),
                     ),
@@ -888,7 +891,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         result = serde.deserialize_node_device_configuration(proto)
         simple = result.sharding_spec[0].sharded_dim[0].simple_sharding
         self.assertEqual(simple[0].dim, ir.SymbolicDim("BATCH"))
-        self.assertIsNone(simple[1].dim)
+        self.assertEqual(simple[1].dim, ir.SymbolicDim(None))
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
