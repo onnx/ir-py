@@ -766,6 +766,54 @@ class CloneTest(unittest.TestCase):
         self.assertEqual(cloned_configs[0].sharding_spec, ())
 
 
+class GraphMutationTest(unittest.TestCase):
+    """Sharding metadata is kept consistent when node I/O changes."""
+
+    def test_replace_input_with_drops_dangling_sharding(self):
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        z = ir.Value(name="z", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="n0")
+        graph = ir.Graph([x, z], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+
+        node.replace_input_with(0, z)
+
+        self.assertEqual(node.sharding_of(x), ())
+        self.assertEqual(node.device_configurations[0].sharding_spec, ())
+        self.assertEqual(_multi_device._check_device_configurations(model), [])
+
+    def test_replace_input_keeps_sharding_when_value_still_referenced(self):
+        # ``x`` is used at two input positions; replacing one keeps the spec.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        w = ir.Value(name="w", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Add", [x, x], outputs=[ir.Value(name="y")], name="n0")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+
+        node.replace_input_with(0, w)  # x is still input 1
+
+        self.assertEqual(len(node.sharding_of(x)), 1)
+
+    def test_resize_outputs_drops_dangling_sharding(self):
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Split", [x], num_outputs=2, name="n0")
+        node.outputs[0].shape = ir.Shape([2])
+        node.outputs[1].shape = ir.Shape([2])
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(node.outputs[1], configuration=conf, axis=0, num_shards=2)
+        removed = node.outputs[1]
+
+        node.resize_outputs(1)
+
+        self.assertEqual(node.sharding_of(removed), ())
+
+
 class SerdeHelperEdgeCaseTest(unittest.TestCase):
     """Cover the lower-level serde helper branches directly."""
 

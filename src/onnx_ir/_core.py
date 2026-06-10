@@ -2325,6 +2325,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             old_input._remove_usage(self, index)  # pylint: disable=protected-access
         if value is not None:
             value._add_usage(self, index)  # pylint: disable=protected-access
+        if old_input is not None and old_input is not value:
+            self._drop_sharding_for_value(old_input)
 
     def prepend(self, /, nodes: Node | Iterable[Node]) -> None:
         """Insert a node before this node in the list of nodes in the graph.
@@ -2407,11 +2409,14 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     raise ValueError(
                         f"Cannot remove output {output} because it has uses: {output.uses()}"
                     )
-            for output in self._outputs[new_size:]:
+            removed_outputs = self._outputs[new_size:]
+            for output in removed_outputs:
                 # Detach the output from this node
                 output._producer = None  # pylint: disable=protected-access
                 output._index = -1  # pylint: disable=protected-access
             self._outputs = self._outputs[:new_size]
+            for output in removed_outputs:
+                self._drop_sharding_for_value(output)
         else:
             # Create new outputs
             new_outputs = [Value(self, index=i) for i in range(current_size, new_size)]
@@ -2619,6 +2624,35 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 if spec.value is value:
                     result.append(spec)
         return tuple(result)
+
+    def _drop_sharding_for_value(self, value: Value) -> None:
+        """Drop any ShardingSpec on this node that targets ``value``.
+
+        Called when ``value`` stops being an input or output of the node (e.g.
+        after :meth:`replace_input_with` or :meth:`resize_outputs`), so that
+        ``device_configurations`` does not keep specs pointing at a value that is
+        no longer part of the node. No-op if ``value`` is still in the node's
+        inputs or outputs (it may be referenced more than once).
+        """
+        if not self.device_configurations:
+            return
+        if value in set(self._inputs) | set(self._outputs):
+            return
+        new_configurations = []
+        changed = False
+        for config in self.device_configurations:
+            kept = tuple(
+                spec for spec in config.sharding_spec if spec.value is not value
+            )
+            if len(kept) != len(config.sharding_spec):
+                new_configurations.append(
+                    dataclasses.replace(config, sharding_spec=kept)
+                )
+                changed = True
+            else:
+                new_configurations.append(config)
+        if changed:
+            self.device_configurations = tuple(new_configurations)
 
     def set_pipeline_stage(self, configuration: ModelConfiguration, stage: int) -> None:
         """Assign this node to a pipeline ``stage`` for ``configuration``.
