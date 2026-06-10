@@ -283,7 +283,7 @@ different split strategies:
         layer.set_pipeline_stage(pipeline, 0 if i < 5 else 1)
 
     # Query the placement back, resolving the stage to a device name.
-    device_names = model.device_configurations[0].device
+    device_names = model.device_configurations[0].device_names
     for layer in layers:
         stage = layer.device_configurations[0].pipeline_stage
         print(f"{layer.name}: stage {stage} -> {device_names[stage]}")
@@ -354,7 +354,7 @@ implicitly, and the plan round-trips through ``to_proto`` / ``from_proto``.
     head.set_pipeline_stage(plan, 2)               # LM head          -> GPU
 
     # --- Inspect the plan ---
-    device_names = model.device_configurations[0].device
+    device_names = model.device_configurations[0].device_names
     for node in model.graph:
         if not node.device_configurations:
             continue
@@ -469,4 +469,5 @@ These mirror the corresponding ONNX protos field-for-field, except that
 `Model.device_configurations` only accepts `ModelConfiguration` objects, and
 `Node.device_configurations` only accepts `NodeDeviceConfiguration` objects.
 Assigning any other type (for example raw ``bytes`` or a protobuf message) is
-rejected at the serialization boundary with a `TypeError`.
+rejected at the serialization boundary (surface error:
+`onnx_ir.serde.SerdeError`, with the original `TypeError` as `__cause__`).

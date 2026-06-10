@@ -87,6 +87,7 @@ _PLEASE_CONTRIBUTE = "Please contribute by creating a PR at https://github.com/o
 _FUNCTION_VALUE_INFO_SUPPORTED_VERSION = (
     10  # ONNX IR version where value info in functions was introduced
 )
+_MULTI_DEVICE_SUPPORTED_VERSION = 11
 _QUANT_PARAMETER_TENSOR_NAMES_FIELD = "quant_parameter_tensor_names"
 _T = typing.TypeVar("_T", bound=Callable[..., Any])
 
@@ -1564,7 +1565,7 @@ def serialize_model_into(
     if from_.metadata_props:
         _serialize_metadata_props_into(model_proto.metadata_props, from_.metadata_props)
     _serialize_device_configurations_into(model_proto, from_)
-    serialize_graph_into(model_proto.graph, from_.graph)
+    serialize_graph_into(model_proto.graph, from_.graph, model_ir_version=from_.ir_version)
 
     create_value_info_in_functions = from_.ir_version >= _FUNCTION_VALUE_INFO_SUPPORTED_VERSION
     for func in from_.functions.values():
@@ -1572,6 +1573,7 @@ def serialize_model_into(
             model_proto.functions.add(),
             from_=func,
             create_value_info=create_value_info_in_functions,
+            model_ir_version=from_.ir_version,
         )
         if not create_value_info_in_functions:
             # Create them in the main graph instead
@@ -1666,20 +1668,29 @@ def _serialize_device_configurations_into(
     model_proto: onnx.ModelProto, from_: _protocols.ModelProtocol
 ) -> None:
     device_configurations = getattr(from_, "device_configurations", ())
-    if not hasattr(model_proto, "configuration"):
-        if device_configurations:
-            logger.warning(
-                "Model has %d device configuration(s) but the target ModelProto does "
-                "not support the 'configuration' field (IR version < 11). They will "
-                "not be serialized.",
-                len(device_configurations),
-            )
-        return
     if not device_configurations:
         return
     for model_configuration in device_configurations:
         if not isinstance(model_configuration, _multi_device.ModelConfiguration):
             raise TypeError(f"Expected ModelConfiguration, got {type(model_configuration)}")
+    if model_proto.ir_version < _MULTI_DEVICE_SUPPORTED_VERSION:
+        logger.warning(
+            "Model has %d device configuration(s) but model.ir_version=%d does not "
+            "support the 'configuration' field (requires >= %d). They will not be "
+            "serialized.",
+            len(device_configurations),
+            model_proto.ir_version,
+            _MULTI_DEVICE_SUPPORTED_VERSION,
+        )
+        return
+    if not hasattr(model_proto, "configuration"):
+        logger.warning(
+            "Model has %d device configuration(s) but the target ModelProto does not "
+            "expose the 'configuration' field. They will not be serialized.",
+            len(device_configurations),
+        )
+        return
+    for model_configuration in device_configurations:
         model_proto.configuration.add().CopyFrom(
             serialize_model_configuration(model_configuration)
         )
@@ -1835,7 +1846,7 @@ def serialize_graph(
 
 
 @_capture_errors(
-    lambda graph_proto, from_: (
+    lambda graph_proto, from_, model_ir_version=None: (
         f"name={from_.name}, doc_string={from_.doc_string}, "
         f"len(inputs)={len(from_.inputs)}, len(initializers)={len(from_.initializers)}, "
         f"len(nodes)={len(from_)}, len(outputs)={len(from_.outputs)}, metadata_props={from_.metadata_props}"
@@ -1844,6 +1855,8 @@ def serialize_graph(
 def serialize_graph_into(
     graph_proto: onnx.GraphProto,
     from_: _protocols.GraphProtocol | _protocols.GraphViewProtocol,
+    *,
+    model_ir_version: int | None = None,
 ) -> None:
     if from_.name:
         graph_proto.name = from_.name
@@ -1870,7 +1883,9 @@ def serialize_graph_into(
         value.const_value.name = value.name
         serialize_tensor_into(graph_proto.initializer.add(), from_=value.const_value)
     for node in from_:
-        serialize_node_into(graph_proto.node.add(), from_=node)
+        serialize_node_into(
+            graph_proto.node.add(), from_=node, model_ir_version=model_ir_version
+        )
         for node_output in node.outputs:
             if node_output.is_graph_output():
                 # No need to serialize info for these outputs because they are handled as graph outputs
@@ -1905,12 +1920,15 @@ def serialize_function(
     return function_proto
 
 
-@_capture_errors(lambda function_proto, from_, create_value_info: repr(from_))
+@_capture_errors(
+    lambda function_proto, from_, create_value_info, model_ir_version=None: repr(from_)
+)
 def serialize_function_into(
     function_proto: onnx.FunctionProto,
     from_: _protocols.FunctionProtocol,
     *,
     create_value_info: bool = True,
+    model_ir_version: int | None = None,
 ) -> None:
     """Serialize an IR function into a FunctionProto.
 
@@ -1919,6 +1937,8 @@ def serialize_function_into(
         from_: The function to serialize.
         create_value_info: Whether to create ValueInfoProto for nodes in the function. This is supported
             starting from ONNX IR version 10.
+        model_ir_version: The parent model's IR version, when known. Multi-device
+            node metadata is only serialized when this is ``>= 11``.
     """
     if from_.domain:
         function_proto.domain = from_.domain
@@ -1954,7 +1974,9 @@ def serialize_function_into(
         # No need to serialize value info for function outputs because they are
         # also node outputs
     for node in from_:
-        serialize_node_into(function_proto.node.add(), from_=node)
+        serialize_node_into(
+            function_proto.node.add(), from_=node, model_ir_version=model_ir_version
+        )
         # Record value info for outputs
         for node_output in node.outputs:
             if not _should_create_value_info_for_value(node_output):
@@ -1996,8 +2018,13 @@ def _remove_trailing_outputs(
     return []
 
 
-@_capture_errors(lambda node_proto, from_: repr(from_))
-def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtocol) -> None:
+@_capture_errors(lambda node_proto, from_, model_ir_version=None: repr(from_))
+def serialize_node_into(
+    node_proto: onnx.NodeProto,
+    from_: _protocols.NodeProtocol,
+    *,
+    model_ir_version: int | None = None,
+) -> None:
     node_proto.op_type = from_.op_type
     if from_.domain:
         # If the domain is "", we can assume the default domain and not set it
@@ -2025,23 +2052,16 @@ def serialize_node_into(node_proto: onnx.NodeProto, from_: _protocols.NodeProtoc
             serialize_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
         else:
             serialize_reference_attribute_into(node_proto.attribute.add(), from_=attr)  # type: ignore[arg-type]
-    _serialize_node_multi_device_into(node_proto, from_)
+    _serialize_node_multi_device_into(node_proto, from_, model_ir_version=model_ir_version)
 
 
 def _serialize_node_multi_device_into(
-    node_proto: onnx.NodeProto, from_: _protocols.NodeProtocol
+    node_proto: onnx.NodeProto,
+    from_: _protocols.NodeProtocol,
+    *,
+    model_ir_version: int | None = None,
 ) -> None:
     device_configurations = getattr(from_, "device_configurations", ())
-    if not hasattr(node_proto, "device_configurations"):
-        if device_configurations:
-            logger.warning(
-                "Node '%s' has %d device configuration(s) but the target NodeProto "
-                "does not support the 'device_configurations' field (IR version < 11). "
-                "They will not be serialized.",
-                getattr(from_, "name", None),
-                len(device_configurations),
-            )
-        return
     if not device_configurations:
         return
     for node_device_configuration in device_configurations:
@@ -2049,6 +2069,26 @@ def _serialize_node_multi_device_into(
             raise TypeError(
                 f"Expected NodeDeviceConfiguration, got {type(node_device_configuration)}"
             )
+    if model_ir_version is not None and model_ir_version < _MULTI_DEVICE_SUPPORTED_VERSION:
+        logger.warning(
+            "Node '%s' has %d device configuration(s) but model.ir_version=%d does "
+            "not support 'device_configurations' (requires >= %d). They will not be "
+            "serialized.",
+            getattr(from_, "name", None),
+            len(device_configurations),
+            model_ir_version,
+            _MULTI_DEVICE_SUPPORTED_VERSION,
+        )
+        return
+    if not hasattr(node_proto, "device_configurations"):
+        logger.warning(
+            "Node '%s' has %d device configuration(s) but the target NodeProto does "
+            "not expose the 'device_configurations' field. They will not be serialized.",
+            getattr(from_, "name", None),
+            len(device_configurations),
+        )
+        return
+    for node_device_configuration in device_configurations:
         node_proto.device_configurations.add().CopyFrom(
             serialize_node_device_configuration(node_device_configuration)
         )

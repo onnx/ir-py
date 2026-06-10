@@ -4322,11 +4322,14 @@ Model(
 
         Raises:
             ValueError: If a configuration with ``name`` already exists, if
-                ``num_devices < 1``, or if ``device_names`` is given and its
-                length does not equal ``num_devices``.
+                ``name`` is empty, if ``num_devices < 1``, or if
+                ``device_names`` is given and its length does not equal
+                ``num_devices``.
         """
         from onnx_ir import _multi_device
 
+        if not name:
+            raise ValueError("Configuration name must be a non-empty string.")
         for existing in self.device_configurations:
             if existing.name == name:
                 raise ValueError(

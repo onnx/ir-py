@@ -384,6 +384,11 @@ class ConvenienceApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             model.add_device_configuration("conf1", num_devices=0)
 
+    def test_add_device_configuration_rejects_empty_name(self):
+        model, _, _ = _identity_model()
+        with self.assertRaises(ValueError):
+            model.add_device_configuration("", num_devices=1)
+
     def test_add_device_configuration_rejects_name_count_mismatch(self):
         model, _, _ = _identity_model()
         with self.assertRaises(ValueError):

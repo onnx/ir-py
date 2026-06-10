@@ -1186,7 +1186,7 @@ class NodeSerializationTest(unittest.TestCase):
         x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
-        model = ir.Model(graph, ir_version=10)
+        model = ir.Model(graph, ir_version=11)
         conf0 = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         node.shard(x, configuration=conf0, axis=0, num_shards=2, device_indices=(0, 1))
 
@@ -1209,7 +1209,7 @@ class NodeSerializationTest(unittest.TestCase):
         x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
-        model = ir.Model(graph, ir_version=10)
+        model = ir.Model(graph, ir_version=11)
         # Register conf0 on the model but point the node at an unrelated id.
         model.add_device_configuration("conf0", device_names=("CPU",))
         node.device_configurations = (
@@ -1239,7 +1239,7 @@ class NodeSerializationTest(unittest.TestCase):
             "", "Identity", [relu.outputs[0]], outputs=[ir.Value(name="y")], name="id"
         )
         graph = ir.Graph([x], [ident.outputs[0]], nodes=[relu, ident], opset_imports={"": 18})
-        model = ir.Model(graph, ir_version=10)
+        model = ir.Model(graph, ir_version=11)
         conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         # Only ``relu`` is sharded; ``ident`` has no device configuration.
         relu.shard(x, configuration=conf, axis=0, num_shards=2)
@@ -1270,7 +1270,7 @@ class NodeSerializationTest(unittest.TestCase):
         graph = ir.Graph(
             [x], [call.outputs[0]], nodes=[call], opset_imports={"": 18, "custom": 1}
         )
-        model = ir.Model(graph, ir_version=10, functions=[func])
+        model = ir.Model(graph, ir_version=11, functions=[func])
         conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
         fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
 
@@ -1295,7 +1295,7 @@ class NodeSerializationTest(unittest.TestCase):
         x = ir.Value(name="x", shape=ir.Shape([4, 8]), type=ir.TensorType(ir.DataType.FLOAT))
         node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
         graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
-        model = ir.Model(graph, ir_version=10)
+        model = ir.Model(graph, ir_version=11)
         conf = model.add_device_configuration("conf0", num_devices=2)
         node.shard(x, configuration=conf, axis=-1, num_shards=2)
 
@@ -1303,6 +1303,33 @@ class NodeSerializationTest(unittest.TestCase):
         spec = deserialized.graph[0].device_configurations[0].sharding_spec[0]
         self.assertEqual(spec.sharded_dim[0].axis, -1)
         self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_not_serialized_for_ir10(self):
+        # Multi-device metadata requires IR v11 and is intentionally dropped for
+        # older model IR versions.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+
+        fx = ir.Value(name="fx", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="fnode")
+        fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
+        func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
+
+        model = ir.Model(graph, ir_version=10, functions=[func])
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
+
+        proto = serde.serialize_model(model)
+        self.assertEqual(len(proto.configuration), 0)
+        self.assertEqual(len(proto.graph.node[0].device_configurations), 0)
+        self.assertEqual(len(proto.functions[0].node[0].device_configurations), 0)
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
