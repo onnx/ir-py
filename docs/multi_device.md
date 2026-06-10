@@ -245,7 +245,7 @@ activations are handed off from one stage to the next. It is expressed with the
 sharding spec. {py:meth}`Node.set_pipeline_stage
 <onnx_ir.Node.set_pipeline_stage>` attaches a pure placement (no sharding) to a
 node. How a stage maps to a physical device is by convention; a common choice is
-``stage == device index`` into ``configuration.device``.
+``stage == device index`` into ``configuration.device_names``.
 
 Two situations call for placing parts of a model on different devices, with
 different split strategies:

@@ -1424,7 +1424,7 @@ def deserialize_model_configuration(
     return _multi_device.ModelConfiguration(
         name=proto.name,
         num_devices=proto.num_devices,
-        device=tuple(proto.device),
+        device_names=tuple(proto.device),
     )
 
 
@@ -1590,7 +1590,7 @@ def serialize_model_configuration(
     proto = onnx.DeviceConfigurationProto()
     proto.name = configuration.name
     proto.num_devices = configuration.num_devices
-    proto.device.extend(configuration.device)
+    proto.device.extend(configuration.device_names)
     return proto
 
 

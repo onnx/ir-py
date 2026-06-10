@@ -58,12 +58,12 @@ class ModelConfiguration:
     Device indices are expected to fall in ``range(num_devices)``.
     """
 
-    device: tuple[str, ...] = ()
+    device_names: tuple[str, ...] = ()
     """Optional human-readable device names, one per device.
 
     For example ``("CPU", "CUDA:0")`` or ``("NPU", "GPU")``. When provided it
-    should have length :attr:`num_devices`, and ``device[i]`` is the name of the
-    device referenced by index ``i``. An empty tuple means the names are
+    should have length :attr:`num_devices`, and ``device_names[i]`` is the name of
+    the device referenced by index ``i``. An empty tuple means the names are
     unspecified (the devices are then known only by index).
     """
 
@@ -86,7 +86,7 @@ class IndexToDeviceGroupMapEntry:
     """
 
     value: tuple[int, ...] = ()
-    """The real device indices (into :attr:`ModelConfiguration.device`) in the group.
+    """The real device indices (into :attr:`ModelConfiguration.device_names`) in the group.
 
     The shard assigned to :attr:`key` is replicated onto every device listed here.
     For example ``value=(0, 1)`` replicates the shard onto devices 0 and 1.
@@ -161,7 +161,7 @@ class ShardingSpec:
     """The devices the tensor is distributed over, in shard order.
 
     The ``i``-th shard goes to ``device[i]``. Each entry is either a direct device
-    index into :attr:`ModelConfiguration.device` (``>= 0``), or a key
+    index into :attr:`ModelConfiguration.device_names` (``>= 0``), or a key
     (conventionally negative) into :attr:`index_to_device_group_map`, which
     expands to a group of devices the shard is *replicated* across. An empty tuple
     leaves placement unspecified.
@@ -217,7 +217,7 @@ class NodeDeviceConfiguration:
     ``None`` means the node does not participate in pipeline parallelism under
     this configuration. Stages are non-negative integers; nodes sharing a stage
     run together, and a common convention maps ``stage`` to the device index in
-    :attr:`ModelConfiguration.device`.
+    :attr:`ModelConfiguration.device_names`.
     """
 
 

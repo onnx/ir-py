@@ -2509,7 +2509,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 count from the back (in the range ``[-rank, rank)`` following the
                 ONNX convention), when the rank of ``value`` is known.
             num_shards: The number of shards along ``axis``. Must be ``>= 1``.
-            device_indices: Optional indices (into ``configuration.device``) of
+            device_indices: Optional indices (into ``configuration.device_names``) of
                 the devices the tensor is placed on. These are device *indices*,
                 not the device *names* passed to
                 :meth:`Model.add_device_configuration`.
@@ -2669,7 +2669,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         Calling this method again replaces the stage.
 
         How a stage maps to a physical device is by convention: a common choice
-        is ``stage == device index`` into ``configuration.device``.
+        is ``stage == device index`` into ``configuration.device_names``.
 
         Args:
             configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
@@ -4342,7 +4342,7 @@ Model(
                 f"{num_devices}; they must match when names are provided."
             )
         configuration = _multi_device.ModelConfiguration(
-            name=name, num_devices=num_devices, device=device_names
+            name=name, num_devices=num_devices, device_names=device_names
         )
         self.device_configurations = (*self.device_configurations, configuration)
         return configuration

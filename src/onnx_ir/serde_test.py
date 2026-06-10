@@ -1042,7 +1042,7 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
                 _multi_device.ModelConfiguration(
                     name="conf0",
                     num_devices=2,
-                    device=("CPU", "CUDA:0"),
+                    device_names=("CPU", "CUDA:0"),
                 ),
             ),
         )
@@ -1063,7 +1063,7 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
             _multi_device.ModelConfiguration(
                 name="conf0",
                 num_devices=2,
-                device=("CPU", "CUDA:0"),
+                device_names=("CPU", "CUDA:0"),
             ),
         )
         serialized = serde.serialize_model(model)

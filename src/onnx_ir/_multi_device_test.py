@@ -26,7 +26,7 @@ class ModelConfigurationSerdeTest(unittest.TestCase):
         configuration = _multi_device.ModelConfiguration(
             name="conf0",
             num_devices=2,
-            device=("CPU", "CUDA:0"),
+            device_names=("CPU", "CUDA:0"),
         )
 
         proto = serde.serialize_model_configuration(configuration)
@@ -377,7 +377,7 @@ class ConvenienceApiTest(unittest.TestCase):
         model, _, _ = _identity_model()
         conf = model.add_device_configuration("conf0", num_devices=4)
         self.assertEqual(conf.num_devices, 4)
-        self.assertEqual(conf.device, ())
+        self.assertEqual(conf.device_names, ())
 
     def test_add_device_configuration_rejects_zero_devices(self):
         model, _, _ = _identity_model()
@@ -397,7 +397,7 @@ class ConvenienceApiTest(unittest.TestCase):
             "conf0", num_devices=2, device_names=("CPU", "GPU")
         )
         self.assertEqual(conf.num_devices, 2)
-        self.assertEqual(conf.device, ("CPU", "GPU"))
+        self.assertEqual(conf.device_names, ("CPU", "GPU"))
 
     def test_shard_rejects_negative_pipeline_stage(self):
         model, node, x = _identity_model()
