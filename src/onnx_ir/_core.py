@@ -2075,6 +2075,12 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             doc_string: The documentation string.
             metadata_props: The metadata properties.
             device_configurations: Multi-device configuration metadata for the node.
+                Each entry binds this node to a
+                :class:`~onnx_ir.ModelConfiguration` and records tensor sharding
+                and/or pipeline placement. Use :meth:`shard` and
+                :meth:`set_pipeline_stage` for incremental updates.
+
+                .. versionadded:: 1.0.0
 
         Raises:
             TypeError: If the attributes are not :class:`Attr`.
@@ -2505,6 +2511,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         sharding a tensor across a multi-axis device mesh). ``device_indices``
         are unioned across those calls.
 
+        .. versionadded:: 1.0.0
+
         Args:
             value: The input or output value to shard. Must be one of this node's
                 own inputs or outputs.
@@ -2622,6 +2630,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         Matching is by object identity, so this returns the live specs that
         reference exactly ``value``.
+
+        .. versionadded:: 1.0.0
         """
         result = []
         for configuration in self.device_configurations:
@@ -2671,6 +2681,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         How a stage maps to a physical device is by convention: a common choice
         is ``stage == device index`` into ``configuration.device_names``.
+
+        .. versionadded:: 1.0.0
 
         Args:
             configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
@@ -4193,6 +4205,11 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         functions: The functions defined in the model.
         metadata_props: Metadata.
         device_configurations: Multi-device configuration metadata for the model.
+            These are model-level
+            :class:`~onnx_ir.ModelConfiguration` objects referenced by node-level
+            :class:`~onnx_ir.NodeDeviceConfiguration` entries.
+
+            Added in ``1.0.0``.
     """
 
     def __init__(
@@ -4307,6 +4324,8 @@ Model(
         The returned object can be passed to :meth:`Node.shard` to bind node
         shardings to this configuration.
 
+        .. versionadded:: 1.0.0
+
         Args:
             name: A unique name for the configuration.
             num_devices: The number of devices. Defaults to ``len(device_names)``.
@@ -4362,6 +4381,8 @@ Model(
         """Remove a device configuration from the model.
 
         This is the counterpart of :meth:`add_device_configuration`.
+
+        .. versionadded:: 1.0.0
 
         Args:
             configuration: The :class:`~onnx_ir.ModelConfiguration` object to

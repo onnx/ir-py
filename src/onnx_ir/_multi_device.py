@@ -43,6 +43,8 @@ class ModelConfiguration:
 
     Device *indices* used elsewhere (for example :attr:`ShardingSpec.device` and
     :meth:`onnx_ir.Node.shard`) are 0-based positions into :attr:`device_names`.
+
+    .. versionadded:: 1.0.0
     """
 
     name: str
@@ -76,6 +78,8 @@ class IndexToDeviceGroupMapEntry:
     real device indices that key stands for. This is how a shard is *replicated*
     across several devices: instead of naming one device, an entry in ``device``
     names a group, and this map expands that group.
+
+    .. versionadded:: 1.0.0
     """
 
     key: int
@@ -95,7 +99,10 @@ class IndexToDeviceGroupMapEntry:
 
 @dataclasses.dataclass(frozen=True)
 class SimpleShardedDim:
-    """How one axis is divided into shards (``N`` blocks split into ``num_shards``)."""
+    """How one axis is divided into shards (``N`` blocks split into ``num_shards``).
+
+    .. versionadded:: 1.0.0
+    """
 
     dim: int | SymbolicDim = dataclasses.field(default_factory=lambda: SymbolicDim(None))
     """Size of the axis being sharded.
@@ -122,7 +129,10 @@ class SimpleShardedDim:
 
 @dataclasses.dataclass(frozen=True)
 class ShardedDim:
-    """The sharding of a single tensor axis."""
+    """The sharding of a single tensor axis.
+
+    .. versionadded:: 1.0.0
+    """
 
     axis: int
     """The tensor axis this sharding applies to.
@@ -145,8 +155,10 @@ class ShardingSpec:
     """How a single tensor is sharded and/or replicated across devices.
 
     A spec describes the distribution of one input or output tensor of a node.
-    The unsharded axes are implicitly replicated; :attr:`sharded_dim` lists only
+    The unsharded axes are implicitly replicated; :attr:`sharded_dims` lists only
     the axes that are split.
+
+    .. versionadded:: 1.0.0
     """
 
     value: Value | None = None
@@ -193,6 +205,8 @@ class NodeDeviceConfiguration:
     sharded (tensor parallelism) and/or which pipeline stage it belongs to
     (pipeline parallelism). A node may carry several of these, one per
     configuration it takes part in.
+
+    .. versionadded:: 1.0.0
     """
 
     configuration: ModelConfiguration | None = None
