@@ -1446,7 +1446,12 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         coo = array.tocoo()
         data: np.ndarray = np.asarray(coo.data)
         values_tensor = Tensor(data, _enums.DataType.from_numpy(data.dtype), name=name)
-        indices_array = np.stack(coo.coords, axis=0).astype(np.int64)
+        # ``coords`` is only available on COO objects in scipy>=1.13. Fall back to
+        # ``(row, col)`` for legacy ``coo_matrix`` instances that lack it.
+        coords = getattr(coo, "coords", None)
+        if coords is None:
+            coords = (coo.row, coo.col)
+        indices_array = np.stack(coords, axis=0).astype(np.int64)
         indices_tensor = Tensor(indices_array, _enums.DataType.INT64)
         return cls(values_tensor, indices_tensor, list(array.shape))
 

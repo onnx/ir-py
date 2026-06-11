@@ -68,6 +68,18 @@ class ConstructorsTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             ir.SparseTensor.from_scipy_sparse(np.eye(2, dtype=np.float32))
 
+    def test_from_scipy_sparse_legacy_spmatrix(self):
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # Legacy spmatrix.tocoo() returns a coo_matrix, which lacks ``coords``
+        # on scipy<1.13; from_scipy_sparse() must still handle it.
+        matrix = sp.csr_matrix(np.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]], dtype=np.float32))
+        sparse = ir.SparseTensor.from_scipy_sparse(matrix)
+        self.assertIsInstance(sparse, ir.SparseTensor)
+        self.assertEqual(sparse.dims, [2, 3])
+        np.testing.assert_array_equal(sparse.numpy().toarray(), matrix.toarray())
+
 
 class ValueConstructorTest(unittest.TestCase):
     def test_value_minimal_creation(self):
