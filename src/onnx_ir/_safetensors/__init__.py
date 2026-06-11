@@ -6,6 +6,7 @@ from __future__ import annotations
 
 __all__ = ["save_safetensors"]
 
+import ctypes
 import functools
 import io
 import json
@@ -268,7 +269,28 @@ def _save_file(
                 current_offset += tensor.nbytes
                 current_index += 1
 
-            safetensors.serialize_file(shard_dict, shard_path)
+            if not hasattr(safetensors, "TensorSpec"):
+                safetensors.serialize_file(shard_dict, shard_path)
+            else:
+                # Keep strong references alive until serialize_file returns because
+                # TensorSpec stores raw data pointers.
+                tensor_data_refs = []
+                tensor_specs = {}
+                for name, spec in shard_dict.items():
+                    data = spec["data"]
+                    if not isinstance(data, bytearray):
+                        data = bytearray(data)
+                        spec["data"] = data
+                    # ctypes array backed by the same buffer — no copy needed.
+                    data_view = (ctypes.c_char * len(data)).from_buffer(data)
+                    tensor_data_refs.append((data, data_view))
+                    tensor_specs[name] = safetensors.TensorSpec(
+                        dtype=spec["dtype"],
+                        shape=spec["shape"],
+                        data_ptr=ctypes.addressof(data_view),
+                        data_len=len(data),
+                    )
+                safetensors.serialize_file(tensor_specs, shard_path)
 
         # Save index file if sharding occurred
         if total_shards > 1:

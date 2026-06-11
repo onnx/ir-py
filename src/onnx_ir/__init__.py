@@ -77,6 +77,12 @@ __all__ = [
     "from_onnx_text",
     "to_proto",
     "to_onnx_text",
+    "ModelConfiguration",
+    "NodeDeviceConfiguration",
+    "ShardingSpec",
+    "ShardedDim",
+    "SimpleShardedDim",
+    "IndexToDeviceGroupMapEntry",
     # Convenience constructors
     "tensor",
     "node",
@@ -95,7 +101,15 @@ __all__ = [
 
 import types
 
-from onnx_ir import convenience, external_data, passes, schemas, serde, tape, traversal
+from onnx_ir import (
+    convenience,
+    external_data,
+    passes,
+    schemas,
+    serde,
+    tape,
+    traversal,
+)
 from onnx_ir._convenience._constructors import node, tensor, val
 from onnx_ir._core import (
     Attr,
@@ -141,6 +155,14 @@ from onnx_ir._enums import (
     DataType,
 )
 from onnx_ir._io import load, save
+from onnx_ir._multi_device import (
+    IndexToDeviceGroupMapEntry,
+    ModelConfiguration,
+    NodeDeviceConfiguration,
+    ShardedDim,
+    ShardingSpec,
+    SimpleShardedDim,
+)
 from onnx_ir._protocols import (
     ArrayCompatible,
     AttributeProtocol,

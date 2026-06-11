@@ -55,6 +55,24 @@
     onnx_ir.PackedTensor
 ```
 
+## Multi-device configurations
+
+See [Multi-Device Configurations](../multi_device.md) for a guide.
+
+```{eval-rst}
+.. autosummary::
+    :toctree: generated
+    :template: classtemplate.rst
+    :nosignatures:
+
+    onnx_ir.ModelConfiguration
+    onnx_ir.NodeDeviceConfiguration
+    onnx_ir.ShardingSpec
+    onnx_ir.ShardedDim
+    onnx_ir.SimpleShardedDim
+    onnx_ir.IndexToDeviceGroupMapEntry
+```
+
 ## Enums
 
 ```{eval-rst}

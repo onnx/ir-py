@@ -68,6 +68,12 @@ if typing.TYPE_CHECKING:
     import numpy.typing as npt
     from typing_extensions import TypeGuard
 
+    from onnx_ir._multi_device import (
+        ModelConfiguration,
+        NodeDeviceConfiguration,
+        ShardingSpec,
+    )
+
 TArrayCompatible = typing.TypeVar(
     "TArrayCompatible",
     bound=Union[_protocols.ArrayCompatible, _protocols.DLPackCompatible],
@@ -913,6 +919,15 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             chunk_size = 1024 * 1024  # 1MB
             while bytes_to_copy > 0:
                 chunk = src.read(min(chunk_size, bytes_to_copy))
+                if not chunk:
+                    failed_at_offset = (self._offset or 0) + (
+                        (self._length or self.nbytes) - bytes_to_copy
+                    )
+                    raise OSError(
+                        f"External data file {self.path!r} is shorter than expected: "
+                        f"could not read {bytes_to_copy} more byte(s) at offset "
+                        f"{failed_at_offset}."
+                    )
                 file.write(chunk)
                 bytes_to_copy -= len(chunk)
 
@@ -2276,6 +2291,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         "_outputs",
         "_overload",
         "_version",
+        "device_configurations",
         "doc_string",
     )
 
@@ -2294,6 +2310,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         name: str | None = None,
         doc_string: str | None = None,
         metadata_props: dict[str, str] | None = None,
+        device_configurations: tuple[NodeDeviceConfiguration, ...] = (),
     ):
         """Initialize a node and add it as a user of the input values.
 
@@ -2314,6 +2331,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 set by a :class:`Graph` if ``graph`` is specified.
             doc_string: The documentation string.
             metadata_props: The metadata properties.
+            device_configurations: Multi-device configuration metadata for the node.
 
         Raises:
             TypeError: If the attributes are not :class:`Attr`.
@@ -2340,6 +2358,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         self._version: int | None = version
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
+        self.device_configurations: tuple[NodeDeviceConfiguration, ...] = device_configurations
         # _graph is set by graph.append
         self._graph: Graph | None = None
         # Add the node to the graph if graph is specified
@@ -2428,11 +2447,16 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         return f"{outputs_text} ⬅️ {node_type_text}{inputs_text}{attributes_text}"
 
     def __repr__(self) -> str:
+        device_configurations = (
+            f", device_configurations={self.device_configurations!r}"
+            if self.device_configurations
+            else ""
+        )
         return (
             f"{self.__class__.__name__}(name={self._name!r}, domain={self._domain!r}, "
             f"op_type={self._op_type!r}, inputs={self._inputs!r}, attributes={self._attributes!r}, "
             f"overload={self._overload!r}, outputs={self._outputs!r}, "
-            f"version={self._version!r}, doc_string={self.doc_string!r})"
+            f"version={self._version!r}, doc_string={self.doc_string!r}{device_configurations})"
         )
 
     @property
@@ -2563,6 +2587,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             old_input._remove_usage(self, index)  # pylint: disable=protected-access
         if value is not None:
             value._add_usage(self, index)  # pylint: disable=protected-access
+        if old_input is not None and old_input is not value:
+            self._drop_sharding_for_value(old_input)
 
     def prepend(self, /, nodes: Node | Iterable[Node]) -> None:
         """Insert a node before this node in the list of nodes in the graph.
@@ -2645,11 +2671,14 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     raise ValueError(
                         f"Cannot remove output {output} because it has uses: {output.uses()}"
                     )
-            for output in self._outputs[new_size:]:
+            removed_outputs = self._outputs[new_size:]
+            for output in removed_outputs:
                 # Detach the output from this node
                 output._producer = None  # pylint: disable=protected-access
                 output._index = -1  # pylint: disable=protected-access
             self._outputs = self._outputs[:new_size]
+            for output in removed_outputs:
+                self._drop_sharding_for_value(output)
         else:
             # Create new outputs
             new_outputs = [Value(self, index=i) for i in range(current_size, new_size)]
@@ -2709,6 +2738,222 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         """
         return self._domain, self._op_type, self._overload
 
+    def shard(
+        self,
+        value: Value,
+        *,
+        configuration: ModelConfiguration,
+        axis: int,
+        num_shards: int,
+        device_indices: Sequence[int] = (),
+        pipeline_stage: int | None = None,
+    ) -> None:
+        """Record a sharding of ``value`` along ``axis`` for this node.
+
+        This is a convenience wrapper that builds and attaches the appropriate
+        multi-device configuration metadata in :attr:`device_configurations`.
+        The sharding is bound to ``value`` and ``configuration`` by object
+        identity, so it follows renames and survives as long as the objects do.
+
+        Calling this method repeatedly for the same ``value`` and
+        ``configuration`` but different axes builds a single
+        :class:`~onnx_ir.ShardingSpec` with one
+        :class:`~onnx_ir.ShardedDim` per axis (the canonical representation for
+        sharding a tensor across a multi-axis device mesh). ``device_indices``
+        are unioned across those calls.
+
+        Args:
+            value: The input or output value to shard. Must be one of this node's
+                own inputs or outputs.
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the sharding
+                belongs to.
+            axis: The axis along which ``value`` is sharded. May be negative to
+                count from the back (in the range ``[-rank, rank)`` following the
+                ONNX convention), when the rank of ``value`` is known.
+            num_shards: The number of shards along ``axis``. Must be ``>= 1``.
+            device_indices: Optional indices (into ``configuration.device_names``) of
+                the devices the tensor is placed on. These are device *indices*,
+                not the device *names* passed to
+                :meth:`Model.add_device_configuration`.
+            pipeline_stage: Optional pipeline stage for the configuration. Must be
+                ``>= 0`` and must not conflict with a stage already set on the
+                configuration.
+
+        Raises:
+            ValueError: If ``value`` is not an input or output of the node, if
+                ``num_shards < 1``, if ``pipeline_stage`` is negative, if ``axis``
+                is out of range when the rank of ``value`` is known, if ``value``
+                is already sharded along ``axis`` for this ``configuration``, or
+                if ``pipeline_stage`` conflicts with the configuration's existing
+                stage.
+        """
+        from onnx_ir import _multi_device
+
+        if value is None:
+            raise ValueError("Cannot shard a None value.")
+        if value not in set(self._inputs) | set(self._outputs):
+            raise ValueError(
+                f"Value {value!r} is not an input or output of node {self.name!r}; "
+                "only a node's own inputs or outputs can be sharded."
+            )
+        if num_shards < 1:
+            raise ValueError(f"num_shards must be >= 1, got {num_shards}.")
+        if pipeline_stage is not None and pipeline_stage < 0:
+            raise ValueError(f"pipeline_stage must be >= 0, got {pipeline_stage}.")
+        shape = value.shape
+        rank = len(shape) if shape is not None else None
+        if rank is not None and not -rank <= axis < rank:
+            raise ValueError(
+                f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
+            )
+        dim = shape[axis] if shape is not None else SymbolicDim(None)
+        new_dim = _multi_device.ShardedDim(
+            axis=axis,
+            simple_shardings=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
+        )
+        device_indices = tuple(device_indices)
+        new_spec = _multi_device.ShardingSpec(
+            value=value, device=device_indices, sharded_dims=(new_dim,)
+        )
+
+        def _normalize_axis(a: int) -> int:
+            # Treat axis -1 and axis rank-1 as the same axis when the rank is known.
+            return a + rank if (rank is not None and a < 0) else a
+
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if existing.configuration is not configuration:
+                continue
+            if (
+                pipeline_stage is not None
+                and existing.pipeline_stage is not None
+                and pipeline_stage != existing.pipeline_stage
+            ):
+                raise ValueError(
+                    f"Conflicting pipeline_stage for configuration "
+                    f"{configuration.name!r} on node {self.name!r}: existing "
+                    f"{existing.pipeline_stage}, new {pipeline_stage}."
+                )
+            stage = pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
+            specs = list(existing.sharding_specs)
+            for j, spec in enumerate(specs):
+                if spec.value is not value:
+                    continue
+                # Extend the existing spec for this value with another axis.
+                if any(
+                    _normalize_axis(sharded.axis) == _normalize_axis(axis)
+                    for sharded in spec.sharded_dims
+                ):
+                    raise ValueError(
+                        f"Value {value.name!r} is already sharded along axis {axis} "
+                        f"for configuration {configuration.name!r} on node {self.name!r}."
+                    )
+                merged_devices = (
+                    *spec.device,
+                    *(d for d in device_indices if d not in spec.device),
+                )
+                specs[j] = dataclasses.replace(
+                    spec,
+                    device=merged_devices,
+                    sharded_dims=(*spec.sharded_dims, new_dim),
+                )
+                break
+            else:
+                specs.append(new_spec)
+            configurations[i] = dataclasses.replace(
+                existing, sharding_specs=tuple(specs), pipeline_stage=stage
+            )
+            break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration,
+                    sharding_specs=(new_spec,),
+                    pipeline_stage=pipeline_stage,
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
+    def sharding_of(self, value: Value) -> tuple[ShardingSpec, ...]:
+        """Return all sharding specs on this node that target ``value``.
+
+        Matching is by object identity, so this returns the live specs that
+        reference exactly ``value``.
+        """
+        result = []
+        for configuration in self.device_configurations:
+            for spec in configuration.sharding_specs:
+                if spec.value is value:
+                    result.append(spec)
+        return tuple(result)
+
+    def _drop_sharding_for_value(self, value: Value) -> None:
+        """Drop any ShardingSpec on this node that targets ``value``.
+
+        Called when ``value`` stops being an input or output of the node (e.g.
+        after :meth:`replace_input_with` or :meth:`resize_outputs`), so that
+        ``device_configurations`` does not keep specs pointing at a value that is
+        no longer part of the node. No-op if ``value`` is still in the node's
+        inputs or outputs (it may be referenced more than once).
+        """
+        if not self.device_configurations:
+            return
+        if value in set(self._inputs) | set(self._outputs):
+            return
+        new_configurations = []
+        changed = False
+        for config in self.device_configurations:
+            kept = tuple(spec for spec in config.sharding_specs if spec.value is not value)
+            if len(kept) != len(config.sharding_specs):
+                new_configurations.append(dataclasses.replace(config, sharding_specs=kept))
+                changed = True
+            else:
+                new_configurations.append(config)
+        if changed:
+            self.device_configurations = tuple(new_configurations)
+
+    def set_pipeline_stage(self, configuration: ModelConfiguration, stage: int) -> None:
+        """Assign this node to a pipeline ``stage`` for ``configuration``.
+
+        This expresses pure device placement / pipeline parallelism — for
+        example putting a contiguous block of decoder layers on one device.
+        Unlike :meth:`shard`, it attaches no sharding spec; the node is placed
+        as a whole.
+
+        If the node already has a
+        :class:`~onnx_ir.NodeDeviceConfiguration` for ``configuration`` (for
+        example one created by :meth:`shard`), its ``pipeline_stage`` is updated
+        in place; otherwise a new placement-only configuration is created.
+        Calling this method again replaces the stage.
+
+        How a stage maps to a physical device is by convention: a common choice
+        is ``stage == device index`` into ``configuration.device_names``.
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
+                belongs to.
+            stage: The pipeline stage index. Must be ``>= 0``.
+
+        Raises:
+            ValueError: If ``stage`` is negative.
+        """
+        from onnx_ir import _multi_device
+
+        if stage < 0:
+            raise ValueError(f"pipeline stage must be >= 0, got {stage}.")
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if existing.configuration is configuration:
+                configurations[i] = dataclasses.replace(existing, pipeline_stage=stage)
+                break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration, pipeline_stage=stage
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
 
@@ -2718,6 +2963,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         print(f"Node: {self.name!r}")
         if self.doc_string:
             print(f"Doc: {self.doc_string}")
+        if self.device_configurations:
+            print(f"Device configurations: {len(self.device_configurations)}")
         super().display(page=page)
 
 
@@ -4216,6 +4463,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         "_functions",
         "_metadata",
         "_metadata_props",
+        "device_configurations",
         "doc_string",
         "domain",
         "graph",
@@ -4238,6 +4486,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: Documentation string.
         functions: The functions defined in the model.
         metadata_props: Metadata.
+        device_configurations: Multi-device configuration metadata for the model.
     """
 
     def __init__(
@@ -4252,6 +4501,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: str | None = None,
         functions: Sequence[Function] = (),
         metadata_props: dict[str, str] | None = None,
+        device_configurations: tuple[ModelConfiguration, ...] = (),
     ) -> None:
         self.graph: Graph = graph
         self.ir_version = ir_version
@@ -4263,6 +4513,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         self._functions = {func.identifier(): func for func in functions}
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
+        self.device_configurations: tuple[ModelConfiguration, ...] = device_configurations
 
     @property
     def functions(self) -> dict[_protocols.OperatorIdentifier, Function]:
@@ -4338,6 +4589,143 @@ Model(
         yield self.graph
         yield from self.graph.subgraphs()
 
+    def add_device_configuration(
+        self,
+        name: str,
+        *,
+        num_devices: int | None = None,
+        device_names: Sequence[str] = (),
+    ) -> ModelConfiguration:
+        """Create a :class:`~onnx_ir.ModelConfiguration` and register it on the model.
+
+        The returned object can be passed to :meth:`Node.shard` to bind node
+        shardings to this configuration.
+
+        Args:
+            name: A unique name for the configuration.
+            num_devices: The number of devices. Defaults to ``len(device_names)``.
+                Must be ``>= 1``.
+            device_names: Optional device names (e.g. ``("CPU", "CUDA:0")``).
+                These are human-readable *names*; the device *indices* used by
+                :meth:`Node.shard` index into this sequence. When provided, the
+                number of names must equal ``num_devices``.
+
+        Returns:
+            The newly created configuration, already appended to
+            :attr:`device_configurations`.
+
+        Raises:
+            ValueError: If a configuration with ``name`` already exists, if
+                ``name`` is empty, if ``num_devices < 1``, or if
+                ``device_names`` is given and its length does not equal
+                ``num_devices``.
+        """
+        from onnx_ir import _multi_device
+
+        if not name:
+            raise ValueError("Configuration name must be a non-empty string.")
+        for existing in self.device_configurations:
+            if existing.name == name:
+                raise ValueError(
+                    f"A device configuration named {name!r} already exists on the model."
+                )
+        device_names = tuple(device_names)
+        if num_devices is None:
+            num_devices = len(device_names)
+        if num_devices < 1:
+            raise ValueError(
+                f"num_devices must be >= 1 for a registered configuration, got {num_devices}."
+            )
+        if device_names and len(device_names) != num_devices:
+            raise ValueError(
+                f"device_names has {len(device_names)} entries but num_devices is "
+                f"{num_devices}; they must match when names are provided."
+            )
+        configuration = _multi_device.ModelConfiguration(
+            name=name, num_devices=num_devices, device_names=device_names
+        )
+        self.device_configurations = (*self.device_configurations, configuration)
+        return configuration
+
+    def remove_device_configuration(
+        self,
+        configuration: ModelConfiguration | str,
+        *,
+        cascade: bool = False,
+    ) -> ModelConfiguration:
+        """Remove a device configuration from the model.
+
+        This is the counterpart of :meth:`add_device_configuration`.
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` object to
+                remove, or the name of the configuration to remove.
+            cascade: When ``True``, also remove every
+                :class:`~onnx_ir.NodeDeviceConfiguration` that references this
+                configuration from all nodes in the model's graph and functions,
+                so that no dangling references remain. If removal was requested by
+                name, node configurations bound to any same-named configuration
+                object are dropped too; if requested by object, only that exact
+                object is matched. When ``False`` (default), node references are
+                left intact; they become dangling and can be detected by the
+                internal device-configuration checker.
+
+        Returns:
+            The removed configuration.
+
+        Raises:
+            ValueError: If no matching configuration is registered on the model.
+        """
+        if isinstance(configuration, str):
+            by_name = True
+            target: ModelConfiguration | None = None
+            for existing in self.device_configurations:
+                if existing.name == configuration:
+                    target = existing
+                    break
+            if target is None:
+                raise ValueError(
+                    f"No device configuration named {configuration!r} on the model."
+                )
+        else:
+            by_name = False
+            if not any(c is configuration for c in self.device_configurations):
+                raise ValueError(
+                    f"Configuration {configuration!r} is not registered on the model."
+                )
+            target = configuration
+
+        self.device_configurations = tuple(
+            c for c in self.device_configurations if c is not target
+        )
+
+        if cascade:
+            # When removal was requested by name, also drop node configurations
+            # bound to a same-named (but non-identical) configuration object, so
+            # no dangling same-named references are left behind. When requested by
+            # object, only that exact object is removed.
+            def _is_target(config: NodeDeviceConfiguration) -> bool:
+                if config.configuration is None:
+                    return False
+                if config.configuration is target:
+                    return True
+                return by_name and config.configuration.name == target.name
+
+            nodes: list[Node] = list(self.graph.all_nodes())
+            for func in self.functions.values():
+                nodes.extend(func.all_nodes())
+            for node in nodes:
+                device_configurations = node.device_configurations
+                if not device_configurations:
+                    continue
+                filtered = tuple(
+                    config for config in device_configurations if not _is_target(config)
+                )
+                if len(filtered) != len(device_configurations):
+                    node.device_configurations = filtered
+
+        return target
+
     def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
 
@@ -4367,6 +4755,7 @@ Model(
             doc_string=self.doc_string,
             functions=new_functions,
             metadata_props=dict(self.metadata_props),
+            device_configurations=self.device_configurations,
         )
 
         return new_model
