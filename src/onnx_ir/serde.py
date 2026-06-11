@@ -1954,7 +1954,10 @@ def serialize_graph_into(
             serialize_tensor_into(graph_proto.initializer.add(), from_=value.const_value)
         else:
             # Skip initializers without constant values
-            logger.warning("Initializer '%s' does not have a constant value set.", value.name)
+            if not isinstance(value.type, _core.SparseTensorType):
+                logger.warning(
+                    "Initializer '%s' does not have a constant value set.", value.name
+                )
     for node in from_:
         serialize_node_into(
             graph_proto.node.add(), from_=node, model_ir_version=model_ir_version
