@@ -1467,7 +1467,9 @@ class SparseTensorTest(unittest.TestCase):
 
     def _make_sparse_tensor_proto(self, name: str = "my_sparse") -> onnx.SparseTensorProto:
         """Create a simple SparseTensorProto for testing."""
-        values_proto = onnx.helper.make_tensor("", onnx.TensorProto.FLOAT, [3], [1.0, 2.0, 3.0])
+        values_proto = onnx.helper.make_tensor(
+            "", onnx.TensorProto.FLOAT, [3], [1.0, 2.0, 3.0]
+        )
         indices_proto = onnx.helper.make_tensor("", onnx.TensorProto.INT64, [3], [0, 2, 5])
         sparse_proto = onnx.helper.make_sparse_tensor(values_proto, indices_proto, [6])
         sparse_proto.values.name = name
@@ -1519,7 +1521,9 @@ class SparseTensorTest(unittest.TestCase):
     def test_sparse_tensor_attribute_roundtrip(self):
         proto = self._make_sparse_tensor_proto()
         sparse = serde.deserialize_sparse_tensor(proto)
-        node = ir.Node("", "TestOp", [], attributes=[ir.AttrSparseTensor("sparse_attr", sparse)])
+        node = ir.Node(
+            "", "TestOp", [], attributes=[ir.AttrSparseTensor("sparse_attr", sparse)]
+        )
         node_proto = serde.serialize_node(node)
         restored = serde.deserialize_node(node_proto)
         attr = restored.attributes["sparse_attr"]
@@ -1534,7 +1538,10 @@ class SparseTensorTest(unittest.TestCase):
         sparse1 = serde.deserialize_sparse_tensor(proto1)
         sparse2 = serde.deserialize_sparse_tensor(proto2)
         node = ir.Node(
-            "", "TestOp", [], attributes=[ir.AttrSparseTensors("sparse_attrs", [sparse1, sparse2])]
+            "",
+            "TestOp",
+            [],
+            attributes=[ir.AttrSparseTensors("sparse_attrs", [sparse1, sparse2])],
         )
         node_proto = serde.serialize_node(node)
         restored = serde.deserialize_node(node_proto)
@@ -1548,7 +1555,11 @@ class SparseTensorTest(unittest.TestCase):
                 [],
                 "test_graph",
                 [],
-                [onnx.helper.make_tensor_value_info("sparse_val", onnx.TensorProto.FLOAT, None)],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        "sparse_val", onnx.TensorProto.FLOAT, None
+                    )
+                ],
             ),
             opset_imports=[onnx.helper.make_opsetid("", 17)],
         )
@@ -1567,7 +1578,11 @@ class SparseTensorTest(unittest.TestCase):
                 [],
                 "test_graph",
                 [],
-                [onnx.helper.make_tensor_value_info("sparse_val", onnx.TensorProto.FLOAT, None)],
+                [
+                    onnx.helper.make_tensor_value_info(
+                        "sparse_val", onnx.TensorProto.FLOAT, None
+                    )
+                ],
             ),
             opset_imports=[onnx.helper.make_opsetid("", 17)],
         )
@@ -1638,7 +1653,11 @@ class SparseTensorTest(unittest.TestCase):
         with self.assertLogs("onnx_ir.serde", level="WARNING") as log_ctx:
             serde.serialize_model(model)
         warning_msgs = [r for r in log_ctx.output if "constant value" in r]
-        self.assertGreater(len(warning_msgs), 0, "Expected a warning for dense initializer without const_value")
+        self.assertGreater(
+            len(warning_msgs),
+            0,
+            "Expected a warning for dense initializer without const_value",
+        )
 
 
 if __name__ == "__main__":

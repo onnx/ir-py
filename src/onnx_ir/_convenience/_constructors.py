@@ -28,16 +28,14 @@ def tensor(
     dtype: ir.DataType | None = None,
     name: str | None = None,
     doc_string: str | None = None,
-) -> _protocols.TensorProtocol | _protocols.SparseTensorProtocol:
+) -> _protocols.TensorProtocol:
     """Create a tensor value from an ArrayLike object or a TensorProto.
 
     The dtype must match the value. Reinterpretation of the value is
     not supported, unless if the value is a plain Python object, in which case
     it is converted to a numpy array with the given dtype.
 
-    ``value`` can be a numpy array, a plain Python object, a TensorProto, or a
-    scipy sparse array. When ``value`` is a scipy sparse array, a
-    :class:`~onnx_ir.SparseTensor` is returned.
+    ``value`` can be a numpy array, a plain Python object, or a TensorProto.
 
     .. warning::
         For 4bit dtypes, the value must be unpacked. Use :class:`~onnx_ir.PackedTensor`
@@ -60,45 +58,23 @@ def tensor(
         >>> ir.tensor(torch.tensor([1.0, 2.0]), name="torch_tensor")
         TorchTensor<FLOAT,[2]>(tensor([1., 2.]), name='torch_tensor')
 
+    To create a sparse tensor from a scipy sparse array, use
+    :meth:`~onnx_ir.SparseTensor.from_scipy_sparse`.
+
     Args:
         value: The value to create the tensor from. Can be a numpy array, a plain
-            Python object, a TensorProto, or a scipy sparse array (any format;
-            converted to COO internally).
+            Python object, or a TensorProto.
         dtype: The data type of the tensor.
         name: The name of the tensor.
         doc_string: The documentation string of the tensor.
 
     Returns:
-        A :class:`~onnx_ir.Tensor` for dense inputs, or a
-        :class:`~onnx_ir.SparseTensor` when ``value`` is a scipy sparse array.
+        A :class:`~onnx_ir.Tensor` object.
 
     Raises:
         ValueError: If the dtype does not match the value when value is not a plain Python
             object like ``list[int]``.
     """
-    # Handle scipy sparse arrays before the TensorProtocol check so that scipy arrays
-    # are not accidentally handled by a different branch.
-    try:
-        import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
-
-        if isinstance(value, (_scipy_sparse.sparray, _scipy_sparse.spmatrix)):
-            coo = value.tocoo()
-            data: np.ndarray = np.asarray(coo.data)
-            values_tensor = _core.Tensor(
-                data, _enums.DataType.from_numpy(data.dtype), name=name
-            )
-            coords = coo.coords  # tuple of per-dimension index arrays
-            indices_array = np.stack(coords, axis=0).astype(np.int64)
-            indices_tensor = _core.Tensor(indices_array, _enums.DataType.INT64)
-            return _core.SparseTensor(
-                values_tensor,
-                indices_tensor,
-                list(value.shape),
-                doc_string=doc_string,
-            )
-    except ImportError:
-        pass
-
     if isinstance(value, _protocols.TensorProtocol):
         if dtype is not None and dtype != value.dtype:
             raise ValueError(

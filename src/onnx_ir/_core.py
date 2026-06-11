@@ -1342,18 +1342,18 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         name: Optional name for the sparse tensor. When used as an initializer, this
             name must match the corresponding graph value name. It is stored as the
             name of the ``values`` tensor to match the ONNX specification.
-        doc_string: Optional documentation string.
-        metadata_props: Optional metadata properties that will be serialized to the
-            ONNX proto.
         meta: Metadata store for graph transform passes (not serialized).
+
+    Note:
+        The ONNX ``SparseTensorProto`` only stores ``values``, ``indices`` and
+        ``dims``, so a sparse tensor has no serializable ``doc_string`` or
+        ``metadata_props``. Use :attr:`meta` for in-memory annotations.
     """
 
     __slots__ = (
         "_dims",
-        "_doc_string",
         "_indices",
         "_metadata",
-        "_metadata_props",
         "_values",
     )
 
@@ -1364,8 +1364,6 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         dims: Sequence[int],
         *,
         name: str | None = None,
-        doc_string: str | None = None,
-        metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a sparse tensor from explicit COO components.
 
@@ -1379,19 +1377,17 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             dims: The dense shape of the sparse tensor.
             name: Optional name for the sparse tensor.  When provided, this overrides
                 the name stored on the ``values`` tensor.
-            doc_string: Optional documentation string.
-            metadata_props: Optional metadata properties.
 
         Note:
             To construct a :class:`SparseTensor` from a scipy sparse array, use the
-            :func:`~onnx_ir.tensor` convenience function::
+            :meth:`from_scipy_sparse` classmethod::
 
-                sparse = ir.tensor(scipy_array, name="my_sparse")
+                sparse = ir.SparseTensor.from_scipy_sparse(scipy_array, name="my_sparse")
         """
         if not isinstance(values, _protocols.TensorProtocol):
             raise TypeError(
                 f"'values' must be a TensorProtocol, got {type(values)!r}. "
-                "To construct from a scipy sparse array, use ir.tensor()."
+                "To construct from a scipy sparse array, use SparseTensor.from_scipy_sparse()."
             )
         self._values: _protocols.TensorProtocol = values
         self._indices: _protocols.TensorProtocol = indices
@@ -1399,9 +1395,60 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         if name is not None:
             self._values.name = name  # type: ignore[misc]
 
-        self._doc_string = doc_string
         self._metadata: _metadata.MetadataStore | None = None
-        self._metadata_props: dict[str, str] | None = metadata_props
+
+    @classmethod
+    def from_scipy_sparse(
+        cls,
+        array: Any,
+        *,
+        name: str | None = None,
+    ) -> SparseTensor:
+        """Create a :class:`SparseTensor` from a ``scipy.sparse`` array.
+
+        The array can be in any scipy sparse format; it is converted to COO
+        internally. The dense shape is taken from the array's ``shape``.
+
+        Args:
+            array: A ``scipy.sparse`` array or matrix.
+            name: Optional name for the resulting sparse tensor.
+
+        Returns:
+            A :class:`SparseTensor` in COO format with 2-D ``[rank, NNZ]`` indices.
+
+        Raises:
+            ImportError: If ``scipy`` is not installed.
+            TypeError: If ``array`` is not a ``scipy.sparse`` array.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import scipy.sparse as sp
+            >>> import onnx_ir as ir
+            >>> coo = sp.coo_array((np.array([1.0, 2.0], dtype=np.float32), ([0, 1], [1, 0])), shape=(3, 3))
+            >>> sparse = ir.SparseTensor.from_scipy_sparse(coo, name="my_sparse")
+            >>> sparse.dims
+            [3, 3]
+        """
+        try:
+            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "scipy is required for SparseTensor.from_scipy_sparse(). "
+                "Install it with 'pip install scipy'."
+            ) from e
+
+        if not isinstance(array, (_scipy_sparse.sparray, _scipy_sparse.spmatrix)):
+            raise TypeError(
+                f"'array' must be a scipy.sparse array or matrix, got {type(array)!r}."
+            )
+
+        coo = array.tocoo()
+        data: np.ndarray = np.asarray(coo.data)
+        values_tensor = Tensor(data, _enums.DataType.from_numpy(data.dtype), name=name)
+        indices_array = np.stack(coo.coords, axis=0).astype(np.int64)
+        indices_tensor = Tensor(indices_array, _enums.DataType.INT64)
+        return cls(values_tensor, indices_tensor, list(array.shape))
 
     @property
     def name(self) -> str | None:
@@ -1432,27 +1479,11 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         return self._dims
 
     @property
-    def doc_string(self) -> str | None:
-        """The documentation string."""
-        return self._doc_string
-
-    @doc_string.setter
-    def doc_string(self, value: str | None) -> None:
-        self._doc_string = value
-
-    @property
-    def metadata_props(self) -> dict[str, str]:
-        """The metadata properties of the sparse tensor."""
-        if self._metadata_props is None:
-            self._metadata_props = {}
-        return self._metadata_props
-
-    @property
     def meta(self) -> _metadata.MetadataStore:
         """The metadata store for intermediate analysis.
 
-        Write to the :attr:`metadata_props` if you would like the metadata to be serialized
-        to the ONNX proto.
+        This is never serialized to the ONNX proto because the
+        ``SparseTensorProto`` has no field to hold it.
         """
         if self._metadata is None:
             self._metadata = _metadata.MetadataStore()
@@ -1508,9 +1539,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         else:
             # Shape [rank, NNZ] - each row is one dimension's indices
             coords = tuple(indices_array[i] for i in range(indices_array.shape[0]))
-        return _scipy_sparse.coo_array(
-            (values_array, coords), shape=tuple(self._dims)
-        )
+        return _scipy_sparse.coo_array((values_array, coords), shape=tuple(self._dims))
 
     def as_tensor(self, *, lazy: bool = False) -> TensorBase:
         """Convert this sparse tensor to a dense :class:`Tensor`.
@@ -1576,11 +1605,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
 
     def __repr__(self) -> str:
         return (
-            f"SparseTensor("
-            f"name={self.name!r}, "
-            f"dims={self._dims!r}, "
-            f"nnz={self._values.size!r}"
-            f")"
+            f"SparseTensor(name={self.name!r}, dims={self._dims!r}, nnz={self._values.size!r})"
         )
 
 

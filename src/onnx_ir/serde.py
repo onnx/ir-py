@@ -1947,7 +1947,9 @@ def serialize_graph_into(
         if value.const_sparse_value is not None:
             # Serialize sparse initializers into sparse_initializer
             value.const_sparse_value.name = value.name
-            serialize_sparse_tensor_into(graph_proto.sparse_initializer.add(), from_=value.const_sparse_value)
+            serialize_sparse_tensor_into(
+                graph_proto.sparse_initializer.add(), from_=value.const_sparse_value
+            )
         elif value.const_value is not None:
             # Make sure the tensor's name is the same as the value's name
             value.const_value.name = value.name
