@@ -27,13 +27,13 @@ class ConstructorsTest(unittest.TestCase):
         tensor = _constructors.tensor([], dtype=ir.DataType.FLOAT)
         np.testing.assert_array_equal(tensor.numpy(), np.array([], dtype=np.float32))
 
-    def test_tensor_returns_sparse_tensor_for_scipy_coo(self):
+    def test_from_scipy_sparse_coo(self):
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         data = np.array([1.0, 2.0], dtype=np.float32)
         coo = sp.coo_array((data, ([0, 1], [1, 0])), shape=(3, 3))
-        sparse = _constructors.tensor(coo, name="my_sparse")
+        sparse = ir.SparseTensor.from_scipy_sparse(coo, name="my_sparse")
         self.assertIsInstance(sparse, ir.SparseTensor)
         self.assertEqual(sparse.name, "my_sparse")
         self.assertEqual(sparse.dims, [3, 3])
@@ -42,34 +42,31 @@ class ConstructorsTest(unittest.TestCase):
             sparse.indices.numpy(), np.array([[0, 1], [1, 0]], dtype=np.int64)
         )
 
-    def test_tensor_returns_sparse_tensor_for_scipy_csr(self):
+    def test_from_scipy_sparse_csr(self):
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         csr = sp.eye(4, format="csr", dtype=np.float64)
-        sparse = _constructors.tensor(csr)
+        sparse = ir.SparseTensor.from_scipy_sparse(csr)
         self.assertIsInstance(sparse, ir.SparseTensor)
         self.assertEqual(sparse.dims, [4, 4])
         result = sparse.numpy()
         np.testing.assert_array_equal(result.toarray(), np.eye(4, dtype=np.float64))
 
-    def test_tensor_scipy_roundtrip(self):
+    def test_from_scipy_sparse_roundtrip(self):
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
         data = np.array([3.0, 7.0], dtype=np.float64)
         original = sp.coo_array((data, ([0, 2], [1, 0])), shape=(4, 3))
-        sparse = _constructors.tensor(original)
+        sparse = ir.SparseTensor.from_scipy_sparse(original)
         roundtripped = sparse.numpy()
         np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
 
-    def test_tensor_scipy_doc_string_is_set(self):
+    def test_from_scipy_sparse_rejects_dense_array(self):
         pytest.importorskip("scipy")
-        import scipy.sparse as sp
-
-        csr = sp.eye(2, format="csr", dtype=np.float32)
-        sparse = _constructors.tensor(csr, doc_string="my doc")
-        self.assertEqual(sparse.doc_string, "my doc")
+        with self.assertRaises(TypeError):
+            ir.SparseTensor.from_scipy_sparse(np.eye(2, dtype=np.float32))
 
 
 class ValueConstructorTest(unittest.TestCase):
