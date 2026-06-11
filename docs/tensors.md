@@ -79,7 +79,15 @@ Use {py:class}`onnx_ir.StringTensor <onnx_ir.StringTensor>` to create a string t
 
 ### Sparse Tensor
 
-Sparse tensors are not yet supported, but they are on our roadmap.
+Use {py:class}`onnx_ir.SparseTensor <onnx_ir.SparseTensor>` to create and work with sparse tensors in COO
+(coordinate) format, following the ONNX ``SparseTensorProto`` specification.
+
+A sparse tensor stores only the non-zero values and their indices, along with the dense shape. It can be:
+
+- Deserialized from an ``onnx.SparseTensorProto`` using {py:func}`onnx_ir.serde.deserialize_sparse_tensor <onnx_ir.serde.deserialize_sparse_tensor>`.
+- Serialized to an ``onnx.SparseTensorProto`` using {py:func}`onnx_ir.serde.serialize_sparse_tensor <onnx_ir.serde.serialize_sparse_tensor>`.
+- Used as a sparse initializer by setting ``value.const_value = sparse_tensor`` for a graph value registered as an initializer.
+- Used in node attributes via {py:func}`onnx_ir.AttrSparseTensor <onnx_ir.AttrSparseTensor>` and {py:func}`onnx_ir.AttrSparseTensors <onnx_ir.AttrSparseTensors>`.
 
 ## From `TensorProto`s and back
 

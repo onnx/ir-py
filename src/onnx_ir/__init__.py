@@ -13,6 +13,7 @@ __all__ = [
     # IR classes
     "Tensor",
     "ExternalTensor",
+    "SparseTensor",
     "StringTensor",
     "LazyTensor",
     "PackedTensor",
@@ -139,6 +140,7 @@ from onnx_ir._core import (
     RefAttr,
     SequenceType,
     Shape,
+    SparseTensor,
     SparseTensorType,
     StringTensor,
     SymbolicDim,

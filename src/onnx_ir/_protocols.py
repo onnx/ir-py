@@ -187,7 +187,7 @@ class ValueProtocol(Protocol):
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
     doc_string: str | None
-    const_value: TensorProtocol | None
+    const_value: TensorProtocol | SparseTensorProtocol | None
 
     def producer(self) -> NodeProtocol | None:
         """The node that produces this value."""
