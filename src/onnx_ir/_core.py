@@ -1359,76 +1359,45 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
 
     def __init__(
         self,
-        values: _protocols.TensorProtocol | Any,
-        indices: _protocols.TensorProtocol | None = None,
-        dims: Sequence[int] | None = None,
+        values: _protocols.TensorProtocol,
+        indices: _protocols.TensorProtocol,
+        dims: Sequence[int],
         *,
         name: str | None = None,
         doc_string: str | None = None,
         metadata_props: dict[str, str] | None = None,
     ) -> None:
-        """Initialize a sparse tensor.
-
-        The sparse tensor can be created in two ways:
-
-        1. From explicit COO components (``values``, ``indices``, ``dims``).
-        2. From a **scipy sparse array** (``scipy.sparse.sparray`` or
-           ``scipy.sparse.spmatrix``), in which case ``indices`` and ``dims``
-           are derived from the sparse array automatically.
+        """Initialize a sparse tensor from explicit COO components.
 
         Args:
-            values: Either a :class:`TensorProtocol` containing the non-zero values,
-                or a scipy sparse array (any format; it will be converted to COO
-                internally).  When a :class:`TensorProtocol` is provided, ``indices``
-                and ``dims`` must also be given.  The name of the ``values`` tensor
-                is used as the name of the sparse tensor (per the ONNX specification)
-                unless ``name`` is explicitly supplied.
+            values: A :class:`TensorProtocol` containing the non-zero values.
+                The name of the ``values`` tensor is used as the name of the sparse
+                tensor (per the ONNX specification) unless ``name`` is explicitly
+                supplied.
             indices: A tensor of ``INT64`` containing the indices of the non-zero
-                values.  Required when ``values`` is a :class:`TensorProtocol`;
-                ignored when ``values`` is a scipy sparse array.
-            dims: The dense shape of the sparse tensor.  Required when ``values``
-                is a :class:`TensorProtocol``; inferred from the scipy array shape
-                otherwise.
-            name: Optional name for the sparse tensor.  When ``values`` is a
-                :class:`TensorProtocol`, this overrides the name stored on that
-                tensor.  When constructing from a scipy sparse array, this sets
-                the name on the internally created ``values`` tensor.
+                values.
+            dims: The dense shape of the sparse tensor.
+            name: Optional name for the sparse tensor.  When provided, this overrides
+                the name stored on the ``values`` tensor.
             doc_string: Optional documentation string.
             metadata_props: Optional metadata properties.
+
+        Note:
+            To construct a :class:`SparseTensor` from a scipy sparse array, use the
+            :func:`~onnx_ir.tensor` convenience function::
+
+                sparse = ir.tensor(scipy_array, name="my_sparse")
         """
-        try:
-            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
-
-            _is_scipy = isinstance(values, (_scipy_sparse.sparray, _scipy_sparse.spmatrix))
-        except ImportError:
-            _is_scipy = False
-
-        if _is_scipy:
-            # Convert scipy sparse to COO and extract components
-            coo = values.tocoo()  # type: ignore[union-attr]
-            data: np.ndarray = np.asarray(coo.data)
-            dtype = _enums.DataType.from_numpy(data.dtype)
-            coords = coo.coords  # tuple of per-dimension index arrays
-            indices_array = np.stack(coords, axis=0).astype(np.int64)
-            self._values: _protocols.TensorProtocol = Tensor(data, dtype, name=name)
-            self._indices: _protocols.TensorProtocol = Tensor(
-                indices_array, _enums.DataType.INT64
+        if not isinstance(values, _protocols.TensorProtocol):
+            raise TypeError(
+                f"'values' must be a TensorProtocol, got {type(values)!r}. "
+                "To construct from a scipy sparse array, use ir.tensor()."
             )
-            self._dims: list[int] = list(values.shape)  # type: ignore[union-attr]
-        else:
-            if not isinstance(values, _protocols.TensorProtocol):
-                raise TypeError(
-                    f"'values' must be a TensorProtocol or a scipy sparse array, got {type(values)!r}"
-                )
-            if indices is None:
-                raise TypeError("'indices' must be provided when 'values' is a TensorProtocol")
-            if dims is None:
-                raise TypeError("'dims' must be provided when 'values' is a TensorProtocol")
-            self._values = values
-            self._indices = indices
-            self._dims = list(dims)
-            if name is not None:
-                self._values.name = name  # type: ignore[misc]
+        self._values: _protocols.TensorProtocol = values
+        self._indices: _protocols.TensorProtocol = indices
+        self._dims: list[int] = list(dims)
+        if name is not None:
+            self._values.name = name  # type: ignore[misc]
 
         self._doc_string = doc_string
         self._metadata: _metadata.MetadataStore | None = None
