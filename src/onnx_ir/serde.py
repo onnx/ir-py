@@ -1468,7 +1468,7 @@ def _deserialize_simple_sharded_dim(
 def _deserialize_sharded_dim(proto: onnx.ShardedDimProto) -> _multi_device.ShardedDim:
     return _multi_device.ShardedDim(
         axis=proto.axis,
-        simple_sharding=tuple(
+        simple_shardings=tuple(
             _deserialize_simple_sharded_dim(simple_sharding)
             for simple_sharding in proto.simple_sharding
         ),
@@ -1485,7 +1485,7 @@ def _deserialize_sharding_spec(
             _multi_device.IndexToDeviceGroupMapEntry(key=entry.key, value=tuple(entry.value))
             for entry in proto.index_to_device_group_map
         ),
-        sharded_dim=tuple(_deserialize_sharded_dim(dim) for dim in proto.sharded_dim),
+        sharded_dims=tuple(_deserialize_sharded_dim(dim) for dim in proto.sharded_dim),
     )
 
 
@@ -1517,7 +1517,7 @@ def deserialize_node_device_configuration(
     pipeline_stage = proto.pipeline_stage if proto.HasField("pipeline_stage") else None
     return _multi_device.NodeDeviceConfiguration(
         configuration=configuration,
-        sharding_spec=tuple(
+        sharding_specs=tuple(
             _deserialize_sharding_spec(spec, values) for spec in proto.sharding_spec
         ),
         pipeline_stage=pipeline_stage,
@@ -1612,7 +1612,7 @@ def _serialize_simple_sharded_dim(
 def _serialize_sharded_dim(sharded_dim: _multi_device.ShardedDim) -> onnx.ShardedDimProto:
     proto = onnx.ShardedDimProto()
     proto.axis = sharded_dim.axis
-    for simple_sharding in sharded_dim.simple_sharding:
+    for simple_sharding in sharded_dim.simple_shardings:
         proto.simple_sharding.append(_serialize_simple_sharded_dim(simple_sharding))
     return proto
 
@@ -1637,7 +1637,7 @@ def _serialize_sharding_spec(
         map_entry = proto.index_to_device_group_map.add()
         map_entry.key = entry.key
         map_entry.value.extend(entry.value)
-    for sharded_dim in sharding_spec.sharded_dim:
+    for sharded_dim in sharding_spec.sharded_dims:
         proto.sharded_dim.append(_serialize_sharded_dim(sharded_dim))
     return proto
 
@@ -1657,7 +1657,7 @@ def serialize_node_device_configuration(
             f"no name. Configuration: {node_device_configuration.configuration!r}"
         )
     proto.configuration_id = name
-    for sharding_spec in node_device_configuration.sharding_spec:
+    for sharding_spec in node_device_configuration.sharding_specs:
         proto.sharding_spec.append(_serialize_sharding_spec(sharding_spec))
     if node_device_configuration.pipeline_stage is not None:
         proto.pipeline_stage = node_device_configuration.pipeline_stage

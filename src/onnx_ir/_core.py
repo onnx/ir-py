@@ -2552,11 +2552,11 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         dim = shape[axis] if shape is not None else SymbolicDim(None)
         new_dim = _multi_device.ShardedDim(
             axis=axis,
-            simple_sharding=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
+            simple_shardings=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
         )
         device_indices = tuple(device_indices)
         new_spec = _multi_device.ShardingSpec(
-            value=value, device=device_indices, sharded_dim=(new_dim,)
+            value=value, device=device_indices, sharded_dims=(new_dim,)
         )
 
         def _normalize_axis(a: int) -> int:
@@ -2578,14 +2578,14 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     f"{existing.pipeline_stage}, new {pipeline_stage}."
                 )
             stage = pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
-            specs = list(existing.sharding_spec)
+            specs = list(existing.sharding_specs)
             for j, spec in enumerate(specs):
                 if spec.value is not value:
                     continue
                 # Extend the existing spec for this value with another axis.
                 if any(
                     _normalize_axis(sharded.axis) == _normalize_axis(axis)
-                    for sharded in spec.sharded_dim
+                    for sharded in spec.sharded_dims
                 ):
                     raise ValueError(
                         f"Value {value.name!r} is already sharded along axis {axis} "
@@ -2598,20 +2598,20 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 specs[j] = dataclasses.replace(
                     spec,
                     device=merged_devices,
-                    sharded_dim=(*spec.sharded_dim, new_dim),
+                    sharded_dims=(*spec.sharded_dims, new_dim),
                 )
                 break
             else:
                 specs.append(new_spec)
             configurations[i] = dataclasses.replace(
-                existing, sharding_spec=tuple(specs), pipeline_stage=stage
+                existing, sharding_specs=tuple(specs), pipeline_stage=stage
             )
             break
         else:
             configurations.append(
                 _multi_device.NodeDeviceConfiguration(
                     configuration=configuration,
-                    sharding_spec=(new_spec,),
+                    sharding_specs=(new_spec,),
                     pipeline_stage=pipeline_stage,
                 )
             )
@@ -2625,7 +2625,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         """
         result = []
         for configuration in self.device_configurations:
-            for spec in configuration.sharding_spec:
+            for spec in configuration.sharding_specs:
                 if spec.value is value:
                     result.append(spec)
         return tuple(result)
@@ -2646,9 +2646,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         new_configurations = []
         changed = False
         for config in self.device_configurations:
-            kept = tuple(spec for spec in config.sharding_spec if spec.value is not value)
-            if len(kept) != len(config.sharding_spec):
-                new_configurations.append(dataclasses.replace(config, sharding_spec=kept))
+            kept = tuple(spec for spec in config.sharding_specs if spec.value is not value)
+            if len(kept) != len(config.sharding_specs):
+                new_configurations.append(dataclasses.replace(config, sharding_specs=kept))
                 changed = True
             else:
                 new_configurations.append(config)

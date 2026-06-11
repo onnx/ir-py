@@ -1156,13 +1156,13 @@ class NodeSerializationTest(unittest.TestCase):
         self.assertEqual(config.pipeline_stage, 1)
         # Configuration is a placeholder carrying the id (no model post-pass here).
         self.assertEqual(config.configuration.name, "conf0")
-        spec = config.sharding_spec[0]
+        spec = config.sharding_specs[0]
         self.assertIs(spec.value, node.inputs[0])
         self.assertEqual(spec.value.name, "x")
         self.assertEqual(spec.device, (0, 1))
-        self.assertEqual(spec.sharded_dim[0].axis, 0)
-        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, 4)
-        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].num_shards, 2)
+        self.assertEqual(spec.sharded_dims[0].axis, 0)
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].dim, 4)
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].num_shards, 2)
 
         # sharding_of returns the live spec for the value.
         self.assertEqual(node.sharding_of(node.inputs[0]), (spec,))
@@ -1196,7 +1196,7 @@ class NodeSerializationTest(unittest.TestCase):
         # configuration_id resolved to the actual model configuration object.
         self.assertIs(new_config.configuration, deserialized.device_configurations[0])
         # tensor_name resolved to the actual node input value object.
-        self.assertIs(new_config.sharding_spec[0].value, new_node.inputs[0])
+        self.assertIs(new_config.sharding_specs[0].value, new_node.inputs[0])
         self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
 
     @unittest.skipUnless(
@@ -1215,7 +1215,7 @@ class NodeSerializationTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
 
@@ -1300,8 +1300,8 @@ class NodeSerializationTest(unittest.TestCase):
         node.shard(x, configuration=conf, axis=-1, num_shards=2)
 
         deserialized = serde.deserialize_model(serde.serialize_model(model))
-        spec = deserialized.graph[0].device_configurations[0].sharding_spec[0]
-        self.assertEqual(spec.sharded_dim[0].axis, -1)
+        spec = deserialized.graph[0].device_configurations[0].sharding_specs[0]
+        self.assertEqual(spec.sharded_dims[0].axis, -1)
         self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
 
     @unittest.skipUnless(
@@ -1341,7 +1341,7 @@ class NodeSerializationTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration(name="conf0", num_devices=2),
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(0, 1),
@@ -1351,10 +1351,10 @@ class NodeSerializationTest(unittest.TestCase):
                                 value=(0, 1),
                             ),
                         ),
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=0,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(
                                         dim=ir.SymbolicDim("BATCH"),
                                         num_shards=2,
@@ -1397,7 +1397,7 @@ class NodeSerializationTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         with self.assertRaises(serde.SerdeError):

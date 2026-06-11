@@ -44,14 +44,14 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         x = ir.Value(name="x")
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration(name="conf0", num_devices=2),
-            sharding_spec=(
+            sharding_specs=(
                 _multi_device.ShardingSpec(
                     value=x,
                     device=(0, 1),
-                    sharded_dim=(
+                    sharded_dims=(
                         _multi_device.ShardedDim(
                             axis=0,
-                            simple_sharding=(
+                            simple_shardings=(
                                 _multi_device.SimpleShardedDim(dim=4, num_shards=2),
                             ),
                         ),
@@ -82,7 +82,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         result = serde.deserialize_node_device_configuration(proto, values={"x": x})
 
         # The spec is bound to the actual value object.
-        self.assertIs(result.sharding_spec[0].value, x)
+        self.assertIs(result.sharding_specs[0].value, x)
         # The configuration is a placeholder carrying the id.
         self.assertEqual(result.configuration.name, "conf0")
 
@@ -99,7 +99,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         result = serde.deserialize_node_device_configuration(proto, values={})
 
         # A placeholder value carrying the name keeps the round-trip lossless.
-        self.assertEqual(result.sharding_spec[0].value.name, "missing")
+        self.assertEqual(result.sharding_specs[0].value.name, "missing")
         reserialized = serde.serialize_node_device_configuration(result)
         self.assertEqual(reserialized.sharding_spec[0].tensor_name, "missing")
 
@@ -111,13 +111,13 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
         x = ir.Value(name="x")
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration(name="conf0", num_devices=2),
-            sharding_spec=(
+            sharding_specs=(
                 _multi_device.ShardingSpec(
                     value=x,
-                    sharded_dim=(
+                    sharded_dims=(
                         _multi_device.ShardedDim(
                             axis=0,
-                            simple_sharding=(
+                            simple_shardings=(
                                 _multi_device.SimpleShardedDim(
                                     dim=ir.SymbolicDim("BATCH"),
                                     num_shards=2,
@@ -141,7 +141,7 @@ class NodeDeviceConfigurationSerdeTest(unittest.TestCase):
     def test_serialize_unnamed_value_raises(self):
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
-            sharding_spec=(_multi_device.ShardingSpec(value=ir.Value(name="")),),
+            sharding_specs=(_multi_device.ShardingSpec(value=ir.Value(name="")),),
         )
         with self.assertRaises(ValueError):
             serde.serialize_node_device_configuration(config)
@@ -169,8 +169,8 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertEqual(len(specs), 1)
         self.assertIs(specs[0].value, x)
         # dim is inferred from the value's static shape (4 at axis 0).
-        self.assertEqual(specs[0].sharded_dim[0].simple_sharding[0].dim, 4)
-        self.assertEqual(specs[0].sharded_dim[0].simple_sharding[0].num_shards, 2)
+        self.assertEqual(specs[0].sharded_dims[0].simple_shardings[0].dim, 4)
+        self.assertEqual(specs[0].sharded_dims[0].simple_shardings[0].num_shards, 2)
 
     def test_shard_groups_specs_under_same_configuration(self):
         model, node, x = _identity_model()
@@ -180,7 +180,7 @@ class ConvenienceApiTest(unittest.TestCase):
         node.shard(y, configuration=conf, axis=0, num_shards=2)
         # Two different values -> two specs under a single NodeDeviceConfiguration.
         self.assertEqual(len(node.device_configurations), 1)
-        self.assertEqual(len(node.device_configurations[0].sharding_spec), 2)
+        self.assertEqual(len(node.device_configurations[0].sharding_specs), 2)
 
     def test_shard_same_value_multiple_axes_builds_one_spec(self):
         # Sharding the same value along two axes (a 2D device mesh) produces a
@@ -195,7 +195,7 @@ class ConvenienceApiTest(unittest.TestCase):
 
         specs = node.sharding_of(x)
         self.assertEqual(len(specs), 1)
-        self.assertEqual([d.axis for d in specs[0].sharded_dim], [0, 1])
+        self.assertEqual([d.axis for d in specs[0].sharded_dims], [0, 1])
         self.assertEqual(specs[0].device, (0, 1, 2, 3))
 
     def test_shard_same_value_unions_devices(self):
@@ -240,9 +240,9 @@ class ConvenienceApiTest(unittest.TestCase):
         conf = model.add_device_configuration("conf0", num_devices=2)
         node.shard(x, configuration=conf, axis=-1, num_shards=2)
         spec = node.sharding_of(x)[0]
-        self.assertEqual(spec.sharded_dim[0].axis, -1)
+        self.assertEqual(spec.sharded_dims[0].axis, -1)
         # The dim is resolved from the last axis (size 8).
-        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, 8)
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].dim, 8)
         self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_shard_negative_axis_aliases_positive(self):
@@ -287,7 +287,7 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertIs(config.configuration, conf)
         self.assertEqual(config.pipeline_stage, 0)
         # No sharding is attached for a pure placement.
-        self.assertEqual(config.sharding_spec, ())
+        self.assertEqual(config.sharding_specs, ())
         self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_set_pipeline_stage_overwrites(self):
@@ -313,7 +313,7 @@ class ConvenienceApiTest(unittest.TestCase):
         self.assertEqual(len(node.device_configurations), 1)
         config = node.device_configurations[0]
         self.assertEqual(config.pipeline_stage, 3)
-        self.assertEqual(len(config.sharding_spec), 1)
+        self.assertEqual(len(config.sharding_specs), 1)
 
     def test_set_pipeline_stage_preserved_by_later_shard(self):
         model, node, x = _identity_model()
@@ -362,7 +362,7 @@ class ConvenienceApiTest(unittest.TestCase):
         conf = model.add_device_configuration("conf0", device_names=("CPU",))
         node.shard(x, configuration=conf, axis=3, num_shards=2)
         spec = node.sharding_of(x)[0]
-        self.assertEqual(spec.sharded_dim[0].simple_sharding[0].dim, ir.SymbolicDim(None))
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].dim, ir.SymbolicDim(None))
 
     def test_shard_updates_pipeline_stage_on_existing_configuration(self):
         model, node, x = _identity_model()
@@ -472,7 +472,7 @@ class ConvenienceApiTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=imposter,
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         model.remove_device_configuration("conf0", cascade=True)
@@ -487,7 +487,7 @@ class ConvenienceApiTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=imposter,
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         model.remove_device_configuration(registered, cascade=True)
@@ -516,7 +516,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=stray,
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -533,14 +533,14 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=imposter,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(50,),  # in range for imposter, not for registered
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=0,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -562,7 +562,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(_multi_device.ShardingSpec(value=foreign),),
+                sharding_specs=(_multi_device.ShardingSpec(value=foreign),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -574,14 +574,14 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(5,),  # only 2 devices
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=9,  # rank is 2
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -602,7 +602,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(-1,),
@@ -621,7 +621,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(-1,),
@@ -644,7 +644,7 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         device=(-1, -2),
@@ -652,10 +652,10 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
                             _multi_device.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
                             _multi_device.IndexToDeviceGroupMapEntry(key=-2, value=(2, 3)),
                         ),
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=0,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -672,13 +672,13 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=-1,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -695,13 +695,13 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=-3,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -719,20 +719,20 @@ class CheckDeviceConfigurationsTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
                         # axis 0 and axis -2 are the same axis on a rank-2 tensor.
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=0,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
                             _multi_device.ShardedDim(
                                 axis=-2,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=2),
                                 ),
                             ),
@@ -754,7 +754,7 @@ class CloneTest(unittest.TestCase):
 
         cloned = model.clone()
         cloned_node = cloned.graph[0]
-        specs = cloned_node.device_configurations[0].sharding_spec
+        specs = cloned_node.device_configurations[0].sharding_specs
         # Sharding points at the cloned graph's values, not the originals.
         self.assertIs(specs[0].value, cloned_node.inputs[0])
         self.assertIs(specs[1].value, cloned_node.outputs[0])
@@ -775,14 +775,14 @@ class CloneTest(unittest.TestCase):
         original = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
+                sharding_specs=(_multi_device.ShardingSpec(value=None, device=(0,)),),
             ),
         )
         node.device_configurations = original
         cloned = model.clone()
         cloned_config = cloned.graph[0].device_configurations[0]
-        self.assertIsNone(cloned_config.sharding_spec[0].value)
-        self.assertEqual(cloned_config.sharding_spec[0].device, (0,))
+        self.assertIsNone(cloned_config.sharding_specs[0].value)
+        self.assertEqual(cloned_config.sharding_specs[0].device, (0,))
 
     def test_clone_drops_spec_when_value_is_dropped(self):
         # When the cloner is told a value maps to None (intentionally dropped),
@@ -799,7 +799,7 @@ class CloneTest(unittest.TestCase):
             metadata_props={},
         )
         cloned_configs = cloner._remap_device_configurations(node.device_configurations)
-        self.assertEqual(cloned_configs[0].sharding_spec, ())
+        self.assertEqual(cloned_configs[0].sharding_specs, ())
 
 
 class NodeReprTest(unittest.TestCase):
@@ -826,7 +826,7 @@ class GraphMutationTest(unittest.TestCase):
         node.replace_input_with(0, z)
 
         self.assertEqual(node.sharding_of(x), ())
-        self.assertEqual(node.device_configurations[0].sharding_spec, ())
+        self.assertEqual(node.device_configurations[0].sharding_specs, ())
         self.assertEqual(_multi_device._check_device_configurations(model), [])
 
     def test_replace_input_keeps_sharding_when_value_still_referenced(self):
@@ -870,13 +870,13 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         # The default dim (SymbolicDim(None)) sets neither dim_value nor dim_param.
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
-            sharding_spec=(
+            sharding_specs=(
                 _multi_device.ShardingSpec(
                     value=ir.Value(name="x"),
-                    sharded_dim=(
+                    sharded_dims=(
                         _multi_device.ShardedDim(
                             axis=0,
-                            simple_sharding=(_multi_device.SimpleShardedDim(num_shards=2),),
+                            simple_shardings=(_multi_device.SimpleShardedDim(num_shards=2),),
                         ),
                     ),
                 ),
@@ -895,13 +895,13 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
     def test_serialize_skips_symbolic_dim_without_value(self):
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
-            sharding_spec=(
+            sharding_specs=(
                 _multi_device.ShardingSpec(
                     value=ir.Value(name="x"),
-                    sharded_dim=(
+                    sharded_dims=(
                         _multi_device.ShardedDim(
                             axis=0,
-                            simple_sharding=(
+                            simple_shardings=(
                                 _multi_device.SimpleShardedDim(
                                     dim=ir.SymbolicDim(None), num_shards=1
                                 ),
@@ -929,7 +929,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         sharded.simple_sharding.add(num_shards=1)  # neither dim_value nor dim_param
 
         result = serde.deserialize_node_device_configuration(proto)
-        simple = result.sharding_spec[0].sharded_dim[0].simple_sharding
+        simple = result.sharding_specs[0].sharded_dims[0].simple_shardings
         self.assertEqual(simple[0].dim, ir.SymbolicDim("BATCH"))
         self.assertEqual(simple[1].dim, ir.SymbolicDim(None))
 
@@ -941,7 +941,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         proto = onnx.NodeDeviceConfigurationProto()
         proto.sharding_spec.add()  # tensor_name left empty
         result = serde.deserialize_node_device_configuration(proto, values={})
-        self.assertIsNone(result.sharding_spec[0].value)
+        self.assertIsNone(result.sharding_specs[0].value)
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
@@ -953,7 +953,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
         spec.tensor_name = "x"
         # values defaults to None -> treated as empty mapping.
         result = serde.deserialize_node_device_configuration(proto)
-        self.assertEqual(result.sharding_spec[0].value.name, "x")
+        self.assertEqual(result.sharding_specs[0].value.name, "x")
 
     @unittest.skipUnless(
         hasattr(onnx.NodeProto(), "device_configurations"),
@@ -962,7 +962,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
     def test_serialize_spec_without_value_raises(self):
         config = _multi_device.NodeDeviceConfiguration(
             configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
-            sharding_spec=(_multi_device.ShardingSpec(value=None, device=(0,)),),
+            sharding_specs=(_multi_device.ShardingSpec(value=None, device=(0,)),),
         )
         with self.assertRaises(ValueError):
             serde.serialize_node_device_configuration(config)
@@ -970,7 +970,7 @@ class SerdeHelperEdgeCaseTest(unittest.TestCase):
     def test_serialize_configuration_none_raises(self):
         config = _multi_device.NodeDeviceConfiguration(
             configuration=None,
-            sharding_spec=(),
+            sharding_specs=(),
         )
         with self.assertRaises(ValueError):
             serde.serialize_node_device_configuration(config)
@@ -1009,7 +1009,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         fnode.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),
-                sharding_spec=(_multi_device.ShardingSpec(value=fx),),
+                sharding_specs=(_multi_device.ShardingSpec(value=fx),),
             ),
         )
         model.functions[func.identifier()] = func
@@ -1041,7 +1041,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=None,
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -1052,7 +1052,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=_multi_device.ModelConfiguration("", num_devices=1),
-                sharding_spec=(_multi_device.ShardingSpec(value=x),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -1064,7 +1064,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(_multi_device.ShardingSpec(value=None),),
+                sharding_specs=(_multi_device.ShardingSpec(value=None),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -1078,7 +1078,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(_multi_device.ShardingSpec(value=unnamed),),
+                sharding_specs=(_multi_device.ShardingSpec(value=unnamed),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)
@@ -1090,13 +1090,13 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=conf,
-                sharding_spec=(
+                sharding_specs=(
                     _multi_device.ShardingSpec(
                         value=x,
-                        sharded_dim=(
+                        sharded_dims=(
                             _multi_device.ShardedDim(
                                 axis=0,
-                                simple_sharding=(
+                                simple_shardings=(
                                     _multi_device.SimpleShardedDim(num_shards=0),
                                 ),
                             ),
@@ -1115,7 +1115,7 @@ class CheckEdgeCaseTest(unittest.TestCase):
         node.device_configurations = (
             _multi_device.NodeDeviceConfiguration(
                 configuration=None,
-                sharding_spec=(_multi_device.ShardingSpec(value=x, device=(99,)),),
+                sharding_specs=(_multi_device.ShardingSpec(value=x, device=(99,)),),
             ),
         )
         errors = _multi_device._check_device_configurations(model)

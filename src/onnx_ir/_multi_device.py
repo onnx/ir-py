@@ -131,7 +131,7 @@ class ShardedDim:
     negative values count from the back (``-1`` is the last axis).
     """
 
-    simple_sharding: tuple[SimpleShardedDim, ...] = ()
+    simple_shardings: tuple[SimpleShardedDim, ...] = ()
     """How the axis is divided, as a tuple of :class:`SimpleShardedDim`.
 
     The common case is a single entry. Multiple entries are used when a reshape
@@ -175,7 +175,7 @@ class ShardingSpec:
     devices; direct device indices do not need an entry.
     """
 
-    sharded_dim: tuple[ShardedDim, ...] = ()
+    sharded_dims: tuple[ShardedDim, ...] = ()
     """One :class:`ShardedDim` per axis that is split.
 
     Axes not listed here are replicated across the devices in :attr:`device`. An
@@ -203,7 +203,7 @@ class NodeDeviceConfiguration:
     declared configurations. ``None`` leaves it unspecified.
     """
 
-    sharding_spec: tuple[ShardingSpec, ...] = ()
+    sharding_specs: tuple[ShardingSpec, ...] = ()
     """The :class:`ShardingSpec` entries for this node's tensors.
 
     At most one per sharded input/output value. An empty tuple means the node is
@@ -293,7 +293,7 @@ def _check_device_configurations(model: _core.Model) -> list[str]:
                     num_devices = registered.num_devices
                 else:
                     num_devices = registered.num_devices
-            for spec in config.sharding_spec:
+            for spec in config.sharding_specs:
                 _check_sharding_spec(spec, node, node_io, num_devices, errors)
 
     return errors
@@ -325,7 +325,7 @@ def _check_sharding_spec(
         return axis + rank if (rank is not None and axis < 0) else axis
 
     seen_axes: set[int] = set()
-    for sharded_dim in spec.sharded_dim:
+    for sharded_dim in spec.sharded_dims:
         # ONNX allows negative axes in the range [-rank, rank - 1].
         if rank is not None and not -rank <= sharded_dim.axis < rank:
             errors.append(
@@ -340,7 +340,7 @@ def _check_sharding_spec(
                     f"axis {sharded_dim.axis} more than once."
                 )
             seen_axes.add(normalized)
-        for simple in sharded_dim.simple_sharding:
+        for simple in sharded_dim.simple_shardings:
             if simple.num_shards < 1:
                 errors.append(
                     f"Node '{label}': num_shards={simple.num_shards} for value "

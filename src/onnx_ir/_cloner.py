@@ -238,7 +238,7 @@ class Cloner:
         for configuration in device_configurations:
             new_specs = []
             spec_changed = False
-            for spec in configuration.sharding_spec:
+            for spec in configuration.sharding_specs:
                 if spec.value is None or spec.value not in self._value_map:
                     # No mapping (e.g. an outer-scope value): keep as-is.
                     new_specs.append(spec)
@@ -253,7 +253,7 @@ class Cloner:
                 spec_changed = True
             if spec_changed:
                 new_configurations.append(
-                    dataclasses.replace(configuration, sharding_spec=tuple(new_specs))
+                    dataclasses.replace(configuration, sharding_specs=tuple(new_specs))
                 )
                 changed = True
             else:
