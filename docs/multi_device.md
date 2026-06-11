@@ -62,8 +62,8 @@ specs that target a particular value (matched by object identity). Calling
 | --- | --- | --- |
 | Split a tensor along one axis | `node.shard(value, configuration=…, axis=…, num_shards=…)` | *Common sharding patterns* |
 | Split across a 2D device mesh | call `shard` once per axis for the same value | *2D device mesh* |
-| Replicate a tensor across devices | `ShardingSpec` with a device-group key and empty `sharded_dim` | *Replication across device groups* |
-| Mix split + replication | `ShardingSpec` with device-group keys and `sharded_dim` | *Replication across device groups* |
+| Replicate a tensor across devices | `ShardingSpec` with a device-group key and empty `sharded_dims` | *Replication across device groups* |
+| Mix split + replication | `ShardingSpec` with device-group keys and `sharded_dims` | *Replication across device groups* |
 | Place whole subgraphs on a device (pipeline) | `node.set_pipeline_stage(configuration, stage)` | *Pipeline parallelism* |
 | Both shard and place a node | `shard` + `set_pipeline_stage` (same configuration) | *End-to-end* |
 | Read a node's placement / sharding back | iterate `node.device_configurations`, `node.sharding_of(value)` | *Querying shardings* |
@@ -98,8 +98,8 @@ is *sharded* across some devices and *replicated* along the rest.
     #   matmul.shard(w, configuration=mesh1d, axis=1, num_shards=4, ...)
 
     spec = matmul.sharding_of(w)[0]
-    print(spec.sharded_dim[0].axis)                       # 0
-    print(spec.sharded_dim[0].simple_sharding[0].num_shards)  # 4
+    print(spec.sharded_dims[0].axis)                       # 0
+    print(spec.sharded_dims[0].simple_shardings[0].num_shards)  # 4
 ```
 
 ### 2D device mesh
@@ -127,7 +127,7 @@ axis — the canonical representation for a multi-axis mesh.
 
     spec = matmul.sharding_of(w)[0]
     print(len(matmul.sharding_of(w)))                # 1 (single spec)
-    print([d.axis for d in spec.sharded_dim])        # [0, 1]
+    print([d.axis for d in spec.sharded_dims])        # [0, 1]
     print(spec.device)                               # (0, 1, 2, 3)
 ```
 
@@ -155,7 +155,7 @@ group key and an empty ``sharded_dim``:
     conf = model.add_device_configuration("conf", num_devices=2)
 
     # Replicate W across devices {0, 1}: device key -1 maps to that group,
-    # and there is no sharded_dim (nothing is split).
+    # and there is no sharded_dims (nothing is split).
     replicated = ir.ShardingSpec(
         value=w,
         device=(-1,),
@@ -164,7 +164,7 @@ group key and an empty ``sharded_dim``:
         ),
     )
     matmul.device_configurations = (
-        ir.NodeDeviceConfiguration(configuration=conf, sharding_spec=(replicated,)),
+        ir.NodeDeviceConfiguration(configuration=conf, sharding_specs=(replicated,)),
     )
     print(replicated.index_to_device_group_map[0].value)   # (0, 1)
 ```
@@ -192,15 +192,15 @@ replicated across a 2-device group (4 devices total).
             ir.IndexToDeviceGroupMapEntry(key=-1, value=(0, 1)),
             ir.IndexToDeviceGroupMapEntry(key=-2, value=(2, 3)),
         ),
-        sharded_dim=(
+        sharded_dims=(
             ir.ShardedDim(
                 axis=0,
-                simple_sharding=(ir.SimpleShardedDim(dim=1024, num_shards=2),),
+                simple_shardings=(ir.SimpleShardedDim(dim=1024, num_shards=2),),
             ),
         ),
     )
     matmul.device_configurations = (
-        ir.NodeDeviceConfiguration(configuration=conf, sharding_spec=(spec,)),
+        ir.NodeDeviceConfiguration(configuration=conf, sharding_specs=(spec,)),
     )
     print(spec.index_to_device_group_map[1].value)   # (2, 3)
 ```
@@ -225,15 +225,15 @@ Walk a node's configurations to read back how each tensor is sharded:
 
     for config in matmul.device_configurations:
         print("configuration:", config.configuration.name)
-        for spec in config.sharding_spec:
+        for spec in config.sharding_specs:
             sharded = {
-                sd.axis: sd.simple_sharding[0].num_shards for sd in spec.sharded_dim
+                sd.axis: sd.simple_shardings[0].num_shards for sd in spec.sharded_dims
             }
             print(f"  {spec.value.name}: axis->num_shards = {sharded}, devices={spec.device}")
 
     # Direct lookup for one value:
     for spec in matmul.sharding_of(w):
-        print("axes sharded:", [sd.axis for sd in spec.sharded_dim])
+        print("axes sharded:", [sd.axis for sd in spec.sharded_dims])
 ```
 
 ## Pipeline parallelism (device placement)
@@ -372,7 +372,7 @@ the heavy ops across them with {py:meth}`Node.shard <onnx_ir.Node.shard>`: tenso
 parallelism stays within a homogeneous group, while pipeline placement spans the
 device *types*. To bind a tensor to a device explicitly instead of relying on the
 ``stage == device index`` convention, attach a placement-only
-{py:class}`~onnx_ir.ShardingSpec` — one with a ``device`` but no ``sharded_dim``.
+{py:class}`~onnx_ir.ShardingSpec` — one with a ``device`` but no ``sharded_dims``.
 
 ## Removing a configuration
 
@@ -435,7 +435,7 @@ proto = ir.to_proto(model)
 restored = ir.from_proto(proto)
 
 node = restored.graph[0]
-spec = node.device_configurations[0].sharding_spec[0]
+spec = node.device_configurations[0].sharding_specs[0]
 assert spec.value is node.inputs[0]                       # value resolved
 assert node.device_configurations[0].configuration is restored.device_configurations[0]
 ```
