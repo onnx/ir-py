@@ -465,6 +465,7 @@ class ReferenceAttributeProtocol(Protocol):
 
 @typing.runtime_checkable
 class SparseTensorProtocol(Protocol):
+    name: str | None
     values: TensorProtocol
     indices: TensorProtocol
     dims: Sequence[int]
