@@ -1506,13 +1506,13 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             # Linear (flat) indices → per-dimension coordinates
             coords = np.unravel_index(indices_array, self._dims)
         else:
-            # Shape [rank, NNZ] – each row is one dimension's indices
+            # Shape [rank, NNZ] - each row is one dimension's indices
             coords = tuple(indices_array[i] for i in range(indices_array.shape[0]))
         return _scipy_sparse.coo_array(
             (values_array, coords), shape=tuple(self._dims)
         )
 
-    def as_tensor(self, *, lazy: bool = False) -> "TensorBase":
+    def as_tensor(self, *, lazy: bool = False) -> TensorBase:
         """Convert this sparse tensor to a dense :class:`Tensor`.
 
         The conversion uses NumPy to materialize the dense array by placing
@@ -1550,7 +1550,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
                    [2., 0., 0.]], dtype=float32)
         """
 
-        def _compute() -> "Tensor":
+        def _compute() -> Tensor:
             values_array = self._values.numpy()
             indices_array = self._indices.numpy()
             dtype = self._values.dtype
@@ -1560,7 +1560,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
                 # Linear (flat) indices in row-major order
                 multi_indices = np.unravel_index(indices_array, self._dims)
             else:
-                # Shape [rank, NNZ] – each row is one dimension's indices
+                # Shape [rank, NNZ] - each row is one dimension's indices
                 multi_indices = tuple(indices_array[i] for i in range(indices_array.shape[0]))
             dense[multi_indices] = values_array
             return Tensor(dense, dtype)
