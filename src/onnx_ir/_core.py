@@ -1438,6 +1438,68 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             self._metadata = _metadata.MetadataStore()
         return self._metadata
 
+    def as_tensor(self, *, lazy: bool = False) -> "TensorBase":
+        """Convert this sparse tensor to a dense :class:`Tensor`.
+
+        The conversion uses NumPy to materialize the dense array by placing
+        each non-zero value at its corresponding index.
+
+        Two index layouts are supported (following the ONNX specification):
+
+        * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
+          (C) order, as if the tensor were flattened to 1-D first.
+        * **2-D indices** (shape ``[rank, NNZ]``): per-dimension indices where
+          row *i* contains the index along dimension *i* for every non-zero.
+
+        Args:
+            lazy: When ``False`` (the default), the dense array is computed
+                immediately and a :class:`Tensor` is returned.  When ``True``,
+                a :class:`LazyTensor` is returned whose data is not computed
+                until it is first accessed.
+
+        Returns:
+            A :class:`Tensor` (or :class:`LazyTensor` when ``lazy=True``)
+            with shape equal to :attr:`dims` and dtype equal to the dtype of
+            the :attr:`values` tensor.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import onnx_ir as ir
+            >>> values = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+            >>> # 1-D linear indices: position 1 and position 3 in a 2x3 tensor
+            >>> indices = ir.Tensor(np.array([1, 3], dtype=np.int64))
+            >>> sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+            >>> dense = sparse.as_tensor()
+            >>> dense.numpy()
+            array([[0., 1., 0.],
+                   [2., 0., 0.]], dtype=float32)
+        """
+
+        def _compute() -> "Tensor":
+            values_array = self._values.numpy()
+            indices_array = self._indices.numpy()
+            dtype = self._values.dtype
+            np_dtype = dtype.numpy()
+            dense = np.zeros(self._dims, dtype=np_dtype)
+            if indices_array.ndim == 1:
+                # Linear (flat) indices in row-major order
+                multi_indices = np.unravel_index(indices_array, self._dims)
+            else:
+                # Shape [rank, NNZ] – each row is one dimension's indices
+                multi_indices = tuple(indices_array[i] for i in range(indices_array.shape[0]))
+            dense[multi_indices] = values_array
+            return Tensor(dense, dtype)
+
+        if lazy:
+            return LazyTensor(
+                _compute,
+                dtype=self._values.dtype,
+                shape=Shape(self._dims),
+                name=self.name,
+            )
+        return _compute()
+
     def __repr__(self) -> str:
         return (
             f"SparseTensor("
