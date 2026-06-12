@@ -2057,6 +2057,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     ):
         """Initialize a node and add it as a user of the input values.
 
+        .. versionadded:: 1.0.0
+            ``device_configurations`` parameter.
+
         Args:
             domain: The domain of the operator. For onnx operators, this is an empty string.
                 When it is ``"ai.onnx"``, it is normalized to ``""``.
@@ -2075,8 +2078,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             doc_string: The documentation string.
             metadata_props: The metadata properties.
             device_configurations: Multi-device configuration metadata for the node.
-
-                .. versionadded:: 1.0.0
 
         Raises:
             TypeError: If the attributes are not :class:`Attr`.
@@ -4190,6 +4191,9 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
 
     A model is a container for a graph and metadata.
 
+    .. versionadded:: 1.0.0
+        ``device_configurations`` parameter.
+
     Attributes:
         graph: The graph of the model.
         ir_version: The version of the IR.
@@ -4201,8 +4205,6 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         functions: The functions defined in the model.
         metadata_props: Metadata.
         device_configurations: Multi-device configuration metadata for the model.
-
-            .. versionadded:: 1.0.0
     """
 
     def __init__(
