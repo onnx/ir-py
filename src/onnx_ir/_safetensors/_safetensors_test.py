@@ -130,9 +130,9 @@ class SaveSafetensorsTest(unittest.TestCase):
         ir.save_safetensors(model, path, size_threshold_bytes=0)
 
         # Check that original model still has in-memory tensors
-        for value in model.graph.initializers.values():
-            self.assertIsInstance(value.const_value, ir.Tensor)
-            self.assertNotIsInstance(value.const_value, ir.ExternalTensor)
+        for tensor in model.graph.initializers.tensors():
+            self.assertIsInstance(tensor, ir.Tensor)
+            self.assertNotIsInstance(tensor, ir.ExternalTensor)
 
     def test_save_safetensors_loads_correctly(self):
         """Test that a model saved with safetensors can be loaded correctly."""
@@ -146,11 +146,11 @@ class SaveSafetensorsTest(unittest.TestCase):
 
         # Check that the loaded model has external tensors
         self.assertEqual(len(loaded_model.graph.initializers), 3)
-        for name, value in loaded_model.graph.initializers.items():
-            self.assertIsInstance(value.const_value, ir.ExternalTensor)
+        for name, tensor in loaded_model.graph.initializers.tensor_items():
+            self.assertIsInstance(tensor, ir.ExternalTensor)
             # Check that the data is correct
-            original_tensor = model.graph.initializers[name].const_value
-            np.testing.assert_array_equal(value.const_value.numpy(), original_tensor.numpy())
+            original_tensor = model.graph.initializers.get_tensor(name)
+            np.testing.assert_array_equal(tensor.numpy(), original_tensor.numpy())
 
     def test_save_safetensors_size_threshold(self):
         """Test that size_threshold_bytes correctly filters tensors."""
@@ -164,8 +164,8 @@ class SaveSafetensorsTest(unittest.TestCase):
         loaded_model = ir.load(path)
 
         # All tensors should still be in memory (not external)
-        for value in loaded_model.graph.initializers.values():
-            self.assertNotIsInstance(value.const_value, ir.ExternalTensor)
+        for tensor in loaded_model.graph.initializers.tensors():
+            self.assertNotIsInstance(tensor, ir.ExternalTensor)
 
     def test_save_safetensors_with_sharding(self):
         """Test that sharding works correctly."""
@@ -284,15 +284,15 @@ class SaveSafetensorsTest(unittest.TestCase):
 
         # Check that the data is correct for all types
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["int32_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("int32_tensor").numpy(),
             np.array([1, 2, 3], dtype=np.int32),
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["float16_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("float16_tensor").numpy(),
             np.array([1.0, 2.0, 3.0], dtype=np.float16),
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["bool_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("bool_tensor").numpy(),
             np.array([True, False, True], dtype=bool),
         )
 
@@ -354,50 +354,50 @@ class SaveSafetensorsTest(unittest.TestCase):
             "uint2_tensor",
         ]:
             self.assertIsInstance(
-                loaded_model.graph.initializers[tensor_name].const_value, ir.ExternalTensor
+                loaded_model.graph.initializers.get_tensor(tensor_name), ir.ExternalTensor
             )
 
         # Check that the raw data is preserved
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["int4_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("int4_tensor").numpy(),
             int4_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["uint4_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("uint4_tensor").numpy(),
             uint4_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["float4_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("float4_tensor").numpy(),
             float4_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["int2_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("int2_tensor").numpy(),
             int2_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["uint2_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("uint2_tensor").numpy(),
             uint2_data,
         )
 
         # Check that the dtype is preserved
         self.assertEqual(
-            loaded_model.graph.initializers["int4_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("int4_tensor").dtype,
             ir.DataType.INT4,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["uint4_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("uint4_tensor").dtype,
             ir.DataType.UINT4,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["float4_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("float4_tensor").dtype,
             ir.DataType.FLOAT4E2M1,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["int2_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("int2_tensor").dtype,
             ir.DataType.INT2,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["uint2_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("uint2_tensor").dtype,
             ir.DataType.UINT2,
         )
 
@@ -463,43 +463,43 @@ class SaveSafetensorsTest(unittest.TestCase):
             "f8_e5m2fnuz_tensor",
         ]:
             self.assertIsInstance(
-                loaded_model.graph.initializers[tensor_name].const_value,
+                loaded_model.graph.initializers.get_tensor(tensor_name),
                 ir.ExternalTensor,
             )
 
         # Check that the raw data is preserved for each type
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["f8_e5m2_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("f8_e5m2_tensor").numpy(),
             f8_e5m2_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["f8_e4m3fn_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("f8_e4m3fn_tensor").numpy(),
             f8_e4m3fn_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["f8_e4m3fnuz_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("f8_e4m3fnuz_tensor").numpy(),
             f8_e4m3fnuz_data,
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["f8_e5m2fnuz_tensor"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("f8_e5m2fnuz_tensor").numpy(),
             f8_e5m2fnuz_data,
         )
 
         # Check that the dtype is preserved for each type
         self.assertEqual(
-            loaded_model.graph.initializers["f8_e5m2_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("f8_e5m2_tensor").dtype,
             ir.DataType.FLOAT8E5M2,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["f8_e4m3fn_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("f8_e4m3fn_tensor").dtype,
             ir.DataType.FLOAT8E4M3FN,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["f8_e4m3fnuz_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("f8_e4m3fnuz_tensor").dtype,
             ir.DataType.FLOAT8E4M3FNUZ,
         )
         self.assertEqual(
-            loaded_model.graph.initializers["f8_e5m2fnuz_tensor"].const_value.dtype,
+            loaded_model.graph.initializers.get_tensor("f8_e5m2fnuz_tensor").dtype,
             ir.DataType.FLOAT8E5M2FNUZ,
         )
 
@@ -600,30 +600,30 @@ class SaveSafetensorsTest(unittest.TestCase):
 
         # Check main graph initializers
         self.assertIsInstance(
-            loaded_model.graph.initializers["main_init"].const_value, ir.ExternalTensor
+            loaded_model.graph.initializers.get_tensor("main_init"), ir.ExternalTensor
         )
         np.testing.assert_array_equal(
-            loaded_model.graph.initializers["main_init"].const_value.numpy(),
+            loaded_model.graph.initializers.get_tensor("main_init").numpy(),
             main_tensor.numpy(),
         )
 
         # Check then branch initializers
         then_branch = loaded_model.graph.node(0).attributes["then_branch"].as_graph()
         self.assertIsInstance(
-            then_branch.initializers["then_init"].const_value, ir.ExternalTensor
+            then_branch.initializers.get_tensor("then_init"), ir.ExternalTensor
         )
         np.testing.assert_array_equal(
-            then_branch.initializers["then_init"].const_value.numpy(),
+            then_branch.initializers.get_tensor("then_init").numpy(),
             then_tensor.numpy(),
         )
 
         # Check else branch initializers
         else_branch = loaded_model.graph.node(0).attributes["else_branch"].as_graph()
         self.assertIsInstance(
-            else_branch.initializers["else_init"].const_value, ir.ExternalTensor
+            else_branch.initializers.get_tensor("else_init"), ir.ExternalTensor
         )
         np.testing.assert_array_equal(
-            else_branch.initializers["else_init"].const_value.numpy(),
+            else_branch.initializers.get_tensor("else_init").numpy(),
             else_tensor.numpy(),
         )
 

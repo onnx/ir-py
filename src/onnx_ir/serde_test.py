@@ -56,7 +56,7 @@ agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
         )
         np.testing.assert_array_equal(model.graph.inputs[1].const_value.numpy(), array)
         np.testing.assert_array_equal(
-            model.graph.initializers["initializer_z"].const_value.numpy(), init_array
+            model.graph.initializers.get_tensor("initializer_z").numpy(), init_array
         )
         expected_text = """\
 <
