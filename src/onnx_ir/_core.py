@@ -2057,6 +2057,9 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
     ):
         """Initialize a node and add it as a user of the input values.
 
+        .. versionadded:: 1.0.0
+            ``device_configurations`` parameter.
+
         Args:
             domain: The domain of the operator. For onnx operators, this is an empty string.
                 When it is ``"ai.onnx"``, it is normalized to ``""``.
@@ -2505,6 +2508,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         sharding a tensor across a multi-axis device mesh). ``device_indices``
         are unioned across those calls.
 
+        .. versionadded:: 1.0.0
+
         Args:
             value: The input or output value to shard. Must be one of this node's
                 own inputs or outputs.
@@ -2622,6 +2627,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         Matching is by object identity, so this returns the live specs that
         reference exactly ``value``.
+
+        .. versionadded:: 1.0.0
         """
         result = []
         for configuration in self.device_configurations:
@@ -2671,6 +2678,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
 
         How a stage maps to a physical device is by convention: a common choice
         is ``stage == device index`` into ``configuration.device_names``.
+
+        .. versionadded:: 1.0.0
 
         Args:
             configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
@@ -4182,6 +4191,9 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
 
     A model is a container for a graph and metadata.
 
+    .. versionadded:: 1.0.0
+        ``device_configurations`` parameter.
+
     Attributes:
         graph: The graph of the model.
         ir_version: The version of the IR.
@@ -4307,6 +4319,8 @@ Model(
         The returned object can be passed to :meth:`Node.shard` to bind node
         shardings to this configuration.
 
+        .. versionadded:: 1.0.0
+
         Args:
             name: A unique name for the configuration.
             num_devices: The number of devices. Defaults to ``len(device_names)``.
@@ -4362,6 +4376,8 @@ Model(
         """Remove a device configuration from the model.
 
         This is the counterpart of :meth:`add_device_configuration`.
+
+        .. versionadded:: 1.0.0
 
         Args:
             configuration: The :class:`~onnx_ir.ModelConfiguration` object to
