@@ -17,6 +17,7 @@ import numpy as np
 import onnx
 import onnx.external_data_helper
 import parameterized
+import pytest
 import torch
 
 import onnx_ir as ir
@@ -3628,6 +3629,123 @@ class AttrTest(unittest.TestCase):
         attr.meta.invalidate("source_line")
         self.assertFalse(attr.meta.is_valid("source_line"))
         self.assertTrue(attr.meta.is_valid("source_file"))
+
+
+class SparseTensorTest(unittest.TestCase):
+    """Tests for SparseTensor.as_tensor() and SparseTensor.numpy()."""
+
+    def test_as_tensor_1d_linear_indices(self):
+        """as_tensor converts 1-D linear indices to a dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([1, 3], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+        dense = sparse.as_tensor()
+        expected = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32)
+        np.testing.assert_array_equal(dense.numpy(), expected)
+
+    def test_as_tensor_2d_per_dimension_indices(self):
+        """as_tensor converts 2-D per-dimension indices to a dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        # Shape [rank=2, NNZ=2]: positions [0,1] and [1,0]
+        indices = _core.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
+        dense = sparse.as_tensor()
+        expected = np.zeros((3, 3), dtype=np.float32)
+        expected[0, 1] = 1.0
+        expected[1, 0] = 2.0
+        np.testing.assert_array_equal(dense.numpy(), expected)
+
+    def test_as_tensor_lazy_returns_lazy_tensor(self):
+        """as_tensor(lazy=True) returns a LazyTensor with correct metadata."""
+        values = _core.Tensor(np.array([1.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([0], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[3])
+        lazy = sparse.as_tensor(lazy=True)
+        self.assertIsInstance(lazy, _core.LazyTensor)
+        self.assertEqual(lazy.dtype, ir.DataType.FLOAT)
+        self.assertEqual(list(lazy.shape), [3])
+
+    def test_as_tensor_lazy_computes_correctly(self):
+        """LazyTensor returned by as_tensor(lazy=True) evaluates to the same dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([1, 3], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+        eager = sparse.as_tensor()
+        lazy = sparse.as_tensor(lazy=True)
+        np.testing.assert_array_equal(lazy.numpy(), eager.numpy())
+
+    def test_as_tensor_dtype_preserved(self):
+        """as_tensor preserves the dtype of the values tensor."""
+        values = _core.Tensor(np.array([1, 2], dtype=np.int32))
+        indices = _core.Tensor(np.array([0, 2], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[4])
+        dense = sparse.as_tensor()
+        self.assertEqual(dense.dtype, ir.DataType.INT32)
+        np.testing.assert_array_equal(dense.numpy(), [1, 0, 2, 0])
+
+    def test_numpy_returns_scipy_coo_array(self):
+        """numpy() returns a scipy.sparse.coo_array."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
+        result = sparse.numpy()
+        self.assertIsInstance(result, sp.coo_array)
+        self.assertEqual(result.shape, (3, 3))
+        expected_dense = np.zeros((3, 3), dtype=np.float32)
+        expected_dense[0, 1] = 1.0
+        expected_dense[1, 0] = 2.0
+        np.testing.assert_array_equal(result.toarray(), expected_dense)
+
+    def test_numpy_1d_linear_indices(self):
+        """numpy() handles 1-D linear indices correctly."""
+        pytest.importorskip("scipy")
+        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+        indices = _core.Tensor(np.array([1, 3], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+        result = sparse.numpy()
+        expected = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32)
+        np.testing.assert_array_equal(result.toarray(), expected)
+
+    def test_init_from_scipy_sparse(self):
+        """SparseTensor can be constructed via from_scipy_sparse() from a scipy sparse array."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        coo = sp.coo_array((data, ([0, 1], [1, 0])), shape=(3, 3))
+        sparse = ir.SparseTensor.from_scipy_sparse(coo, name="test_sparse")
+        self.assertEqual(sparse.name, "test_sparse")
+        self.assertEqual(sparse.dims, [3, 3])
+        np.testing.assert_array_equal(sparse.values.numpy(), data)
+        np.testing.assert_array_equal(
+            sparse.indices.numpy(), np.array([[0, 1], [1, 0]], dtype=np.int64)
+        )
+
+    def test_init_from_scipy_non_coo_format(self):
+        """from_scipy_sparse() from CSR and other scipy formats is supported."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        csr = sp.eye(3, format="csr", dtype=np.float32)
+        sparse = ir.SparseTensor.from_scipy_sparse(csr)
+        self.assertEqual(sparse.dims, [3, 3])
+        # Round-trip through numpy()
+        result = sparse.numpy()
+        np.testing.assert_array_equal(result.toarray(), np.eye(3, dtype=np.float32))
+
+    def test_scipy_roundtrip(self):
+        """A scipy sparse array survives a SparseTensor round-trip via from_scipy_sparse()."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        data = np.array([3.0, 7.0], dtype=np.float64)
+        original = sp.coo_array((data, ([0, 2], [1, 0])), shape=(4, 3))
+        sparse = ir.SparseTensor.from_scipy_sparse(original)
+        roundtripped = sparse.numpy()
+        np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
 
 
 class LazyTensorTest(unittest.TestCase):
