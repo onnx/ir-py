@@ -2075,10 +2075,6 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             doc_string: The documentation string.
             metadata_props: The metadata properties.
             device_configurations: Multi-device configuration metadata for the node.
-                Each entry binds this node to a
-                :class:`~onnx_ir.ModelConfiguration` and records tensor sharding
-                and/or pipeline placement. Use :meth:`shard` and
-                :meth:`set_pipeline_stage` for incremental updates.
 
                 .. versionadded:: 1.0.0
 
@@ -4205,11 +4201,8 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         functions: The functions defined in the model.
         metadata_props: Metadata.
         device_configurations: Multi-device configuration metadata for the model.
-            These are model-level
-            :class:`~onnx_ir.ModelConfiguration` objects referenced by node-level
-            :class:`~onnx_ir.NodeDeviceConfiguration` entries.
 
-            Added in ``1.0.0``.
+            .. versionadded:: 1.0.0
     """
 
     def __init__(
