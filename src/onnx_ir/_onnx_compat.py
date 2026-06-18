@@ -32,7 +32,11 @@ if _USE_ONNX_LIGHT:
         "onnx_light.onnx.shape_inference"
     )
     onnx.defs = importlib.import_module("onnx_light.onnx.defs")  # type: ignore[attr-defined]
+    onnx.helper = importlib.import_module("onnx_light.onnx.helper")  # type: ignore[attr-defined]
     onnx.backend = importlib.import_module("onnx_light.onnx.backend")  # type: ignore[attr-defined]
+    onnx.numpy_helper = importlib.import_module(  # type: ignore[attr-defined]
+        "onnx_light.onnx.numpy_helper"
+    )
 else:
     onnx = importlib.import_module("onnx")  # type: ignore[no-redef]
     # Ensure submodules are loaded

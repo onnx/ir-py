@@ -17,14 +17,22 @@ import tempfile
 import time
 import traceback
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
-import onnxruntime as ort
-import tqdm
+from onnx_ir._onnx_compat import onnx, _USE_ONNX_LIGHT  # noqa: TID251
 
-hub = onnx.hub  # noqa: TID251
+if _USE_ONNX_LIGHT:
+    # onnx.hub is deprecated and not available in onnx_light
+    def main():
+        print("model_zoo_test is skipped: onnx.hub is deprecated and not available with onnx_light")
+        sys.exit(0)
 
-import onnx_ir as ir
-import onnx_ir.testing
+else:
+    import onnxruntime as ort
+    import tqdm
+
+    import onnx_ir as ir
+    import onnx_ir.testing
+
+    hub = onnx.hub  # noqa: TID251
 
 
 def test_model(model_info: hub.ModelInfo) -> float:
@@ -83,52 +91,54 @@ def red(text: str) -> str:
     return f"\033[31m{text}\033[0m"
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Test IR roundtrip with ONNX model zoo.")
-    parser.add_argument(
-        "-k",
-        type=str,
-        default=None,
-        help="Keyword to filter the models. Default is None.",
-    )
-    parser.add_argument(
-        "--jobs",
-        type=int,
-        default=1,
-        help="Number of parallel jobs to run. Default is 1.",
-    )
-    args = parser.parse_args()
+if not _USE_ONNX_LIGHT:
 
-    model_list = hub.list_models()
-    if args.k:
-        # Filter the models by name
-        name = args.k.lower()
-        model_list = [model for model in model_list if name in model.model.lower()]
-    print(f"=== Testing IR on {len(model_list)} models ===")
-
-    # run checker on each model
-    failed_models = []
-    failed_messages = []
-    # Use multi-processing to speed up the testing process
-    with multiprocessing.pool.Pool(args.jobs) as pool:
-        results = list(
-            tqdm.tqdm(
-                pool.imap_unordered(run_one_test, model_list),
-                "Testing...",
-                total=len(model_list),
-            )
+    def main():
+        parser = argparse.ArgumentParser(description="Test IR roundtrip with ONNX model zoo.")
+        parser.add_argument(
+            "-k",
+            type=str,
+            default=None,
+            help="Keyword to filter the models. Default is None.",
         )
-    for model_name, error in results:
-        if error is not None:
-            failed_models.append(model_name)
-            failed_messages.append((model_name, error))
-    if not failed_models:
-        print(green(f"{len(model_list)} models have been checked."))
-    else:
-        print(red(f"In all {len(model_list)} models, {len(failed_models)} models failed"))
-        for i, (model_name, error) in enumerate(failed_messages):
-            print(f"[{i} / {len(failed_models)}] {red(model_name)} failed because: {error}")
-        sys.exit(1)
+        parser.add_argument(
+            "--jobs",
+            type=int,
+            default=1,
+            help="Number of parallel jobs to run. Default is 1.",
+        )
+        args = parser.parse_args()
+
+        model_list = hub.list_models()
+        if args.k:
+            # Filter the models by name
+            name = args.k.lower()
+            model_list = [model for model in model_list if name in model.model.lower()]
+        print(f"=== Testing IR on {len(model_list)} models ===")
+
+        # run checker on each model
+        failed_models = []
+        failed_messages = []
+        # Use multi-processing to speed up the testing process
+        with multiprocessing.pool.Pool(args.jobs) as pool:
+            results = list(
+                tqdm.tqdm(
+                    pool.imap_unordered(run_one_test, model_list),
+                    "Testing...",
+                    total=len(model_list),
+                )
+            )
+        for model_name, error in results:
+            if error is not None:
+                failed_models.append(model_name)
+                failed_messages.append((model_name, error))
+        if not failed_models:
+            print(green(f"{len(model_list)} models have been checked."))
+        else:
+            print(red(f"In all {len(model_list)} models, {len(failed_models)} models failed"))
+            for i, (model_name, error) in enumerate(failed_messages):
+                print(f"[{i} / {len(failed_models)}] {red(model_name)} failed because: {error}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

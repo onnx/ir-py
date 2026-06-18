@@ -13,14 +13,25 @@ import onnx_ir as ir
 import onnx_ir.testing
 
 model_folder_path = pathlib.Path(__file__).resolve().parent.parent / "testdata"
-onnx_backend_test_path = pathlib.Path(onnx.backend.test.__file__).parent / "data"
+
+# The backend test data is only available with the standard onnx package
+from onnx_ir._onnx_compat import _USE_ONNX_LIGHT  # noqa: TID251
+
+if _USE_ONNX_LIGHT:
+    onnx_backend_test_path = None
+else:
+    import importlib as _importlib
+
+    _backend_test = _importlib.import_module("onnx.backend.test")
+    onnx_backend_test_path = pathlib.Path(_backend_test.__file__).parent / "data"
 
 assert model_folder_path.exists()
-assert onnx_backend_test_path.exists()
+if onnx_backend_test_path is not None:
+    assert onnx_backend_test_path.exists()
 
 model_paths = [
     *model_folder_path.rglob("*.textproto"),
-    *onnx_backend_test_path.rglob("*.onnx"),
+    *(onnx_backend_test_path.rglob("*.onnx") if onnx_backend_test_path else []),
 ]
 test_args = [
     (f"{model_path.parent.name}_{model_path.name}", model_path) for model_path in model_paths
