@@ -109,6 +109,7 @@ ignore = [
 "**/*_test.py" = ["TID251"] # pathlib is allowed in tests
 "tools/**/*.py" = ["TID251"] # OK to use in tools
 "src/onnx_ir/testing.py" = ["TID251"] # OK to use in tools
+"src/onnx_ir/_onnx_compat.py" = ["TID251"] # Compat shim imports onnx/onnx_light
 
 [tool.ruff.lint.flake8-tidy-imports]
 # Disallow all relative imports.

@@ -9,7 +9,7 @@ __all__ = ["load", "save"]
 import os
 from typing import Callable
 
-import onnx  # noqa: TID251
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 from onnx_ir import _core, _protocols, serde
 from onnx_ir import external_data as _external_data

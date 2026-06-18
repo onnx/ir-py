@@ -7,7 +7,7 @@ import warnings
 import google.protobuf.text_format
 import ml_dtypes
 import numpy as np
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir

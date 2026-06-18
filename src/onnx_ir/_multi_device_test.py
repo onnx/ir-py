@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
 
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir import _multi_device, serde

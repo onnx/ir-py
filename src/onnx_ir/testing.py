@@ -14,7 +14,7 @@ from collections.abc import Collection, Sequence
 from typing import Any
 
 import google.protobuf.message
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 
 def _opset_import_key(opset_import: onnx.OperatorSetIdProto) -> tuple[str, int]:

@@ -8,7 +8,7 @@ Usage:
 
 import argparse
 
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 
 def strip_tensor_data(tensor: onnx.TensorProto) -> None:

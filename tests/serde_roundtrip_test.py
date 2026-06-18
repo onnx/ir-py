@@ -6,8 +6,7 @@ from __future__ import annotations
 import pathlib
 import unittest
 
-import onnx
-import onnx.backend.test
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir

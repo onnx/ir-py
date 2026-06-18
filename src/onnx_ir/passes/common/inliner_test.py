@@ -8,7 +8,7 @@ import unittest
 from collections.abc import Sequence
 from typing import Callable
 
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir.passes.common import inliner

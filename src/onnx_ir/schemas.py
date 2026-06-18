@@ -14,7 +14,7 @@ import functools
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-import onnx  # noqa: TID251
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 from onnx_ir import _core, _enums, _protocols, serde
 

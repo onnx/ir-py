@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir

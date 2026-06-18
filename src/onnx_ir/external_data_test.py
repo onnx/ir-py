@@ -7,8 +7,7 @@ import typing
 import unittest
 
 import numpy as np
-import onnx
-import onnx.external_data_helper
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir import external_data

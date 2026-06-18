@@ -5,7 +5,7 @@ import unittest
 
 import ml_dtypes
 import numpy as np
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 from onnx_ir import _enums

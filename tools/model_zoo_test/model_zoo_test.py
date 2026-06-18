@@ -17,10 +17,11 @@ import tempfile
 import time
 import traceback
 
-import onnx
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import onnxruntime as ort
 import tqdm
-from onnx import hub
+
+hub = onnx.hub  # noqa: TID251
 
 import onnx_ir as ir
 import onnx_ir.testing

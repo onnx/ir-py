@@ -10,7 +10,7 @@ __all__ = [
 
 from typing import Literal
 
-import onnx  # noqa: TID251
+from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir.passes.common import _c_api_utils
