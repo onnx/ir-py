@@ -6,8 +6,6 @@ import unittest
 
 import numpy as np
 import onnxruntime as ort
-from onnxscript import FLOAT, script
-from onnxscript import opset18 as op
 
 import onnx_ir as ir
 from onnx_ir.passes.common import common_subexpression_elimination
@@ -89,6 +87,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
 
             x = torch.randn(2, 2)
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -116,6 +116,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
 
             x = torch.randn(2, 2)
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[1]) -> FLOAT[1]:
@@ -142,6 +144,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         x = torch.randn(2, 2)
 
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -168,6 +172,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         x = torch.randn(2, 2)
 
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -197,6 +203,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         x = torch.randn(2, 2)
 
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(a: FLOAT[2, 2], b: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -235,6 +243,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             x = torch.randn(2, 2)
 
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(a: FLOAT[2, 2], b: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -256,6 +266,9 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         )
 
     def test_graph_output_value_replacement_preserves_name(self):
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
+
         @script()
         def test_model(x: FLOAT[2, 2]) -> tuple[FLOAT[2, 2], FLOAT[2, 2]]:
             a = op.Cos(x)
@@ -285,6 +298,9 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         self.assertEqual(new_output_value_1.name, output_name_1)
 
     def test_identity_inserted_when_both_outputs_are_graph_outputs(self):
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
+
         @script()
         def test_model(x: FLOAT[2, 2]) -> tuple[FLOAT[2, 2], FLOAT[2, 2]]:
             a = op.Cos(x)
@@ -321,6 +337,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             b = x.random_uniform()
             return a + b
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -340,6 +358,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             b = x + [1, 2]
             return a + b
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[2, 2]) -> FLOAT[2, 2]:
@@ -360,6 +380,8 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             b = x + [1, 2, 3, 4]
             return a + b
         """
+        from onnxscript import FLOAT, script
+        from onnxscript import opset18 as op
 
         @script()
         def test_model(x: FLOAT[4, 4]) -> FLOAT[4, 4]:
