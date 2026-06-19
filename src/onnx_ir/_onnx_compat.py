@@ -40,6 +40,15 @@ if _USE_ONNX_LIGHT:
     onnx.parser = importlib.import_module(  # type: ignore[attr-defined]
         "onnx_light.onnx.parser"
     )
+    onnx.printer = importlib.import_module(  # type: ignore[attr-defined]
+        "onnx_light.onnx.printer"
+    )
+    use_onnx_light = True
+
+    from onnx_light.onnx_py._onnxpyprotoop import String
+
+    def is_str(obj):
+        return type(obj) is str or type(obj) is String
 else:
     onnx = importlib.import_module("onnx")  # type: ignore[no-redef]
     # Ensure submodules are loaded
@@ -48,3 +57,8 @@ else:
     importlib.import_module("onnx.shape_inference")
     importlib.import_module("onnx.defs")
     importlib.import_module("onnx.parser")
+    importlib.import_module("onnx.printer")
+    use_onnx_light = False
+    
+    def is_str(obj):
+        return type(obj) is str

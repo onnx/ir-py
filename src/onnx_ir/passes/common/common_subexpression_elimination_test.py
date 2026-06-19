@@ -9,8 +9,10 @@ import onnxruntime as ort
 
 import onnx_ir as ir
 from onnx_ir.passes.common import common_subexpression_elimination
+from onnx_ir._onnx_compat import use_onnx_light
 
 
+@unittest.skipIf(use_onnx_light, "relies on onnxscript")
 class TestCommonSubexpressionEliminationPass(unittest.TestCase):
     def check_graph(
         self,

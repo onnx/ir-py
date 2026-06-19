@@ -18,6 +18,7 @@ from typing import SupportsIndex, TypeVar
 
 import onnx_ir
 from onnx_ir import _core, _protocols
+from onnx_ir._onnx_compat import is_str
 
 T = TypeVar("T")
 
@@ -253,7 +254,7 @@ class GraphInitializers(collections.UserDict[str, "_core.Value"]):
         """Set an initializer for the graph."""
         if not isinstance(value, _core.Value):
             raise TypeError(f"value must be a Value object, not {type(value)}")
-        if not isinstance(key, str):
+        if not is_str(key):
             raise TypeError(f"Value name must be a string, not {type(key)}")
         if key == "":
             raise ValueError("Value name cannot be an empty string")
@@ -368,7 +369,7 @@ class Attributes(collections.UserDict[str, "_core.Attr"]):
 
     def __setitem__(self, key: str, value: _core.Attr) -> None:
         """Set an attribute for the node."""
-        if type(key) is not str:
+        if not is_str(key):
             raise TypeError(f"Key must be a string, not {type(key)}")
         if not isinstance(value, _core.Attr):
             raise TypeError(f"Value must be an Attr, not {type(value)}")

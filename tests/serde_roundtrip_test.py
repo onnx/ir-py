@@ -11,6 +11,7 @@ import parameterized
 
 import onnx_ir as ir
 import onnx_ir.testing
+from onnx_ir._onnx_compat import use_onnx_light
 
 model_folder_path = pathlib.Path(__file__).resolve().parent.parent / "testdata"
 
@@ -55,6 +56,7 @@ def initialize_with_data(model: onnx.ModelProto) -> None:
         tensor_proto.raw_data = data
 
 
+@unittest.skipIf(use_onnx_light, "textproto not supported yet")
 class SerdeTest(unittest.TestCase):
     @parameterized.parameterized.expand(test_args)
     def test_serialization_deserialization_produces_same_model(
