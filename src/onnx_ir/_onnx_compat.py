@@ -37,6 +37,9 @@ if _USE_ONNX_LIGHT:
     onnx.numpy_helper = importlib.import_module(  # type: ignore[attr-defined]
         "onnx_light.onnx.numpy_helper"
     )
+    onnx.parser = importlib.import_module(  # type: ignore[attr-defined]
+        "onnx_light.onnx.parser"
+    )
 else:
     onnx = importlib.import_module("onnx")  # type: ignore[no-redef]
     # Ensure submodules are loaded
@@ -44,3 +47,4 @@ else:
     importlib.import_module("onnx.checker")
     importlib.import_module("onnx.shape_inference")
     importlib.import_module("onnx.defs")
+    importlib.import_module("onnx.parser")
