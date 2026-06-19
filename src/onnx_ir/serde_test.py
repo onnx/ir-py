@@ -7,11 +7,14 @@ import warnings
 import google.protobuf.text_format
 import ml_dtypes
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir
 from onnx_ir import _multi_device, _version_utils, serde
+from onnx_ir._onnx_compat import (
+    onnx,
+    use_onnx_light,
+)
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
@@ -205,7 +208,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             tensor_proto = onnx.TensorProto()
             tensor_proto.name = "test_tensor"
             tensor_proto.data_type = dtype
-            tensor_proto.dims[:] = [1, 9]
+            tensor_proto.dims.extend([1, 9])
             tensor_proto.raw_data = expected_array.astype(np_dtype).tobytes()
         else:
             tensor_proto = onnx.helper.make_tensor(
@@ -594,6 +597,7 @@ class SerializationTest(unittest.TestCase):
         self.assertIsNone(deserialized, shape)
 
 
+@unittest.skipIf(use_onnx_light, "use of google.protobuf.text_format.Parse")
 class QuantizationAnnotationTest(unittest.TestCase):
     """Test that quantization annotations are correctly serialized and deserialized."""
 
@@ -1034,7 +1038,10 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
         model_proto = onnx.helper.make_model(
             onnx.helper.make_graph([], "test", [], []), ir_version=11
         )
-        model_proto.configuration.add(name="conf0", num_devices=2, device=["CPU", "CUDA:0"])
+        conf = model_proto.configuration.add()
+        conf.name = "conf0"
+        conf.num_devices = 2
+        conf.device.extend(["CPU", "CUDA:0"])
         model = serde.deserialize_model(model_proto)
         self.assertEqual(
             model.device_configurations,

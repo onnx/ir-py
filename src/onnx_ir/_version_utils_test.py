@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock, skipIf
 
-from onnx_ir._version_utils import numpy_older_than, onnx_older_than
 from onnx_ir._onnx_compat import use_onnx_light
+from onnx_ir._version_utils import numpy_older_than, onnx_older_than
 
 
 @skipIf(use_onnx_light, "irrelevant")

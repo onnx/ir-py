@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
-
 import onnx_ir as ir
 import onnx_ir.passes.common
+from onnx_ir._onnx_compat import onnx
 
 
 class RemoveUnusedTest(unittest.TestCase):
@@ -110,7 +109,7 @@ class RemoveUnusedTest(unittest.TestCase):
         model = self.remove_unused_nodes(model)
         self.assertEqual(len(model.graph.node), 1)
         self.assertEqual(model.graph.node[0].op_type, "MaxPool")
-        self.assertEqual(model.graph.node[0].output, ["z"])
+        self.assertEqual(list(model.graph.node[0].output), ["z"])
 
     def test_remove_unused_optional_outputs_dropout_in_function(self):
         model = onnx.parser.parse_model(
@@ -135,7 +134,7 @@ class RemoveUnusedTest(unittest.TestCase):
         self.assertEqual(len(model.functions), 1)
         self.assertEqual(len(model.functions[0].node), 1)
         self.assertEqual(model.functions[0].node[0].op_type, "MaxPool")
-        self.assertEqual(model.functions[0].node[0].output, ["z"])
+        self.assertEqual(list(model.functions[0].node[0].output), ["z"])
 
     def test_remove_used_optional_outputs_maxpool(self):
         model = onnx.parser.parse_model(
@@ -152,7 +151,7 @@ class RemoveUnusedTest(unittest.TestCase):
         model = self.remove_unused_nodes(model)
         self.assertEqual(len(model.graph.node), 1)
         self.assertEqual(model.graph.node[0].op_type, "MaxPool")
-        self.assertEqual(model.graph.node[0].output, ["y", "z"])
+        self.assertEqual(list(model.graph.node[0].output), ["y", "z"])
 
     def test_remove_multiple_unused_optional_outputs_layernorm(self):
         model = onnx.parser.parse_model(

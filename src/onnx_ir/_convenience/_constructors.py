@@ -13,9 +13,9 @@ import typing
 from collections.abc import Mapping, Sequence
 
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 from onnx_ir import _convenience, _core, _enums, _protocols, serde, tensor_adapters
+from onnx_ir._onnx_compat import onnx
 
 if typing.TYPE_CHECKING:
     import numpy.typing as npt

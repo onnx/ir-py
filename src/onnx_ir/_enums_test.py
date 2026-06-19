@@ -5,10 +5,10 @@ import unittest
 
 import ml_dtypes
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 from onnx_ir import _enums
+from onnx_ir._onnx_compat import onnx
 
 
 class DataTypeTest(unittest.TestCase):

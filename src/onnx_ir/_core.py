@@ -1038,7 +1038,7 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
 
     def numpy(self) -> npt.NDArray[np.bytes_]:
         """Return the tensor as a numpy array."""
-        return self.__array__()
+        return self.__array__(dtype=str)
 
     def tobytes(self) -> bytes:
         raise ValueError("StringTensor does not support tobytes. Use 'string_data' instead.")

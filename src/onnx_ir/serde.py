@@ -73,9 +73,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Callable
 
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 from onnx_ir import _convenience, _core, _enums, _multi_device, _protocols, _type_casting
+from onnx_ir._onnx_compat import onnx
 
 if typing.TYPE_CHECKING:
     import google.protobuf.internal.containers as proto_containers
@@ -406,7 +406,7 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
             ).reshape(shape)
         if dtype == _enums.DataType.STRING:
-            return np.array(self._proto.string_data).reshape(shape)
+            return np.array(self._proto.string_data, dtype=str).reshape(shape)
         if self._proto.int32_data:
             assert dtype in {
                 _enums.DataType.BFLOAT16,

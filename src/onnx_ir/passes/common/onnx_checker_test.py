@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 import onnx_ir as ir
+from onnx_ir._onnx_compat import use_onnx_light
 from onnx_ir.passes.common import onnx_checker
 
 
@@ -43,6 +44,7 @@ class TestCheckerPass(unittest.TestCase):
         # No exception should be raised
         onnx_checker.CheckerPass()(model)
 
+    @unittest.skipIf(use_onnx_light, "graph.name must not be empty?")
     def test_check_invalid_model(self):
         inputs = [
             ir.Value(

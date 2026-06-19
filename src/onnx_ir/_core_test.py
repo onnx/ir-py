@@ -14,12 +14,12 @@ from typing import Any
 
 import ml_dtypes
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 import torch
 
 import onnx_ir as ir
 from onnx_ir import _core, _type_casting
+from onnx_ir._onnx_compat import onnx
 
 
 class TensorTest(unittest.TestCase):

@@ -11,9 +11,8 @@ __all__ = [
 
 import logging
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
-
 import onnx_ir as ir
+from onnx_ir._onnx_compat import onnx
 from onnx_ir.passes.common import _c_api_utils
 
 logger = logging.getLogger(__name__)

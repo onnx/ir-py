@@ -6,17 +6,19 @@ from __future__ import annotations
 import pathlib
 import unittest
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir
 import onnx_ir.testing
-from onnx_ir._onnx_compat import use_onnx_light
+from onnx_ir._onnx_compat import (
+    onnx,
+    use_onnx_light,
+)
 
 model_folder_path = pathlib.Path(__file__).resolve().parent.parent / "testdata"
 
 # The backend test data is only available with the standard onnx package
-from onnx_ir._onnx_compat import _USE_ONNX_LIGHT  # noqa: TID251
+from onnx_ir._onnx_compat import _USE_ONNX_LIGHT
 
 if _USE_ONNX_LIGHT:
     onnx_backend_test_path = None

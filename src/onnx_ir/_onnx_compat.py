@@ -59,6 +59,6 @@ else:
     importlib.import_module("onnx.parser")
     importlib.import_module("onnx.printer")
     use_onnx_light = False
-    
+
     def is_str(obj):
         return type(obj) is str

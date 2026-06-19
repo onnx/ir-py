@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 import parameterized
 
 import onnx_ir as ir
 from onnx_ir import schemas
+from onnx_ir._onnx_compat import onnx
 
 
 class TypeConstraintParamTest(unittest.TestCase):

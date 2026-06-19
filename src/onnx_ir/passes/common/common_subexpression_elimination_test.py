@@ -8,8 +8,8 @@ import numpy as np
 import onnxruntime as ort
 
 import onnx_ir as ir
-from onnx_ir.passes.common import common_subexpression_elimination
 from onnx_ir._onnx_compat import use_onnx_light
+from onnx_ir.passes.common import common_subexpression_elimination
 
 
 @unittest.skipIf(use_onnx_light, "relies on onnxscript")

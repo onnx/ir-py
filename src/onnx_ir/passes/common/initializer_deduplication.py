@@ -61,7 +61,7 @@ def _tobytes(val):
     bytes in the flattened .tobytes representation.
     """
     if val.dtype.is_string():
-        return np.array(val.string_data()).tobytes()
+        return np.array(val.string_data(), dtype=str).tobytes()
     return val.tobytes()
 
 

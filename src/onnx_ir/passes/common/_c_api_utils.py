@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable, TypeVar
 import onnx_ir as ir
 
 if TYPE_CHECKING:
-    from onnx_ir._onnx_compat import onnx  # noqa: TID251
+    from onnx_ir._onnx_compat import onnx
 
 
 logger = logging.getLogger(__name__)

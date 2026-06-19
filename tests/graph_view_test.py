@@ -3,9 +3,8 @@
 import pathlib
 import unittest
 
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
-
 import onnx_ir as ir
+from onnx_ir._onnx_compat import onnx
 
 
 class GraphViewTest(unittest.TestCase):

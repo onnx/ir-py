@@ -7,10 +7,10 @@ import typing
 import unittest
 
 import numpy as np
-from onnx_ir._onnx_compat import onnx  # noqa: TID251
 
 import onnx_ir as ir
 from onnx_ir import external_data
+from onnx_ir._onnx_compat import onnx
 
 
 class ExternalDataTest(unittest.TestCase):
