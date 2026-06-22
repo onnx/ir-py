@@ -197,14 +197,14 @@ class DeduplicateInitializersTest(unittest.TestCase):
         self.apply_pass(model)
         self.assertEqual(len(model.graph.initializers), 1)
         np.testing.assert_equal(
-            model.graph.initializers["a"].const_value.numpy(), np.array(1, dtype=np.int64)
+            model.graph.initializers.get_tensor("a").numpy(), np.array(1, dtype=np.int64)
         )
         subgraph_initializers = (
             node_with_subgraph.attributes["subgraph"].as_graph().initializers
         )
         self.assertEqual(len(subgraph_initializers), 1)
         np.testing.assert_equal(
-            subgraph_initializers["b"].const_value.numpy(), np.array(1, dtype=np.int64)
+            subgraph_initializers.get_tensor("b").numpy(), np.array(1, dtype=np.int64)
         )
 
 

@@ -65,9 +65,9 @@ class TestLiftConstantsToInitializersPass(unittest.TestCase):
         self.assertEqual(len(result.model.graph.initializers), 1)
         # Check the value
         self.assertEqual(
-            result.model.graph.initializers[
+            result.model.graph.initializers.get_tensor(
                 "val_0"
-            ].const_value,  # name created by name_authority
+            ),  # name created by name_authority
             constant_tensor,
         )
         # And 0 constant node
@@ -152,8 +152,8 @@ class TestLiftConstantsToInitializersPass(unittest.TestCase):
                 )
         self.assertEqual(len(else_graph.initializers), 1)
         self.assertEqual(len(then_graph.initializers), 1)
-        self.assertIs(else_graph.initializers["val_0"].const_value, else_constant_tensor)
-        self.assertIs(then_graph.initializers["val_0"].const_value, then_constant_tensor)
+        self.assertIs(else_graph.initializers.get_tensor("val_0"), else_constant_tensor)
+        self.assertIs(then_graph.initializers.get_tensor("val_0"), then_constant_tensor)
 
     @parameterized.parameterized.expand(
         [
@@ -218,7 +218,7 @@ class TestLiftConstantsToInitializersPass(unittest.TestCase):
             # Check that the constant node is lifted to an initializer
             self.assertEqual(len(result.model.graph.initializers), 1)
             np.testing.assert_array_equal(
-                result.model.graph.initializers["val_1"].const_value.numpy(),
+                result.model.graph.initializers.get_tensor("val_1").numpy(),
                 np.array(constant_value, dtype=np_dtype),
             )
         else:
