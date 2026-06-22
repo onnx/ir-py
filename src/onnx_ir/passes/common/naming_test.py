@@ -400,6 +400,53 @@ class TestNameFixPass(unittest.TestCase):
         self.assertNotEqual(add_node.outputs[0].name, "important_input")
         self.assertTrue(add_node.outputs[0].name.startswith("important_input_"))
 
+    def test_orphan_value_with_const_value_registered_as_initializer_after_rename(self):
+        """Test that an orphan Value with const_value gets registered as an initializer after renaming."""
+        import numpy as np
+
+        input_value = ir.val(
+            "x", shape=ir.Shape([2, 3]), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        # Registered initializer named 'shape'
+        initializer = ir.Value(
+            name="shape",
+            const_value=ir.Tensor(np.array([6], dtype=np.int64), name="shape"),
+        )
+        # Orphan value with same name but NOT registered as an initializer
+        orphan = ir.Value(
+            name="shape",
+            shape=ir.Shape([2]),
+            type=ir.TensorType(ir.DataType.INT64),
+            const_value=ir.Tensor(np.array([2, 3], dtype=np.int64), name="shape"),
+        )
+
+        reshape_node = ir.Node("", "Reshape", inputs=[input_value, orphan])
+        reshape_node.outputs[0].name = "out"
+        reshape_node.outputs[0].shape = ir.Shape([2, 3])
+        reshape_node.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+
+        graph = ir.Graph(
+            inputs=[input_value],
+            outputs=[reshape_node.outputs[0]],
+            nodes=[reshape_node],
+            initializers=[initializer],
+            name="test_graph",
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        # Precondition: orphan is not registered
+        self.assertNotIn(orphan, graph.initializers.values())
+
+        result = naming.NameFixPass()(model)
+
+        self.assertTrue(result.modified)
+        # Orphan should be renamed and registered as an initializer
+        self.assertNotEqual(orphan.name, "shape")
+        self.assertIn(orphan.name, graph.initializers)
+        self.assertIs(graph.initializers[orphan.name], orphan)
+        # Original initializer should keep its name
+        self.assertEqual(initializer.name, "shape")
+
     def test_initializer_collision_does_not_mutate_dict_during_iteration(self):
         """Test NameFixPass handles collisions with initializer names safely."""
         input_value = ir.val(

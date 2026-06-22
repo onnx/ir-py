@@ -167,6 +167,14 @@ class NameFixPass(ir.passes.InPlacePass):
                         input_value, scoped_used_value_names[-1], seen_values, value_counter
                     ):
                         modified = True
+                        # Register orphan values with const_value as initializers
+                        if (
+                            isinstance(graph_like, ir.Graph)
+                            and input_value.const_value is not None
+                            and input_value.producer() is None
+                            and not input_value._is_initializer
+                        ):
+                            graph_like.initializers.add(input_value)
 
             # Fix output value names (only if not already processed)
             for output_value in node.outputs:
