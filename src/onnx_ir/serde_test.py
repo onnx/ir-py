@@ -1505,6 +1505,37 @@ class SparseTensorTest(unittest.TestCase):
         )
         self.assertEqual(list(result_proto.dims), [6])
 
+    def test_sparse_tensor_roundtrip_2d_indices_asymmetric(self):
+        """Round-trip with 2-D [NNZ, rank] indices where NNZ != rank."""
+        # Build a SparseTensorProto with 2-D indices: shape [NNZ=4, rank=2] per ONNX spec
+        # Non-zeros at (0,0)=1, (1,3)=2, (3,1)=3, (4,2)=4 in a [5,4] tensor
+        values_proto = onnx.helper.make_tensor(
+            "", onnx.TensorProto.FLOAT, [4], [1.0, 2.0, 3.0, 4.0]
+        )
+        # ONNX 2-D indices layout: [NNZ=4, rank=2]
+        indices_flat = [0, 0, 1, 3, 3, 1, 4, 2]
+        indices_proto = onnx.helper.make_tensor(
+            "", onnx.TensorProto.INT64, [4, 2], indices_flat
+        )
+        proto = onnx.helper.make_sparse_tensor(values_proto, indices_proto, [5, 4])
+        proto.values.name = "sparse_2d"
+
+        # Deserialize → SparseTensor
+        sparse = serde.deserialize_sparse_tensor(proto)
+        self.assertEqual(sparse.dims, [5, 4])
+        np.testing.assert_array_equal(sparse.indices.numpy().shape, (4, 2))
+
+        # Re-serialize and compare
+        result_proto = serde.serialize_sparse_tensor(sparse)
+        np.testing.assert_array_equal(
+            onnx.numpy_helper.to_array(result_proto.values), [1.0, 2.0, 3.0, 4.0]
+        )
+        np.testing.assert_array_equal(
+            onnx.numpy_helper.to_array(result_proto.indices),
+            np.array([[0, 0], [1, 3], [3, 1], [4, 2]], dtype=np.int64),
+        )
+        self.assertEqual(list(result_proto.dims), [5, 4])
+
     def test_from_proto_sparse_tensor(self):
         proto = self._make_sparse_tensor_proto()
         result = ir.from_proto(proto)

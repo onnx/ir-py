@@ -3644,15 +3644,17 @@ class SparseTensorTest(unittest.TestCase):
         np.testing.assert_array_equal(dense.numpy(), expected)
 
     def test_as_tensor_2d_per_dimension_indices(self):
-        """as_tensor converts 2-D per-dimension indices to a dense array."""
-        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
-        # Shape [rank=2, NNZ=2]: positions [0,1] and [1,0]
-        indices = _core.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+        """as_tensor converts 2-D per-non-zero indices (ONNX layout [NNZ, rank]) to a dense array."""
+        values = _core.Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+        # Shape [NNZ=3, rank=2]: each row is the coordinate of one non-zero element
+        # NNZ 0 at (0, 1), NNZ 1 at (1, 0), NNZ 2 at (2, 2)
+        indices = _core.Tensor(np.array([[0, 1], [1, 0], [2, 2]], dtype=np.int64))
         sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
         dense = sparse.as_tensor()
         expected = np.zeros((3, 3), dtype=np.float32)
         expected[0, 1] = 1.0
         expected[1, 0] = 2.0
+        expected[2, 2] = 3.0
         np.testing.assert_array_equal(dense.numpy(), expected)
 
     def test_as_tensor_lazy_returns_lazy_tensor(self):
@@ -3688,8 +3690,9 @@ class SparseTensorTest(unittest.TestCase):
         pytest.importorskip("scipy")
         import scipy.sparse as sp
 
-        values = _core.Tensor(np.array([1.0, 2.0], dtype=np.float32))
-        indices = _core.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+        values = _core.Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+        # Shape [NNZ=3, rank=2]: each row is the coordinate of one non-zero (NNZ != rank)
+        indices = _core.Tensor(np.array([[0, 1], [1, 0], [2, 2]], dtype=np.int64))
         sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
         result = sparse.numpy()
         self.assertIsInstance(result, sp.coo_array)
@@ -3697,6 +3700,7 @@ class SparseTensorTest(unittest.TestCase):
         expected_dense = np.zeros((3, 3), dtype=np.float32)
         expected_dense[0, 1] = 1.0
         expected_dense[1, 0] = 2.0
+        expected_dense[2, 2] = 3.0
         np.testing.assert_array_equal(result.toarray(), expected_dense)
 
     def test_numpy_1d_linear_indices(self):
@@ -3720,6 +3724,8 @@ class SparseTensorTest(unittest.TestCase):
         self.assertEqual(sparse.name, "test_sparse")
         self.assertEqual(sparse.dims, [3, 3])
         np.testing.assert_array_equal(sparse.values.numpy(), data)
+        # Indices shape is [NNZ, rank]: each row is one non-zero's coordinate
+        # NNZ 0 at (row=0, col=1), NNZ 1 at (row=1, col=0)
         np.testing.assert_array_equal(
             sparse.indices.numpy(), np.array([[0, 1], [1, 0]], dtype=np.int64)
         )
@@ -3744,6 +3750,58 @@ class SparseTensorTest(unittest.TestCase):
         data = np.array([3.0, 7.0], dtype=np.float64)
         original = sp.coo_array((data, ([0, 2], [1, 0])), shape=(4, 3))
         sparse = ir.SparseTensor.from_scipy_sparse(original)
+        roundtripped = sparse.numpy()
+        np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
+
+    def test_as_tensor_2d_indices_asymmetric_nnz_rank(self):
+        """as_tensor with 2-D [NNZ, rank] indices where NNZ != rank (validates correct layout)."""
+        # 4 non-zeros in a [5, 4] tensor: NNZ=4, rank=2
+        values = _core.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        # Shape [NNZ=4, rank=2]: each row is a coordinate
+        indices = _core.Tensor(np.array([[0, 0], [1, 3], [3, 1], [4, 2]], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[5, 4])
+        dense = sparse.as_tensor()
+        expected = np.zeros((5, 4), dtype=np.float32)
+        expected[0, 0] = 1.0
+        expected[1, 3] = 2.0
+        expected[3, 1] = 3.0
+        expected[4, 2] = 4.0
+        np.testing.assert_array_equal(dense.numpy(), expected)
+
+    def test_numpy_2d_indices_asymmetric_nnz_rank(self):
+        """numpy() with 2-D [NNZ, rank] indices where NNZ != rank (validates correct layout)."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # 4 non-zeros in a [5, 4] tensor: NNZ=4, rank=2
+        values = _core.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        # Shape [NNZ=4, rank=2]: each row is a coordinate
+        indices = _core.Tensor(np.array([[0, 0], [1, 3], [3, 1], [4, 2]], dtype=np.int64))
+        sparse = ir.SparseTensor(values=values, indices=indices, dims=[5, 4])
+        result = sparse.numpy()
+        self.assertIsInstance(result, sp.coo_array)
+        expected = np.zeros((5, 4), dtype=np.float32)
+        expected[0, 0] = 1.0
+        expected[1, 3] = 2.0
+        expected[3, 1] = 3.0
+        expected[4, 2] = 4.0
+        np.testing.assert_array_equal(result.toarray(), expected)
+
+    def test_from_scipy_sparse_asymmetric_nnz_rank(self):
+        """from_scipy_sparse with NNZ != rank stores indices in [NNZ, rank] layout."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # 4 non-zeros in a [5, 4] matrix: NNZ=4, rank=2
+        rows = [0, 1, 3, 4]
+        cols = [0, 3, 1, 2]
+        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        original = sp.coo_array((data, (rows, cols)), shape=(5, 4))
+        sparse = ir.SparseTensor.from_scipy_sparse(original)
+        self.assertEqual(sparse.dims, [5, 4])
+        # Indices must be [NNZ=4, rank=2]
+        self.assertEqual(sparse.indices.numpy().shape, (4, 2))
+        # Round-trip
         roundtripped = sparse.numpy()
         np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
 

@@ -1414,7 +1414,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             name: Optional name for the resulting sparse tensor.
 
         Returns:
-            A :class:`SparseTensor` in COO format with 2-D ``[rank, NNZ]`` indices.
+            A :class:`SparseTensor` in COO format with 2-D ``[NNZ, rank]`` indices.
 
         Raises:
             ImportError: If ``scipy`` is not installed.
@@ -1451,7 +1451,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         coords = getattr(coo, "coords", None)
         if coords is None:
             coords = (coo.row, coo.col)
-        indices_array = np.stack(coords, axis=0).astype(np.int64)
+        indices_array = np.stack(coords, axis=1).astype(np.int64)
         indices_tensor = Tensor(indices_array, _enums.DataType.INT64)
         return cls(values_tensor, indices_tensor, list(array.shape))
 
@@ -1505,8 +1505,9 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
         * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
           (C) order; these are converted to per-dimension coordinates via
           :func:`numpy.unravel_index`.
-        * **2-D indices** (shape ``[rank, NNZ]``): per-dimension indices where
-          row *i* contains the index along dimension *i* for every non-zero.
+        * **2-D indices** (shape ``[NNZ, rank]``): per-non-zero indices where
+          row *i* contains the full coordinate tuple of the *i*-th non-zero
+          element (one entry per dimension).
 
         Returns:
             A ``scipy.sparse.coo_array`` with the non-zero data placed at the
@@ -1520,6 +1521,7 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             >>> import numpy as np
             >>> import onnx_ir as ir
             >>> values = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+            >>> # 2-D indices shape [NNZ=2, rank=2]: row i is the coordinate of NNZ i
             >>> indices = ir.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
             >>> sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
             >>> sp = sparse.numpy()
@@ -1542,8 +1544,8 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
             # Linear (flat) indices → per-dimension coordinates
             coords = np.unravel_index(indices_array, self._dims)
         else:
-            # Shape [rank, NNZ] - each row is one dimension's indices
-            coords = tuple(indices_array[i] for i in range(indices_array.shape[0]))
+            # Shape [NNZ, rank] - each row is one non-zero's coordinate tuple
+            coords = tuple(indices_array[:, j] for j in range(indices_array.shape[1]))
         return _scipy_sparse.coo_array((values_array, coords), shape=tuple(self._dims))
 
     def as_tensor(self, *, lazy: bool = False) -> TensorBase:
@@ -1556,8 +1558,9 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
 
         * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
           (C) order, as if the tensor were flattened to 1-D first.
-        * **2-D indices** (shape ``[rank, NNZ]``): per-dimension indices where
-          row *i* contains the index along dimension *i* for every non-zero.
+        * **2-D indices** (shape ``[NNZ, rank]``): per-non-zero indices where
+          row *i* contains the full coordinate tuple of the *i*-th non-zero
+          element (one entry per dimension).
 
         Args:
             lazy: When ``False`` (the default), the dense array is computed
@@ -1594,8 +1597,10 @@ class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
                 # Linear (flat) indices in row-major order
                 multi_indices = np.unravel_index(indices_array, self._dims)
             else:
-                # Shape [rank, NNZ] - each row is one dimension's indices
-                multi_indices = tuple(indices_array[i] for i in range(indices_array.shape[0]))
+                # Shape [NNZ, rank] - each row is one non-zero's coordinate tuple
+                multi_indices = tuple(
+                    indices_array[:, j] for j in range(indices_array.shape[1])
+                )
             dense[multi_indices] = values_array
             return Tensor(dense, dtype)
 

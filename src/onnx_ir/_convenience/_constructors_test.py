@@ -38,9 +38,28 @@ class ConstructorsTest(unittest.TestCase):
         self.assertEqual(sparse.name, "my_sparse")
         self.assertEqual(sparse.dims, [3, 3])
         np.testing.assert_array_equal(sparse.values.numpy(), data)
+        # Indices shape is [NNZ, rank]: each row is one non-zero's coordinate
+        # NNZ 0 at (row=0, col=1), NNZ 1 at (row=1, col=0)
         np.testing.assert_array_equal(
             sparse.indices.numpy(), np.array([[0, 1], [1, 0]], dtype=np.int64)
         )
+
+    def test_from_scipy_sparse_coo_asymmetric_nnz_rank(self):
+        """from_scipy_sparse with NNZ != rank produces [NNZ, rank] indices (validates layout)."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # NNZ=4, rank=2 — layout ambiguity only resolved when NNZ != rank
+        rows = [0, 1, 3, 4]
+        cols = [0, 3, 1, 2]
+        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        coo = sp.coo_array((data, (rows, cols)), shape=(5, 4))
+        sparse = ir.SparseTensor.from_scipy_sparse(coo)
+        self.assertEqual(sparse.dims, [5, 4])
+        # Indices must have shape [NNZ=4, rank=2]
+        self.assertEqual(sparse.indices.numpy().shape, (4, 2))
+        # Round-trip via numpy() must reproduce the original dense array
+        np.testing.assert_array_equal(sparse.numpy().toarray(), coo.toarray())
 
     def test_from_scipy_sparse_csr(self):
         pytest.importorskip("scipy")
