@@ -30,6 +30,7 @@ COMMON_TEST_DEPENDENCIES = (
     "ml-dtypes",
     "onnxruntime",
     "safetensors",
+    "scipy",
 )
 ONNX = "onnx==1.18"
 ONNXSCRIPT = "onnxscript"

@@ -1327,6 +1327,298 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             file.write(self.tobytes())
 
 
+class SparseTensor(_protocols.SparseTensorProtocol, _display.PrettyPrintable):
+    """A sparse tensor in COO (Coordinate) format.
+
+    A sparse tensor stores only the non-zero values and their indices, along with
+    the dense shape (``dims``). This follows the ONNX ``SparseTensorProto`` format.
+
+    Attributes:
+        values: A :class:`TensorProtocol` containing the non-zero values. The shape
+            is ``[nnz]`` or ``[nnz, ...]`` depending on the storage format.
+        indices: A :class:`TensorProtocol` of ``INT64`` containing the linear or
+            multi-dimensional indices of the non-zero values.
+        dims: The dense shape of the sparse tensor as a list of integers.
+        name: Optional name for the sparse tensor. When used as an initializer, this
+            name must match the corresponding graph value name. It is stored as the
+            name of the ``values`` tensor to match the ONNX specification.
+        meta: Metadata store for graph transform passes (not serialized).
+
+    Note:
+        The ONNX ``SparseTensorProto`` only stores ``values``, ``indices`` and
+        ``dims``, so a sparse tensor has no serializable ``doc_string`` or
+        ``metadata_props``. Use :attr:`meta` for in-memory annotations.
+    """
+
+    __slots__ = (
+        "_dims",
+        "_indices",
+        "_metadata",
+        "_values",
+    )
+
+    def __init__(
+        self,
+        values: _protocols.TensorProtocol,
+        indices: _protocols.TensorProtocol,
+        dims: Sequence[int],
+        *,
+        name: str | None = None,
+    ) -> None:
+        """Initialize a sparse tensor from explicit COO components.
+
+        Args:
+            values: A :class:`TensorProtocol` containing the non-zero values.
+                The name of the ``values`` tensor is used as the name of the sparse
+                tensor (per the ONNX specification) unless ``name`` is explicitly
+                supplied.
+            indices: A tensor of ``INT64`` containing the indices of the non-zero
+                values.
+            dims: The dense shape of the sparse tensor.
+            name: Optional name for the sparse tensor.  When provided, this overrides
+                the name stored on the ``values`` tensor.
+
+        Note:
+            To construct a :class:`SparseTensor` from a scipy sparse array, use the
+            :meth:`from_scipy_sparse` classmethod::
+
+                sparse = ir.SparseTensor.from_scipy_sparse(scipy_array, name="my_sparse")
+        """
+        if not isinstance(values, _protocols.TensorProtocol):
+            raise TypeError(
+                f"'values' must be a TensorProtocol, got {type(values)!r}. "
+                "To construct from a scipy sparse array, use SparseTensor.from_scipy_sparse()."
+            )
+        self._values: _protocols.TensorProtocol = values
+        self._indices: _protocols.TensorProtocol = indices
+        self._dims: list[int] = list(dims)
+        if name is not None:
+            self._values.name = name  # type: ignore[misc]
+
+        self._metadata: _metadata.MetadataStore | None = None
+
+    @classmethod
+    def from_scipy_sparse(
+        cls,
+        array: Any,
+        *,
+        name: str | None = None,
+    ) -> SparseTensor:
+        """Create a :class:`SparseTensor` from a ``scipy.sparse`` array.
+
+        The array can be in any scipy sparse format; it is converted to COO
+        internally. The dense shape is taken from the array's ``shape``.
+
+        Args:
+            array: A ``scipy.sparse`` array or matrix.
+            name: Optional name for the resulting sparse tensor.
+
+        Returns:
+            A :class:`SparseTensor` in COO format with 2-D ``[NNZ, rank]`` indices.
+
+        Raises:
+            ImportError: If ``scipy`` is not installed.
+            TypeError: If ``array`` is not a ``scipy.sparse`` array.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import scipy.sparse as sp
+            >>> import onnx_ir as ir
+            >>> coo = sp.coo_array((np.array([1.0, 2.0], dtype=np.float32), ([0, 1], [1, 0])), shape=(3, 3))
+            >>> sparse = ir.SparseTensor.from_scipy_sparse(coo, name="my_sparse")
+            >>> sparse.dims
+            [3, 3]
+        """
+        try:
+            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "scipy is required for SparseTensor.from_scipy_sparse(). "
+                "Install it with 'pip install scipy'."
+            ) from e
+
+        if not isinstance(array, (_scipy_sparse.sparray, _scipy_sparse.spmatrix)):
+            raise TypeError(
+                f"'array' must be a scipy.sparse array or matrix, got {type(array)!r}."
+            )
+
+        coo = array.tocoo()
+        data: np.ndarray = np.asarray(coo.data)
+        values_tensor = Tensor(data, _enums.DataType.from_numpy(data.dtype), name=name)
+        # ``coords`` is only available on COO objects in scipy>=1.13. Fall back to
+        # ``(row, col)`` for legacy ``coo_matrix`` instances that lack it.
+        coords = getattr(coo, "coords", None)
+        if coords is None:
+            coords = (coo.row, coo.col)
+        indices_array = np.stack(coords, axis=1).astype(np.int64)
+        indices_tensor = Tensor(indices_array, _enums.DataType.INT64)
+        return cls(values_tensor, indices_tensor, list(array.shape))
+
+    @property
+    def name(self) -> str | None:
+        """The name of the sparse tensor.
+
+        Per the ONNX specification, the name of a sparse tensor is the name of its
+        ``values`` tensor.
+        """
+        return self._values.name
+
+    @name.setter
+    def name(self, value: str | None) -> None:
+        self._values.name = value
+
+    @property
+    def values(self) -> _protocols.TensorProtocol:
+        """The non-zero values of the sparse tensor."""
+        return self._values
+
+    @property
+    def indices(self) -> _protocols.TensorProtocol:
+        """The indices of the non-zero values."""
+        return self._indices
+
+    @property
+    def dims(self) -> list[int]:
+        """The dense shape of the sparse tensor."""
+        return self._dims
+
+    @property
+    def meta(self) -> _metadata.MetadataStore:
+        """The metadata store for intermediate analysis.
+
+        This is never serialized to the ONNX proto because the
+        ``SparseTensorProto`` has no field to hold it.
+        """
+        if self._metadata is None:
+            self._metadata = _metadata.MetadataStore()
+        return self._metadata
+
+    def numpy(self) -> Any:
+        """Return the sparse tensor as a :class:`scipy.sparse.coo_array`.
+
+        The returned array has the same shape as :attr:`dims` and the same
+        element type as :attr:`values`.
+
+        Two index layouts are supported (following the ONNX specification):
+
+        * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
+          (C) order; these are converted to per-dimension coordinates via
+          :func:`numpy.unravel_index`.
+        * **2-D indices** (shape ``[NNZ, rank]``): per-non-zero indices where
+          row *i* contains the full coordinate tuple of the *i*-th non-zero
+          element (one entry per dimension).
+
+        Returns:
+            A ``scipy.sparse.coo_array`` with the non-zero data placed at the
+            corresponding coordinates.
+
+        Raises:
+            ImportError: If ``scipy`` is not installed.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import onnx_ir as ir
+            >>> values = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+            >>> # 2-D indices shape [NNZ=2, rank=2]: row i is the coordinate of NNZ i
+            >>> indices = ir.Tensor(np.array([[0, 1], [1, 0]], dtype=np.int64))
+            >>> sparse = ir.SparseTensor(values=values, indices=indices, dims=[3, 3])
+            >>> sp = sparse.numpy()
+            >>> sp.toarray()
+            array([[0., 1., 0.],
+                   [2., 0., 0.],
+                   [0., 0., 0.]], dtype=float32)
+        """
+        try:
+            import scipy.sparse as _scipy_sparse  # type: ignore[import-untyped]
+        except ImportError as e:
+            raise ImportError(
+                "scipy is required for SparseTensor.numpy(). "
+                "Install it with 'pip install scipy'."
+            ) from e
+
+        values_array = self._values.numpy()
+        indices_array = self._indices.numpy()
+        if indices_array.ndim == 1:
+            # Linear (flat) indices → per-dimension coordinates
+            coords = np.unravel_index(indices_array, self._dims)
+        else:
+            # Shape [NNZ, rank] - each row is one non-zero's coordinate tuple
+            coords = tuple(indices_array[:, j] for j in range(indices_array.shape[1]))
+        return _scipy_sparse.coo_array((values_array, coords), shape=tuple(self._dims))
+
+    def as_tensor(self, *, lazy: bool = False) -> TensorBase:
+        """Convert this sparse tensor to a dense :class:`Tensor`.
+
+        The conversion uses NumPy to materialize the dense array by placing
+        each non-zero value at its corresponding index.
+
+        Two index layouts are supported (following the ONNX specification):
+
+        * **1-D indices** (shape ``[NNZ]``): flat linear indices in row-major
+          (C) order, as if the tensor were flattened to 1-D first.
+        * **2-D indices** (shape ``[NNZ, rank]``): per-non-zero indices where
+          row *i* contains the full coordinate tuple of the *i*-th non-zero
+          element (one entry per dimension).
+
+        Args:
+            lazy: When ``False`` (the default), the dense array is computed
+                immediately and a :class:`Tensor` is returned.  When ``True``,
+                a :class:`LazyTensor` is returned whose data is not computed
+                until it is first accessed.
+
+        Returns:
+            A :class:`Tensor` (or :class:`LazyTensor` when ``lazy=True``)
+            with shape equal to :attr:`dims` and dtype equal to the dtype of
+            the :attr:`values` tensor.
+
+        Example::
+
+            >>> import numpy as np
+            >>> import onnx_ir as ir
+            >>> values = ir.Tensor(np.array([1.0, 2.0], dtype=np.float32))
+            >>> # 1-D linear indices: position 1 and position 3 in a 2x3 tensor
+            >>> indices = ir.Tensor(np.array([1, 3], dtype=np.int64))
+            >>> sparse = ir.SparseTensor(values=values, indices=indices, dims=[2, 3])
+            >>> dense = sparse.as_tensor()
+            >>> dense.numpy()
+            array([[0., 1., 0.],
+                   [2., 0., 0.]], dtype=float32)
+        """
+
+        def _compute() -> Tensor:
+            values_array = self._values.numpy()
+            indices_array = self._indices.numpy()
+            dtype = self._values.dtype
+            np_dtype = dtype.numpy()
+            dense = np.zeros(self._dims, dtype=np_dtype)
+            if indices_array.ndim == 1:
+                # Linear (flat) indices in row-major order
+                multi_indices = np.unravel_index(indices_array, self._dims)
+            else:
+                # Shape [NNZ, rank] - each row is one non-zero's coordinate tuple
+                multi_indices = tuple(
+                    indices_array[:, j] for j in range(indices_array.shape[1])
+                )
+            dense[multi_indices] = values_array
+            return Tensor(dense, dtype)
+
+        if lazy:
+            return LazyTensor(
+                _compute,
+                dtype=self._values.dtype,
+                shape=Shape(self._dims),
+                name=self.name,
+            )
+        return _compute()
+
+    def __repr__(self) -> str:
+        return (
+            f"SparseTensor(name={self.name!r}, dims={self._dims!r}, nnz={self._values.size!r})"
+        )
+
+
 class SymbolicDim(_protocols.SymbolicDimProtocol, _display.PrettyPrintable):
     """Immutable symbolic dimension that can be shared across multiple shapes.
 
@@ -2944,6 +3236,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     """
 
     __slots__ = (
+        "_const_sparse_value",
         "_const_value",
         "_graph",
         "_index",
@@ -2970,6 +3263,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         type: _protocols.TypeProtocol | None = None,
         doc_string: str | None = None,
         const_value: _protocols.TensorProtocol | None = None,
+        const_sparse_value: _protocols.SparseTensorProtocol | None = None,
         metadata_props: dict[str, str] | None = None,
     ) -> None:
         """Initialize a value.
@@ -2990,7 +3284,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             shape: The shape of the value.
             type: The type of the value.
             doc_string: The documentation string.
-            const_value: The constant tensor if the value is constant.
+            const_value: The constant dense tensor if the value is constant.
+            const_sparse_value: The constant sparse tensor if the value is a sparse constant.
             metadata_props: Metadata that will be serialized to the ONNX file.
         """
         self._producer: Node | None = producer
@@ -3004,6 +3299,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         # TODO(justinchuby): Handle initialization when a const value is provided
         # We can get shape and type information from the const value
         self._const_value = const_value
+        self._const_sparse_value = const_sparse_value
         # Use a collection of (Node, int) to store uses. This is needed
         # because a single use can use the same value multiple times.
         # Use a dictionary to preserve insertion order so that the visiting order is deterministic
@@ -3048,6 +3344,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     def _constant_tensor_part(self) -> str:
         """Display string for the constant tensor attached to str of Value."""
+        if self._const_sparse_value is not None:
+            return f"{{{self._const_sparse_value.__class__.__name__}(...)}}"
         if self.const_value is not None:
             # Only display when the const value is small
             if self.const_value.size <= 10:
@@ -3147,8 +3445,10 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                 )
 
         # Rename the backing constant tensor
-        if self._const_value is not None:
+        if isinstance(self._const_value, _protocols.TensorProtocol):
             self._const_value.name = value
+        if isinstance(self._const_sparse_value, _protocols.SparseTensorProtocol):
+            self._const_sparse_value.name = value
 
         # Rename self
         old_name = self._name
@@ -3215,7 +3515,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     def const_value(
         self,
     ) -> _protocols.TensorProtocol | None:
-        """The backing constant tensor for the value.
+        """The backing constant dense tensor for the value.
 
         If the ``Value`` has a ``const_value`` and is part of a graph initializers
         dictionary, the value is an initialized value. Its ``const_value``
@@ -3225,7 +3525,9 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
         field will be ignored during serialization.
 
         ``const_value`` can be backed by different raw data types, such as numpy arrays.
-        The only guarantee is that it conforms TensorProtocol.
+        The only guarantee is that it conforms to :class:`TensorProtocol`.
+
+        For sparse tensors, use :attr:`const_sparse_value` instead.
         """
         return self._const_value
 
@@ -3240,6 +3542,33 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
                     f"Expected value to be a TensorProtocol or None, got '{type(value)}'"
                 )
         self._const_value = value
+
+    @property
+    def const_sparse_value(
+        self,
+    ) -> _protocols.SparseTensorProtocol | None:
+        """The backing constant sparse tensor for the value.
+
+        If the ``Value`` has a ``const_sparse_value`` and is part of a graph initializers
+        dictionary, the value is an initialized sparse value. Its ``const_sparse_value``
+        will appear as a ``sparse_initializer`` in the GraphProto when serialized.
+
+        If the ``Value`` is not part of a graph initializers dictionary, the
+        ``const_sparse_value`` field will be ignored during serialization.
+        """
+        return self._const_sparse_value
+
+    @const_sparse_value.setter
+    def const_sparse_value(
+        self,
+        value: _protocols.SparseTensorProtocol | None,
+    ) -> None:
+        if onnx_ir.DEBUG:
+            if value is not None and not isinstance(value, _protocols.SparseTensorProtocol):
+                raise TypeError(
+                    f"Expected value to be a SparseTensorProtocol or None, got '{type(value)}'"
+                )
+        self._const_sparse_value = value
 
     @property
     def meta(self) -> _metadata.MetadataStore:

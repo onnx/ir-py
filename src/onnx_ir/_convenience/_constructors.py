@@ -58,14 +58,18 @@ def tensor(
         >>> ir.tensor(torch.tensor([1.0, 2.0]), name="torch_tensor")
         TorchTensor<FLOAT,[2]>(tensor([1., 2.]), name='torch_tensor')
 
+    To create a sparse tensor from a scipy sparse array, use
+    :meth:`~onnx_ir.SparseTensor.from_scipy_sparse`.
+
     Args:
-        value: The numpy array to create the tensor from.
+        value: The value to create the tensor from. Can be a numpy array, a plain
+            Python object, or a TensorProto.
         dtype: The data type of the tensor.
         name: The name of the tensor.
         doc_string: The documentation string of the tensor.
 
     Returns:
-        A tensor value.
+        A :class:`~onnx_ir.Tensor` object.
 
     Raises:
         ValueError: If the dtype does not match the value when value is not a plain Python
