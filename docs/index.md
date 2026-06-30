@@ -1,25 +1,56 @@
 # ONNX IR
 
-An in-memory IR that supports the full ONNX spec, designed for graph construction, analysis and transformation.
+ONNX IR is an in-memory IR that supports the full ONNX spec for graph construction,
+analysis, and transformation.
 
-## Features ✨
+This docsite is organized for fast onboarding, production usage, and complete API
+references.
 
-- Full ONNX spec support: all valid models representable by ONNX protobuf, and a subset of invalid models (so you can load and fix them).
-- Low memory footprint: mmap'ed external tensors; unified interface for ONNX TensorProto, Numpy arrays and PyTorch Tensors etc. No tensor size limitation. Zero copies.
-- Straightforward access patterns: Access value information and traverse the graph topology at ease.
-- Robust mutation: Create as many iterators as you like on the graph while mutating it.
-- Speed: Performant graph manipulation, serialization/deserialization to Protobuf.
-- Pythonic and familiar APIs: Classes define Pythonic apis and still map to ONNX protobuf concepts in an intuitive way.
-- No protobuf dependency: The IR does not require protobuf once the model is converted to the IR representation, decoupling from the serialization format.
+## Why ONNX IR
 
-## Get started
+- Full ONNX model coverage, including a subset of structurally invalid models that
+  still need repair workflows.
+- Efficient tensor handling, including external data and zero-copy friendly pathways.
+- Robust graph mutation semantics suitable for compiler and transformation passes.
+- Pythonic APIs that preserve intuitive mapping to ONNX concepts.
+
+## Start here
 
 ```{toctree}
 :maxdepth: 2
+:caption: Getting Started
 
-Overview <self>
 getting_started
+installation
+compatibility
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Reliability and Operations
+
+stability
+migration
+troubleshooting
+faq
+security
+release_checklist
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: User Guides
+
 tensors
 multi_device
+model_io
+graph_transformations
+onnx_helper_migration
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: API Reference
+
 api/index
 ```

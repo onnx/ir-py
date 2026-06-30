@@ -213,6 +213,7 @@ class Sequential(PassBase):
     """Run a sequence of passes in order.
 
     Example::
+
         import onnx_ir as ir
         import onnx_ir.passes.common as common_passes
 
@@ -267,6 +268,7 @@ class PassManager(Sequential):
     The PassManager is a Pass that runs a sequence of passes on a model.
 
     Example::
+
         import onnx_ir as ir
         import onnx_ir.passes.common as common_passes
 
