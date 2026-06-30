@@ -109,8 +109,6 @@ class TensorProtocol(ArrayCompatible, DLPackCompatible, Protocol):
         dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
         doc_string: Documentation string.
         raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
         metadata_props: Metadata that will be serialized to the ONNX file.
         meta: Metadata store for graph transform passes.
     """
@@ -124,10 +122,14 @@ class TensorProtocol(ArrayCompatible, DLPackCompatible, Protocol):
     meta: MutableMapping[str, Any]
 
     @property
-    def size(self) -> int: ...
+    def size(self) -> int:
+        """Return the number of elements in the tensor."""
+        ...
 
     @property
-    def nbytes(self) -> int: ...
+    def nbytes(self) -> int:
+        """Return the number of bytes required to store the tensor."""
+        ...
 
     def numpy(self) -> np.ndarray:
         """Return the tensor as a numpy array."""
