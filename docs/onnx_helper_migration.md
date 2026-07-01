@@ -10,7 +10,7 @@ patterns to `onnx_ir` APIs.
 - More convenient constructors (`ir.val`, `ir.node`, `ir.tensor`)
 - Better graph mutation ergonomics
 - Utilities for value replacement, extraction, and transformation workflows
-- Direct serialization back to ONNX
+- Memory efficiency when handling large tensors and large models
 
 ## Mapping cheatsheet
 
@@ -32,7 +32,6 @@ import onnx
 from onnx import TensorProto
 
 x = onnx.helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3])
-y = onnx.helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 3])
 out = onnx.helper.make_tensor_value_info("out", TensorProto.FLOAT, [2, 3])
 
 bias = onnx.helper.make_tensor(
@@ -48,7 +47,7 @@ relu = onnx.helper.make_node("Relu", inputs=["tmp"], outputs=["out"], name="relu
 graph = onnx.helper.make_graph(
     [add, relu],
     "g",
-    inputs=[x, y],
+    inputs=[x],
     outputs=[out],
     initializer=[bias],
 )
