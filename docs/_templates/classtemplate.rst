@@ -7,7 +7,6 @@
 
 .. autoclass:: {{ name }}
     :members:
-    :exclude-members: meta, metadata_props, initializers, dtype, shape, raw, dims, frozen, obj
     :member-order: bysource
 
 ..
