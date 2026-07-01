@@ -34,8 +34,6 @@ class JournalEntry:
         ref: A weak reference to the object on which the operation was performed.
             To access the object, call ``ref()``. Note that ``ref`` may be ``None``,
             and ``ref()`` may return ``None`` if the object has been garbage-collected.
-        obj: The referenced object, or None if it has been garbage-collected or not recorded.
-            This is the same as calling ``entry.ref() if entry.ref is not None else None``.
         object_id: The unique identifier of the object (id()).
         stack_trace: The stack trace at the time of the operation.
         details: Additional details about the operation.

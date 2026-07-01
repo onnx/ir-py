@@ -15,7 +15,7 @@ def analyze_implicit_usage(graph: ir.Graph) -> dict[ir.Graph, set[ir.Value]]:
     """Analyze implicit usage of values in sub-graphs.
 
     This function returns a mapping from each sub-graph to a set of
-    :class:`~onnx_ir.Value`s that are captured from outer scopes (i.e., not defined
+    :class:`~onnx_ir.Value` objects that are captured from outer scopes (i.e., not defined
     within the sub-graph itself).
 
     Args:

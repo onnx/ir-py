@@ -442,16 +442,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
     Subclass this class to efficiently handle different types of tensors from different frameworks.
 
-    Attributes:
-        name: The name of the tensor.
-        shape: The shape of the tensor.
-        dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
-        doc_string: Documentation string.
-        raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -1071,16 +1061,10 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
          [3]]
 
     Attributes:
-        func: The function that returns the actual tensor.
-        dtype: The data type of the tensor.
-        shape: The shape of the tensor.
         cache: Whether to cache the result of the function. If False,
             the function is called every time the tensor content is accessed.
             If True, the function is called only once and the result is cached in memory.
             Default is False.
-        name: The name of the tensor.
-        doc_string: The documentation string.
-        metadata_props: The metadata properties.
     """
 
     __slots__ = (
@@ -1144,6 +1128,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
     @property
     def raw(self) -> Callable[[], _protocols.TensorProtocol]:
+        """Return the thunk that materializes the backing tensor."""
         return self._func
 
     @property
@@ -1165,6 +1150,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         return self._evaluate().tobytes()
 
     def tofile(self, file) -> None:
+        """Write tensor bytes to a binary file-like object."""
         tensor = self._evaluate()
         if hasattr(tensor, "tofile"):
             # Some existing implementation of TensorProtocol
@@ -1695,11 +1681,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         >>> shape.frozen
         True
 
-    Attributes:
-        dims: A tuple of dimensions representing the shape.
-            Each dimension can be an integer, None, or a :class:`SymbolicDim`.
-        frozen: Indicates whether the shape is immutable. When frozen, the shape
-            cannot be modified or unfrozen.
     """
 
     __slots__ = ("_dims", "_frozen")
@@ -1773,6 +1754,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return len(self._dims)
 
     def numpy(self) -> tuple[int, ...]:
+        """Return the shape as a tuple of ints.
+
+        Raises:
+            ValueError: If any dimension is symbolic and cannot be represented as int.
+        """
         if any(not isinstance(dim, int) for dim in self._dims):
             raise ValueError(f"Cannot convert the shape {self} to a tuple of ints")
         return tuple(dim for dim in self._dims)  # type: ignore
@@ -1875,6 +1861,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         """Return True if any dimension is dynamic."""
 
     def is_dynamic(self, dim=None) -> bool:
+        """Return whether dimensions are dynamic.
+
+        When ``dim`` is ``None``, returns True if any dimension is dynamic.
+        Otherwise returns True if the specified dimension is dynamic.
+        """
         if dim is None:
             return not self.is_static()
         return not self.is_static(dim)
@@ -2839,6 +2830,7 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
     the magic handler to enable arithmetic operations on Values.
 
     Example::
+
         class MyOpHandler:
             def Add(self, lhs, rhs):
                 # Implement addition logic here
@@ -3462,13 +3454,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     Attributes:
         name: The name of the graph.
-        inputs: The input values of the graph.
-        outputs: The output values of the graph.
-        initializers: The initializers in the graph.
-        doc_string: Documentation string.
-        opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -3519,10 +3504,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """Return graph input values."""
         return self._inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """Return graph output values."""
         return self._outputs
 
     @property
@@ -3575,6 +3562,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def doc_string(self) -> str | None:
+        """Return the graph documentation string."""
         return self._doc_string
 
     @doc_string.setter
@@ -3583,6 +3571,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """Return opset imports as ``{domain: version}``."""
         return self._opset_imports
 
     @typing.overload
@@ -4063,8 +4052,6 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         initializers: The initializers in the graph.
         doc_string: Documentation string.
         opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -4135,6 +4122,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """Return metadata that is serialized to ONNX."""
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -4493,17 +4481,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(function)``.
 
-    Attributes:
-        name: The function name.
-        domain: The domain this function is defined in.
-        overload: The overload name when the function is overloaded.
-        inputs: The input values of the function.
-        attributes: The attributes this function defines.
-        outputs: The output values of the function.
-        opset_imports: Opsets imported by the function.
-        doc_string: Documentation string.
-        meta: Metadata store for graph transform passes.
-        metadata_props: Metadata that will be serialized to the ONNX file.
     """
 
     __slots__ = (
@@ -4534,10 +4511,12 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
     def identifier(self) -> _protocols.OperatorIdentifier:
+        """Return ``(domain, name, overload)`` for this function."""
         return self.domain, self.name, self.overload
 
     @property
     def name(self) -> str:
+        """Return the function name."""
         return self._name
 
     @name.setter
@@ -4546,6 +4525,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def domain(self) -> str:
+        """Return the function domain."""
         return self._domain
 
     @domain.setter
@@ -4554,6 +4534,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def overload(self) -> str:
+        """Return the overload name for this function."""
         return self._overload
 
     @overload.setter
@@ -4562,14 +4543,17 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """Return function input values."""
         return self._graph.inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """Return function output values."""
         return self._graph.outputs
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
+        """Return function attribute definitions."""
         return self._attributes
 
     @property
@@ -4606,6 +4590,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def doc_string(self) -> str | None:
+        """Return the function documentation string."""
         return self._graph.doc_string
 
     @doc_string.setter
@@ -4614,6 +4599,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """Return opset imports as ``{domain: version}``."""
         return self._graph.opset_imports
 
     @property
