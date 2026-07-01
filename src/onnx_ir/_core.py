@@ -442,16 +442,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
     Subclass this class to efficiently handle different types of tensors from different frameworks.
 
-    Attributes:
-        name: The name of the tensor.
-        shape: The shape of the tensor.
-        dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
-        doc_string: Documentation string.
-        raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -1071,16 +1061,10 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
          [3]]
 
     Attributes:
-        func: The function that returns the actual tensor.
-        dtype: The data type of the tensor.
-        shape: The shape of the tensor.
         cache: Whether to cache the result of the function. If False,
             the function is called every time the tensor content is accessed.
             If True, the function is called only once and the result is cached in memory.
             Default is False.
-        name: The name of the tensor.
-        doc_string: The documentation string.
-        metadata_props: The metadata properties.
     """
 
     __slots__ = (
@@ -1697,11 +1681,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         >>> shape.frozen
         True
 
-    Attributes:
-        dims: A tuple of dimensions representing the shape.
-            Each dimension can be an integer, None, or a :class:`SymbolicDim`.
-        frozen: Indicates whether the shape is immutable. When frozen, the shape
-            cannot be modified or unfrozen.
     """
 
     __slots__ = ("_dims", "_frozen")
@@ -3466,9 +3445,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     Attributes:
         name: The name of the graph.
-        initializers: The initializers in the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -4067,8 +4043,6 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         initializers: The initializers in the graph.
         doc_string: Documentation string.
         opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -4491,9 +4465,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(function)``.
 
-    Attributes:
-        meta: Metadata store for graph transform passes.
-        metadata_props: Metadata that will be serialized to the ONNX file.
     """
 
     __slots__ = (
