@@ -514,6 +514,8 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
         onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
 
         updated_then = if_node.attributes["then_branch"].as_graph()
+        # MaxPool output #1 is optional in opset 17. This confirms parent opset inheritance
+        # was used for the subgraph with missing opset imports.
         self.assertEqual(len(next(iter(updated_then)).outputs), 1)
 
     def test_mismatched_schema_outputs_does_not_crash_optional_output_removal(self):
@@ -564,6 +566,8 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
         onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
 
         updated_then = if_node.attributes["then_branch"].as_graph()
+        # Opset 1 schema has fewer outputs for MaxPool; this assertion verifies that the pass
+        # did not crash on output/schema length mismatch and preserved outputs safely.
         self.assertEqual(len(next(iter(updated_then)).outputs), 2)
 
 
