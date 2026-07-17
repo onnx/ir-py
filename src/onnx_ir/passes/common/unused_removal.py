@@ -61,6 +61,8 @@ def _remove_unused_optional_outputs(
         return
 
     for i, out in enumerate(node.outputs):
+        if i >= len(optional_info):
+            continue
         if out not in graph_outputs and (not out.uses()) and optional_info[i] is True:
             out.name = ""
 
@@ -85,9 +87,11 @@ def _remove_trailing_empty_inputs(node: ir.Node) -> None:
     node.resize_inputs(new_input_count)
 
 
-def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph) -> int:
+def _remove_unused_nodes_in_graph_like(
+    function_or_graph: ir.Function | ir.Graph, onnx_opset_version: int | None = None
+) -> int:
     graph_outputs = frozenset(function_or_graph.outputs)
-    onnx_opset_version = function_or_graph.opset_imports.get("", None)
+    onnx_opset_version = function_or_graph.opset_imports.get("", onnx_opset_version)
     count = 0
     for node in reversed(function_or_graph):
         removable = True
@@ -104,10 +108,12 @@ def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph
                 _remove_unused_optional_outputs(node, graph_outputs, onnx_opset_version)
             for attr in node.attributes.values():
                 if attr.type == ir.AttributeType.GRAPH:
-                    count += _remove_unused_nodes_in_graph_like(attr.as_graph())
+                    count += _remove_unused_nodes_in_graph_like(
+                        attr.as_graph(), onnx_opset_version
+                    )
                 elif attr.type == ir.AttributeType.GRAPHS:
                     for graph in attr.as_graphs():
-                        count += _remove_unused_nodes_in_graph_like(graph)
+                        count += _remove_unused_nodes_in_graph_like(graph, onnx_opset_version)
     return count
 
 
