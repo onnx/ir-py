@@ -14,7 +14,7 @@ import functools
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-import onnx  # noqa: TID251
+import onnx  # ruff: ignore[banned-api]
 
 from onnx_ir import _core, _enums, _protocols, serde
 
@@ -253,12 +253,12 @@ class OpSignature:
 
     @property
     def inputs(self) -> Sequence[Parameter]:
-        """Returns the input parameters."""
+        """The input parameters."""
         return [param for param in self.params if isinstance(param, Parameter)]
 
     @property
     def attributes(self) -> Sequence[AttributeParameter]:
-        """Returns the attribute parameters."""
+        """The attribute parameters."""
         return [param for param in self.params if isinstance(param, AttributeParameter)]
 
     @classmethod

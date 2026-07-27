@@ -52,7 +52,7 @@ class JournalEntry:
 
     @property
     def obj(self) -> Any | None:
-        """Get the referenced object, or None if it has been garbage-collected or not recorded."""
+        """The referenced object, or None if it has been garbage-collected or not recorded."""
         if self.ref is None:
             return None
         return self.ref()
@@ -168,7 +168,7 @@ class Journal:
 
     @property
     def entries(self) -> Sequence[JournalEntry]:
-        """Get all recorded journal entries."""
+        """All recorded journal entries."""
         return self._entries
 
     def record(self, obj: Any, operation: str, details: str | None = None) -> None:
