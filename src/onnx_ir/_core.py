@@ -2825,11 +2825,20 @@ class _OpHandlerProtocol(Protocol):
         For consistency, none of the other comparison operators are included.
     """
 
-    def Add(self, lhs, rhs) -> Value: ...  # ruff: ignore[invalid-function-name]
-    def Sub(self, lhs, rhs) -> Value: ...  # ruff: ignore[invalid-function-name]
-    def Mul(self, lhs, rhs) -> Value: ...  # ruff: ignore[invalid-function-name]
-    def Div(self, lhs, rhs) -> Value: ...  # ruff: ignore[invalid-function-name]
-    def Neg(self, operand) -> Value: ...  # ruff: ignore[invalid-function-name]
+    def Add(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs + rhs``."""
+
+    def Sub(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs - rhs``."""
+
+    def Mul(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs * rhs``."""
+
+    def Div(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs / rhs``."""
+
+    def Neg(self, operand) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``-operand``."""
 
 
 def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
