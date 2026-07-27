@@ -1,6 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
-# ruff: noqa: N802
+# ruff: file-ignore[invalid-function-name]
 from __future__ import annotations
 
 import copy
