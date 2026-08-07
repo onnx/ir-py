@@ -31,7 +31,6 @@ compatibility
 
 stability
 migration
-troubleshooting
 faq
 security
 release_checklist
