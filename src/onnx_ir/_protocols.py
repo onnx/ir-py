@@ -123,12 +123,12 @@ class TensorProtocol(ArrayCompatible, DLPackCompatible, Protocol):
 
     @property
     def size(self) -> int:
-        """Return the number of elements in the tensor."""
+        """The number of elements in the tensor."""
         ...
 
     @property
     def nbytes(self) -> int:
-        """Return the number of bytes required to store the tensor."""
+        """The number of bytes required to store the tensor."""
         ...
 
     def numpy(self) -> np.ndarray:

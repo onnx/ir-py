@@ -62,7 +62,10 @@ import onnx_ir as ir
 x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[2, 3])
 out = ir.val("out", dtype=ir.DataType.FLOAT, shape=[2, 3])
 
-bias_tensor = ir.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], name="bias")
+bias_tensor = ir.tensor(
+    [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+    dtype=ir.DataType.FLOAT,
+)
 bias = ir.val("bias", const_value=bias_tensor)
 
 add = ir.node("Add", inputs=[x, bias], name="add_bias")
@@ -81,7 +84,50 @@ model = ir.Model(graph, ir_version=10)
 ir.save(model, "model.onnx")
 ```
 
-## Example 2: Create nodes with Python attributes directly
+## Example 2: Create an initializer
+
+An initializer is a named {class}`~onnx_ir.Value` with a constant tensor value
+that is registered with a graph. Create one in two steps:
+
+```python
+import onnx_ir as ir
+
+weight_tensor = ir.tensor(
+    [[1.0, 0.0], [0.0, 1.0]],
+    dtype=ir.DataType.FLOAT,
+)
+weight = ir.val("weight", const_value=weight_tensor)
+```
+
+Pass the value to {class}`onnx_ir.Graph` when constructing a graph:
+
+```python
+x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[2, 2])
+out = ir.val("out", dtype=ir.DataType.FLOAT, shape=[2, 2])
+matmul = ir.node("MatMul", inputs=[x, weight], outputs=[out])
+
+graph = ir.Graph(
+    inputs=[x],
+    outputs=[out],
+    nodes=[matmul],
+    initializers=[weight],
+    opset_imports={"": 20},
+)
+```
+
+Alternatively, omit `initializers=[weight]` from the constructor and register
+the value afterward:
+
+```python
+graph.register_initializer(weight)
+```
+
+The initializer must have a non-empty name, a `const_value`, and no producing
+node. Specify `dtype` when constructing a tensor from Python values if the ONNX
+operator requires a particular element type. You can also pass a NumPy array to
+{func}`onnx_ir.tensor`; in that case its dtype is preserved.
+
+## Example 3: Create nodes with Python attributes directly
 
 With `onnx.helper`, attributes often require explicit helper calls.
 With `ir.node`, plain Python values are converted automatically.
@@ -104,7 +150,7 @@ conv = ir.node(
 )
 ```
 
-## Example 3: Graph rewrite (replace a node output)
+## Example 4: Graph rewrite (replace a node output)
 
 This is a common migration pain-point when using protobuf-level APIs directly.
 
@@ -131,7 +177,7 @@ graph.remove([old_node], safe=True)
 ir.save(model, "rewritten.onnx")
 ```
 
-## Example 4: Extract a bounded subgraph
+## Example 5: Extract a bounded subgraph
 
 ```python
 import onnx_ir as ir

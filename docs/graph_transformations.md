@@ -34,7 +34,7 @@ rewired as one operation.
 
 ```python
 ir.convenience.replace_nodes_and_values(
-    graph_or_function=graph,
+    graph,
     insertion_point=anchor_node,
     old_nodes=[old_a, old_b],
     new_nodes=[new_x, new_y],

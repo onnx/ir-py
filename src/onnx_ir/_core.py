@@ -1128,7 +1128,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
     @property
     def raw(self) -> Callable[[], _protocols.TensorProtocol]:
-        """Return the thunk that materializes the backing tensor."""
+        """The thunk that materializes the backing tensor."""
         return self._func
 
     @property
@@ -3513,12 +3513,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def inputs(self) -> MutableSequence[Value]:
-        """Return graph input values."""
+        """The graph input values."""
         return self._inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
-        """Return graph output values."""
+        """The graph output values."""
         return self._outputs
 
     @property
@@ -3571,7 +3571,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def doc_string(self) -> str | None:
-        """Return the graph documentation string."""
+        """The graph documentation string."""
         return self._doc_string
 
     @doc_string.setter
@@ -3580,7 +3580,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def opset_imports(self) -> dict[str, int]:
-        """Return opset imports as ``{domain: version}``."""
+        """The opset imports as ``{domain: version}``."""
         return self._opset_imports
 
     @typing.overload
@@ -4131,7 +4131,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
-        """Return metadata that is serialized to ONNX."""
+        """Metadata that is serialized to ONNX."""
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -4525,7 +4525,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def name(self) -> str:
-        """Return the function name."""
+        """The function name."""
         return self._name
 
     @name.setter
@@ -4534,7 +4534,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def domain(self) -> str:
-        """Return the function domain."""
+        """The function domain."""
         return self._domain
 
     @domain.setter
@@ -4543,7 +4543,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def overload(self) -> str:
-        """Return the overload name for this function."""
+        """The overload name for this function."""
         return self._overload
 
     @overload.setter
@@ -4552,17 +4552,17 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def inputs(self) -> MutableSequence[Value]:
-        """Return function input values."""
+        """The function input values."""
         return self._graph.inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
-        """Return function output values."""
+        """The function output values."""
         return self._graph.outputs
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
-        """Return function attribute definitions."""
+        """The function attribute definitions."""
         return self._attributes
 
     @property
@@ -4599,7 +4599,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def doc_string(self) -> str | None:
-        """Return the function documentation string."""
+        """The function documentation string."""
         return self._graph.doc_string
 
     @doc_string.setter
@@ -4608,7 +4608,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def opset_imports(self) -> dict[str, int]:
-        """Return opset imports as ``{domain: version}``."""
+        """The opset imports as ``{domain: version}``."""
         return self._graph.opset_imports
 
     @property
