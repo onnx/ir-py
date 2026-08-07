@@ -4,6 +4,35 @@ This page documents practical graph-editing patterns exposed by `onnx_ir` source
 APIs, especially those in `onnx_ir.convenience`, `onnx_ir.traversal`, and
 `onnx_ir.analysis`.
 
+## Mutate a graph during iteration
+
+It is safe to insert, remove, or move nodes while iterating over a graph. The
+iterator preserves its position using the node's original location:
+
+- Nodes inserted after the current node are visited during the same iteration.
+- Nodes inserted before the current node are not visited during that iteration.
+- If the current node is removed or moved, iteration continues from the node that
+  followed it at its original location.
+
+For example, this loop can replace nodes without first copying the graph's node
+list:
+
+```python
+import onnx_ir as ir
+
+for node in graph:
+    if node.op_type != "Dropout":
+        continue
+
+    replacement = ir.node("Identity", inputs=node.inputs)
+    graph.insert_after(node, [replacement])
+    node.outputs[0].replace_all_uses_with(
+        replacement.outputs[0],
+        replace_graph_outputs=True,
+    )
+    graph.remove([node], safe=True)
+```
+
 ## Replace all downstream uses of a value
 
 Use `ir.convenience.replace_all_uses_with` when replacing one value-producing
