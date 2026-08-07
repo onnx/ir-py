@@ -13,8 +13,8 @@ environment.
       deprecations, and migration notes.
 - [ ] Update `onnx_ir.__version__` in `src/onnx_ir/__init__.py` in a dedicated
       pull request.
-- [ ] Confirm that the supported Python and ONNX versions in `pyproject.toml`,
-      `noxfile.py`, and `docs/compatibility.md` agree.
+- [ ] Confirm that the supported Python and ONNX versions in `pyproject.toml`
+      and `noxfile.py` agree.
 - [ ] Draft release notes grouped by user-visible changes. Call out breaking
       changes, deprecations, security fixes, and contributor credits.
 

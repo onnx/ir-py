@@ -22,7 +22,6 @@ references.
 
 getting_started
 installation
-compatibility
 ```
 
 ```{toctree}
@@ -30,7 +29,6 @@ compatibility
 :caption: Reliability and Operations
 
 stability
-migration
 faq
 security
 release_checklist

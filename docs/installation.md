@@ -32,4 +32,4 @@ python -c "import onnx_ir as ir; print(ir.__version__)"
 3. Run with a tested ONNX version from your environment matrix.
 4. For external tensor loading from untrusted artifacts, always set `base_dir`.
 
-See [Compatibility](compatibility.md) and [Security](security.md) for details.
+See [Security](security.md) for details.
