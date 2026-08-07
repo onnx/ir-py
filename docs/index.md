@@ -33,6 +33,7 @@ tensors
 multi_device
 model_io
 graph_transformations
+writing_passes
 onnx_helper_migration
 ```
 

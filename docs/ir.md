@@ -74,6 +74,40 @@ Use a {py:class}`onnx_ir.GraphView` when an analysis needs a read-only view over
 subset of nodes. A view does not copy or take ownership of its nodes, and changes
 to the underlying connections remain visible through the view.
 
+#### Ownership and graph invariants
+
+The IR maintains ownership and use-def relationships as graph objects are edited:
+
+- A node belongs to at most one graph. Remove it from its current graph before
+  inserting it into another one.
+- A node owns its output values. Each output therefore has exactly one producer.
+- Graph and function inputs have no producer.
+- An initializer must be named, have a constant value, and have no producer.
+- Graph outputs reference existing values; they are not a separate copy of those
+  values.
+
+Use `graph.remove(nodes, safe=True)` for removal. Safe removal rejects nodes whose
+outputs are still used or contribute to graph outputs, then detaches the removed
+nodes from their inputs so use-def information remains consistent.
+
+Node order is deterministic but is not automatically topological. Call
+`graph.sort()` after a rewrite when the transformation does not naturally preserve
+topological order. The stable sort also processes nested subgraphs and raises
+`ValueError` if it finds a cycle.
+
+#### Views and clones
+
+A {py:class}`onnx_ir.GraphView` provides a fixed, read-only topology over existing
+nodes and values. It is useful for analysis or serialization of a region without
+copying that region.
+
+Use `graph.clone()` or `model.clone()` when the result must be independently
+mutable. Cloning creates new graph, node, and value objects while sharing tensors
+used by initializers and constants. Pass `deep_copy=True` to also deep-copy
+analysis metadata stores. When cloning a nested graph independently, set
+`allow_outer_scope_values=True` if its captured outer-scope values should remain
+shared.
+
 ### Node
 
 A {py:class}`onnx_ir.Node` represents an operator invocation. It stores the
@@ -133,6 +167,58 @@ Constant data uses the {py:class}`onnx_ir.TensorProtocol` interface. Operator
 attributes use {py:class}`onnx_ir.Attr` and can contain scalar values, sequences,
 tensors, graphs, types, and ONNX function attribute references.
 
+### Subgraphs and functions
+
+Control-flow operators store subgraphs in node attributes. A subgraph can
+implicitly capture values from an enclosing graph in addition to declaring its own
+inputs, initializers, and outputs. Each graph also carries its own opset imports.
+Use {py:class}`onnx_ir.traversal.RecursiveGraphIterator` or `graph.all_nodes()` to
+visit nodes in nested subgraphs.
+
+A {py:class}`onnx_ir.Function` defines a reusable, model-local operator identified
+by `(domain, name, overload)`. Like a graph, it owns inputs, outputs, nodes,
+attributes, and opset imports. Functions are stored separately from the main graph,
+so analyses and transformations that apply to the whole model should process both:
+
+```python
+for node in model.graph.all_nodes():
+    analyze(node)
+
+for function in model.functions.values():
+    for node in function.all_nodes():
+        analyze(node)
+```
+
+### Names and identity
+
+Objects are connected by identity, not by their names. Names are primarily for
+serialization, diagnostics, and lookup.
+
+When an unnamed node is added to a graph, the graph assigns names such as
+`node_Relu_0`; unnamed outputs receive names such as `val_0`. Explicit names are
+preserved, even if they collide, so callers remain responsible for the uniqueness
+of names they provide. Automatically generated names are reserved for the lifetime
+of the graph and are not reused after removal.
+
+Run {py:class}`onnx_ir.passes.common.NameFixPass` to normalize an entire model
+before serialization. It assigns missing names, resolves duplicate node and value
+names, handles nested graph scopes, updates initializer mappings, and processes
+model-local functions:
+
+```python
+import onnx_ir.passes.common as common_passes
+
+result = common_passes.NameFixPass()(model)
+model = result.model
+```
+
+Pass a custom `NameGenerator` to `NameFixPass` when generated names should follow
+a project-specific convention.
+
+Renaming an initializer also requires updating the graph's initializer mapping.
+Use {py:func}`onnx_ir.convenience.rename_values` for collision-aware bulk renaming
+that handles initializer bookkeeping when only selected values should change.
+
 ## Major features
 
 ### Full ONNX coverage
@@ -187,5 +273,6 @@ reduce boilerplate when constructing models.
 - [Getting started with ONNX IR](getting_started.ipynb) for loading and exploring
   a model.
 - [Graph transformation patterns](graph_transformations.md) for common rewrites.
+- [Writing transformation passes](writing_passes.md) for reusable transformations.
 - [Model I/O and external data workflows](model_io.md) for serialization.
 - [API Reference](api/index.md) for the complete public API.

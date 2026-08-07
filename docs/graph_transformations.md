@@ -112,7 +112,8 @@ for subgraph, captured in implicit.items():
 ## Extract a bounded subgraph
 
 Use `convenience.extract` to carve out a model region with explicit frontier
-inputs/outputs.
+inputs and outputs. Inputs and outputs may be specified as `Value` objects or by
+name.
 
 ```python
 subgraph = ir.convenience.extract(
@@ -121,3 +122,20 @@ subgraph = ir.convenience.extract(
     outputs=["y"],
 )
 ```
+
+Extraction walks backward from the requested outputs until it reaches the
+requested inputs. It:
+
+- includes the nodes required to compute the outputs, preserving their original
+  order;
+- includes required initializers automatically;
+- follows outer-scope values captured by nested graph attributes;
+- preserves the source name, documentation, opset imports, and serialized
+  metadata;
+- returns an independent cloned {py:class}`onnx_ir.Graph`.
+
+The requested inputs must fully bound the extracted region. If a required
+non-initializer value enters the region but is not listed in `inputs`, extraction
+raises `ValueError` rather than creating a graph with an undeclared dependency.
+At least one output is required, and supplied `Value` objects must belong to the
+source graph unless the source is a {py:class}`onnx_ir.GraphView`.

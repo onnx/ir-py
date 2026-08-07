@@ -13,6 +13,69 @@ model = ir.load("model.onnx")
 ir.save(model, "updated.onnx")
 ```
 
+## Normalize and validate before saving
+
+The IR permits temporarily incomplete or invalid states so multi-step
+transformations can be expressed naturally. Before publishing a transformed
+model, explicitly restore and check the invariants required by ONNX:
+
+```python
+import onnx_ir.passes.common as common_passes
+
+pipeline = ir.passes.Sequential(
+    common_passes.TopologicalSortPass(),
+    common_passes.ShapeInferencePass(),
+    common_passes.CheckerPass(full_check=True),
+)
+result = pipeline(model)
+ir.save(result.model, "updated.onnx")
+```
+
+These stages serve different purposes:
+
+- `TopologicalSortPass` stably sorts the main graph, nested subgraphs, and model
+  functions. A cycle raises `ValueError`.
+- `ShapeInferencePass` asks ONNX shape inference to update value types and shapes.
+  If inference fails, it logs a warning and leaves the model unchanged.
+- `CheckerPass` serializes through the ONNX boundary and runs
+  `onnx.checker.check_model`; it does not modify the model.
+- `ir.save` performs final serialization and external-data handling.
+
+### Use symbolic shape inference
+
+For richer symbolic inference, use the optional
+[`onnx-shape-inference`](https://pypi.org/project/onnx-shape-inference/)
+package. It operates directly on ONNX IR, represents dimension arithmetic with
+SymPy expressions, propagates shape-tensor data through patterns such as
+`Shape -> Slice -> Concat -> Reshape`, and supports custom operator inference
+functions.
+
+```console
+pip install onnx-shape-inference
+```
+
+Replace the built-in `ShapeInferencePass` in the workflow when symbolic
+relationships are important:
+
+```python
+from onnx_shape_inference import infer_symbolic_shapes
+
+model = common_passes.TopologicalSortPass()(model).model
+model = infer_symbolic_shapes(model)
+common_passes.CheckerPass(full_check=True)(model)
+ir.save(model, "updated.onnx")
+```
+
+The default `refine` merge policy preserves compatible existing information while
+adding inferred details. Use `policy="strict"` to report conflicts between
+declared and inferred shapes. Other policies and extension APIs are documented in
+the [onnx-shape-inference project](https://github.com/justinchuby/onnx-shape-inference).
+
+Shape and type information is not automatically recomputed after every graph edit.
+Run inference when downstream transformations or consumers depend on updated
+information, and use pass preconditions or postconditions for requirements that
+are specific to your pipeline.
+
 ## Save large initializers as ONNX external data
 
 ```python
