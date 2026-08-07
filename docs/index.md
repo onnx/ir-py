@@ -29,11 +29,15 @@ installation
 :caption: User Guides
 
 ir
+model_construction
 tensors
 multi_device
 model_io
 graph_transformations
+subgraphs_and_functions
 writing_passes
+performance
+debugging
 onnx_helper_migration
 ```
 

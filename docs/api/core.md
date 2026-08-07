@@ -1,5 +1,8 @@
 # onnx_ir
 
+See [Introduction to the IR](../ir.md) for the object model and
+[Constructing models](../model_construction.md) for end-to-end examples.
+
 ```{eval-rst}
 .. automodule::onnx_ir
 ```

@@ -4,6 +4,26 @@ This page documents practical graph-editing patterns exposed by `onnx_ir` source
 APIs, especially those in `onnx_ir.convenience`, `onnx_ir.traversal`, and
 `onnx_ir.analysis`.
 
+## Choose the scopes to transform
+
+Direct iteration processes only one graph. Use recursive traversal for nested
+graph attributes, and process model-local functions separately:
+
+```python
+import onnx_ir as ir
+
+
+def iter_model_nodes(model: ir.Model):
+    yield from ir.traversal.RecursiveGraphIterator(model.graph)
+    for function in model.functions.values():
+        yield from ir.traversal.RecursiveGraphIterator(function)
+```
+
+Not every rewrite should apply to every scope. Decide explicitly whether the
+transformation supports control-flow subgraphs, implicit captures, and functions.
+When replacing values, use `replace_graph_outputs=True` if graph outputs should
+also be redirected.
+
 ## Mutate a graph during iteration
 
 It is safe to insert, remove, or move nodes while iterating over a graph. The
@@ -139,3 +159,23 @@ non-initializer value enters the region but is not listed in `inputs`, extractio
 raises `ValueError` rather than creating a graph with an undeclared dependency.
 At least one output is required, and supplied `Value` objects must belong to the
 source graph unless the source is a {py:class}`onnx_ir.GraphView`.
+
+## Preserve invariants and use targeted repair
+
+A well-formed transformation should maintain the invariants it does not intend to
+change, including use-def links, unique required names, and topological order.
+Avoid routinely running cleanup passes after every rewrite: each pass adds another
+model traversal and may be expensive for large models.
+
+Use a normalization or analysis pass only when the transformation's contract
+requires it:
+
+- Run `NameFixPass` if the rewrite can introduce missing or duplicate names.
+- Run `TopologicalSortPass` if nodes may no longer be in topological order.
+- Run shape inference only when the rewrite invalidates shape/type information and
+  a later stage requires it.
+- Run `CheckerPass` at explicit validation boundaries or while diagnosing a
+  transformation, rather than after every pass.
+
+Document these effects in reusable passes so callers know which invariants remain
+valid and which follow-up work, if any, is necessary.

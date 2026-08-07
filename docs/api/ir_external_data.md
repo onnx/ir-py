@@ -17,4 +17,6 @@ The `onnx_ir.external_data` module provides utilities for handling external data
 .. autofunction:: set_base_dir
 ```
 
-<!-- TODO: Create examples -->
+See [Model I/O and external data workflows](../model_io.md) for saving,
+sharding, callbacks, and safetensors, and
+[Performance and large-model workflows](../performance.md) for memory guidance.

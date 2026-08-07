@@ -13,22 +13,29 @@ model = ir.load("model.onnx")
 ir.save(model, "updated.onnx")
 ```
 
-## Normalize and validate before saving
+## Use normalization and validation when needed
 
 The IR permits temporarily incomplete or invalid states so multi-step
-transformations can be expressed naturally. Before publishing a transformed
-model, explicitly restore and check the invariants required by ONNX:
+transformations can be expressed naturally. Prefer transformations that preserve
+names, topological order, and type/shape information when possible. Normalization
+and inference passes traverse the model, so do not add them to every save path by
+default.
+
+Apply only the operations required by the preceding transformations:
 
 ```python
 import onnx_ir.passes.common as common_passes
 
-pipeline = ir.passes.Sequential(
-    common_passes.TopologicalSortPass(),
-    common_passes.ShapeInferencePass(),
-    common_passes.CheckerPass(full_check=True),
-)
-result = pipeline(model)
-ir.save(result.model, "updated.onnx")
+# Only if a rewrite may have disturbed node order.
+model = common_passes.TopologicalSortPass()(model).model
+
+# Only if stale shapes/types are needed by a later stage.
+model = common_passes.ShapeInferencePass()(model).model
+
+# At an explicit validation boundary, if desired.
+common_passes.CheckerPass(full_check=True)(model)
+
+ir.save(model, "updated.onnx")
 ```
 
 These stages serve different purposes:
@@ -54,16 +61,13 @@ functions.
 pip install onnx-shape-inference
 ```
 
-Replace the built-in `ShapeInferencePass` in the workflow when symbolic
-relationships are important:
+Use it instead of the built-in `ShapeInferencePass` when a later stage needs
+richer symbolic relationships:
 
 ```python
 from onnx_shape_inference import infer_symbolic_shapes
 
-model = common_passes.TopologicalSortPass()(model).model
 model = infer_symbolic_shapes(model)
-common_passes.CheckerPass(full_check=True)(model)
-ir.save(model, "updated.onnx")
 ```
 
 The default `refine` merge policy preserves compatible existing information while

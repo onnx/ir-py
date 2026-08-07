@@ -200,10 +200,9 @@ preserved, even if they collide, so callers remain responsible for the uniquenes
 of names they provide. Automatically generated names are reserved for the lifetime
 of the graph and are not reused after removal.
 
-Run {py:class}`onnx_ir.passes.common.NameFixPass` to normalize an entire model
-before serialization. It assigns missing names, resolves duplicate node and value
-names, handles nested graph scopes, updates initializer mappings, and processes
-model-local functions:
+Run {py:class}`onnx_ir.passes.common.NameFixPass` when an imported or transformed
+model may contain missing or duplicate names. It handles nested graph scopes,
+updates initializer mappings, and processes model-local functions:
 
 ```python
 import onnx_ir.passes.common as common_passes

@@ -139,8 +139,7 @@ import onnx_ir.passes.common as common_passes
 
 pipeline = ir.passes.Sequential(
     IdentityEliminationPass(),
-    common_passes.TopologicalSortPass(),
-    common_passes.CheckerPass(),
+    common_passes.CommonSubexpressionEliminationPass(),
 )
 result = pipeline(model)
 ```
@@ -162,6 +161,12 @@ result = pipeline(model)
 
 The `modified` flag is part of the pass contract. Report it accurately so pass
 managers can detect convergence and callers can avoid unnecessary work.
+
+Passes should preserve unaffected invariants themselves. Do not routinely append
+name fixing, topological sorting, shape inference, or checking to a pipeline.
+Those passes add model traversals and should be included only when an earlier pass
+documents that it may invalidate the corresponding property, or when the caller
+chooses an explicit validation boundary.
 
 ## Testing a pass
 

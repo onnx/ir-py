@@ -3,6 +3,9 @@
 This page shows practical migrations from common `onnx.helper` model-building
 patterns to `onnx_ir` APIs.
 
+For a native IR-first walkthrough without the protobuf comparison, see
+[Constructing models](model_construction.md).
+
 ## Why migrate
 
 `onnx_ir` keeps ONNX concepts (Model/Graph/Node/Value), but gives you:
@@ -112,6 +115,7 @@ graph = ir.Graph(
     nodes=[matmul],
     initializers=[weight],
     opset_imports={"": 20},
+    name="g",
 )
 ```
 
@@ -200,3 +204,5 @@ ir.save(submodel, "subgraph.onnx")
 2. Keep names explicit while migrating to preserve external interfaces.
 3. Prefer value-based rewrites (`replace_all_uses_with`) over positional list surgery.
 4. Use `ir.save`/`ir.load` at the boundaries and keep transformation logic in IR.
+5. Preserve names, topological order, and type/shape information during rewrites.
+   Run the corresponding repair or validation pass only when needed.
