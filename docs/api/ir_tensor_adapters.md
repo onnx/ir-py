@@ -7,12 +7,14 @@
 ## Adapters for PyTorch
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir.tensor_adapters
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.tensor_adapters.TorchTensor
+    TorchTensor
 ```
 
 ```{eval-rst}

@@ -81,6 +81,7 @@ Use {py:class}`onnx_ir.StringTensor <onnx_ir.StringTensor>` to create a string t
 
 Sparse tensors are not yet supported, but they are on our roadmap.
 
+(from-tensorprotos-and-back)=
 ## From `TensorProto`s and back
 
 In the following scenario, we show how to go from a `TensorProto` to an `onnx_ir.Tensor`, run some computation, then turn it back to an `onnx_ir.Tensor` and finally `TensorProto`
