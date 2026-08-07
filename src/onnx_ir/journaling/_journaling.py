@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import builtins
 import weakref
 from typing import Any
 
@@ -41,7 +42,7 @@ class JournalEntry:
 
     timestamp: float
     operation: str
-    class_: type
+    class_: builtins.type
     class_name: str
     ref: weakref.ref | None
     object_id: int
