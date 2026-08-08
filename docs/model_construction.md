@@ -59,9 +59,13 @@ Graph mutation methods establish ownership, assign missing names, and maintain
 use-def relationships:
 
 ```python
-sigmoid = ir.node("Sigmoid", inputs=[graph.outputs[0]])
+old_output = graph.outputs[0]
+old_output.name = "relu_output"
+new_output = ir.val("y", type=old_output.type, shape=old_output.shape)
+
+sigmoid = ir.node("Sigmoid", inputs=[old_output], outputs=[new_output])
 graph.append(sigmoid)
-graph.outputs[0] = sigmoid.outputs[0]
+graph.outputs[0] = new_output
 ```
 
 A node can belong to only one graph. Remove it from its current graph before
@@ -126,11 +130,9 @@ Construction APIs intentionally permit intermediate states that may not yet form
 a valid ONNX model. Build nodes in topological order, keep public names unique,
 and provide required type information directly when possible.
 
-Use targeted passes only for invariants the construction process did not preserve:
-
-- `NameFixPass` for missing or duplicate names.
-- `TopologicalSortPass` for out-of-order nodes.
-- Shape inference when consumers require types or shapes that were not supplied.
+Use targeted passes only for invariants the construction process did not preserve.
+See [Preserve invariants and use targeted repair](invariant-preservation)
+for the authoritative checklist.
 
 At an explicit validation boundary, the checker can confirm the completed model:
 

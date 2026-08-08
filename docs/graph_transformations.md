@@ -160,6 +160,7 @@ raises `ValueError` rather than creating a graph with an undeclared dependency.
 At least one output is required, and supplied `Value` objects must belong to the
 source graph unless the source is a {py:class}`onnx_ir.GraphView`.
 
+(invariant-preservation)=
 ## Preserve invariants and use targeted repair
 
 A well-formed transformation should maintain the invariants it does not intend to

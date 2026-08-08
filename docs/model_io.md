@@ -21,6 +21,9 @@ names, topological order, and type/shape information when possible. Normalizatio
 and inference passes traverse the model, so do not add them to every save path by
 default.
 
+See [Preserve invariants and use targeted repair](invariant-preservation)
+for the authoritative decision checklist.
+
 Apply only the operations required by the preceding transformations:
 
 ```python

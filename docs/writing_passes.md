@@ -98,10 +98,28 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
             if len(node.outputs) != 1:
                 continue
 
-            node.outputs[0].replace_all_uses_with(
-                node.inputs[0],
+            input_value = node.inputs[0]
+            output_value = node.outputs[0]
+            output_is_graph_output = output_value.is_graph_output()
+
+            # Eliminating this node would collapse two public values into one.
+            if output_is_graph_output and (
+                input_value.is_graph_input() or input_value.is_initializer()
+            ):
+                continue
+
+            if input_value.type is None:
+                input_value.type = output_value.type
+            if input_value.shape is None:
+                input_value.shape = output_value.shape
+
+            output_value.replace_all_uses_with(
+                input_value,
                 replace_graph_outputs=True,
             )
+            if output_is_graph_output:
+                input_value.name = output_value.name
+
             assert node.graph is not None
             node.graph.remove(node, safe=True)
             modified = True
@@ -112,6 +130,8 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
 When replacing or removing values, preserve required type, shape, name, constant,
 and metadata information. Use `safe=True` for node removal so dangling consumers
 or graph outputs are reported rather than silently producing an invalid graph.
+The built-in {py:class}`onnx_ir.passes.common.IdentityEliminationPass` contains
+the complete implementation, including shape merging and logging.
 
 ## Analysis metadata and invalidation
 
@@ -162,11 +182,9 @@ result = pipeline(model)
 The `modified` flag is part of the pass contract. Report it accurately so pass
 managers can detect convergence and callers can avoid unnecessary work.
 
-Passes should preserve unaffected invariants themselves. Do not routinely append
-name fixing, topological sorting, shape inference, or checking to a pipeline.
-Those passes add model traversals and should be included only when an earlier pass
-documents that it may invalidate the corresponding property, or when the caller
-chooses an explicit validation boundary.
+Passes should preserve unaffected invariants themselves. See
+[Preserve invariants and use targeted repair](invariant-preservation)
+for guidance on adding repair or validation passes only when required.
 
 ## Testing a pass
 
