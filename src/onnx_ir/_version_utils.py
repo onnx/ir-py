@@ -10,7 +10,7 @@ import packaging.version
 
 def onnx_older_than(version: str) -> bool:
     """Returns True if the ONNX version is older than the given version."""
-    import onnx  # noqa: TID251
+    import onnx  # ruff: ignore[banned-api]
 
     return packaging.version.parse(onnx.__version__) < packaging.version.parse(version)
 

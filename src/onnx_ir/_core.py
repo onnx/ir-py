@@ -442,16 +442,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
     Subclass this class to efficiently handle different types of tensors from different frameworks.
 
-    Attributes:
-        name: The name of the tensor.
-        shape: The shape of the tensor.
-        dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
-        doc_string: Documentation string.
-        raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -502,7 +492,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
                     f"Expected an object with a shape attribute, but {type(value)} does not have shape. "
                     "Please specify the shape explicitly."
                 )
-            self._shape = Shape(getattr(value, "shape"), frozen=True)  # noqa: B009
+            self._shape = Shape(getattr(value, "shape"), frozen=True)  # ruff: ignore[get-attr-with-constant]
         else:
             self._shape = shape
             self._shape.freeze()
@@ -992,7 +982,7 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
                     f"Expected an object with a shape attribute, but {type(value)} does not have shape. "
                     "Please specify the shape explicitly."
                 )
-            self._shape = Shape(getattr(value, "shape"), frozen=True)  # noqa: B009
+            self._shape = Shape(getattr(value, "shape"), frozen=True)  # ruff: ignore[get-attr-with-constant]
         else:
             self._shape = shape
             self._shape.freeze()
@@ -1071,16 +1061,10 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
          [3]]
 
     Attributes:
-        func: The function that returns the actual tensor.
-        dtype: The data type of the tensor.
-        shape: The shape of the tensor.
         cache: Whether to cache the result of the function. If False,
             the function is called every time the tensor content is accessed.
             If True, the function is called only once and the result is cached in memory.
             Default is False.
-        name: The name of the tensor.
-        doc_string: The documentation string.
-        metadata_props: The metadata properties.
     """
 
     __slots__ = (
@@ -1144,6 +1128,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
     @property
     def raw(self) -> Callable[[], _protocols.TensorProtocol]:
+        """The thunk that materializes the backing tensor."""
         return self._func
 
     @property
@@ -1165,6 +1150,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         return self._evaluate().tobytes()
 
     def tofile(self, file) -> None:
+        """Write tensor bytes to a binary file-like object."""
         tensor = self._evaluate()
         if hasattr(tensor, "tofile"):
             # Some existing implementation of TensorProtocol
@@ -1695,11 +1681,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         >>> shape.frozen
         True
 
-    Attributes:
-        dims: A tuple of dimensions representing the shape.
-            Each dimension can be an integer, None, or a :class:`SymbolicDim`.
-        frozen: Indicates whether the shape is immutable. When frozen, the shape
-            cannot be modified or unfrozen.
     """
 
     __slots__ = ("_dims", "_frozen")
@@ -1773,6 +1754,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return len(self._dims)
 
     def numpy(self) -> tuple[int, ...]:
+        """Return the shape as a tuple of ints.
+
+        Raises:
+            ValueError: If any dimension is symbolic and cannot be represented as int.
+        """
         if any(not isinstance(dim, int) for dim in self._dims):
             raise ValueError(f"Cannot convert the shape {self} to a tuple of ints")
         return tuple(dim for dim in self._dims)  # type: ignore
@@ -1853,11 +1839,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return not self.__eq__(other)
 
     @typing.overload
-    def is_static(self, dim: int) -> bool:  # noqa: D418
+    def is_static(self, dim: int) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if the dimension is static."""
 
     @typing.overload
-    def is_static(self) -> bool:  # noqa: D418
+    def is_static(self) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if all dimensions are static."""
 
     def is_static(self, dim=None) -> bool:
@@ -1867,14 +1853,19 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return isinstance(self[dim], int)
 
     @typing.overload
-    def is_dynamic(self, dim: int) -> bool:  # noqa: D418
+    def is_dynamic(self, dim: int) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if the dimension is dynamic."""
 
     @typing.overload
-    def is_dynamic(self) -> bool:  # noqa: D418
+    def is_dynamic(self) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if any dimension is dynamic."""
 
     def is_dynamic(self, dim=None) -> bool:
+        """Return whether dimensions are dynamic.
+
+        When ``dim`` is ``None``, returns True if any dimension is dynamic.
+        Otherwise returns True if the specified dimension is dynamic.
+        """
         if dim is None:
             return not self.is_static()
         return not self.is_static(dim)
@@ -2739,7 +2730,7 @@ class _TensorTypeBase(_protocols.TypeProtocol, _display.PrettyPrintable, Hashabl
 
     @property
     def elem_type(self) -> _enums.DataType:
-        """Return the element type of the tensor type."""
+        """The element type of the tensor type."""
         return self.dtype
 
     def __hash__(self) -> int:
@@ -2825,11 +2816,20 @@ class _OpHandlerProtocol(Protocol):
         For consistency, none of the other comparison operators are included.
     """
 
-    def Add(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Sub(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Mul(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Div(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Neg(self, operand) -> Value: ...  # noqa: N802
+    def Add(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs + rhs``."""
+
+    def Sub(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs - rhs``."""
+
+    def Mul(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs * rhs``."""
+
+    def Div(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs / rhs``."""
+
+    def Neg(self, operand) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``-operand``."""
 
 
 def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
@@ -2839,6 +2839,7 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
     the magic handler to enable arithmetic operations on Values.
 
     Example::
+
         class MyOpHandler:
             def Add(self, lhs, rhs):
                 # Implement addition logic here
@@ -3058,7 +3059,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @property
     def graph(self) -> Graph | None:
-        """Return the graph that defines this value.
+        """The graph that defines this value.
 
         When the value is an input/output/initializer of a graph, the owning graph
         is that graph. When the value is an output of a node, the owning graph is the
@@ -3368,7 +3369,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             if dim1 == dim2:
                 return dim1
             if isinstance(dim1, int) and isinstance(dim2, int):
-                raise ValueError(  # noqa: TRY004
+                raise ValueError(  # ruff: ignore[type-check-without-type-error]
                     f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
                     f"{self} and {other}."
                 )
@@ -3387,7 +3388,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
-def Input(  # noqa: N802
+def Input(  # ruff: ignore[invalid-function-name]
     name: str | None = None,
     shape: Shape | None = None,
     type: _protocols.TypeProtocol | None = None,
@@ -3462,13 +3463,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     Attributes:
         name: The name of the graph.
-        inputs: The input values of the graph.
-        outputs: The output values of the graph.
-        initializers: The initializers in the graph.
-        doc_string: Documentation string.
-        opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -3519,10 +3513,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """The graph input values."""
         return self._inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """The graph output values."""
         return self._outputs
 
     @property
@@ -3575,6 +3571,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def doc_string(self) -> str | None:
+        """The graph documentation string."""
         return self._doc_string
 
     @doc_string.setter
@@ -3583,6 +3580,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """The opset imports as ``{domain: version}``."""
         return self._opset_imports
 
     @typing.overload
@@ -4063,8 +4061,6 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         initializers: The initializers in the graph.
         doc_string: Documentation string.
         opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -4135,6 +4131,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """Metadata that is serialized to ONNX."""
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -4493,17 +4490,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(function)``.
 
-    Attributes:
-        name: The function name.
-        domain: The domain this function is defined in.
-        overload: The overload name when the function is overloaded.
-        inputs: The input values of the function.
-        attributes: The attributes this function defines.
-        outputs: The output values of the function.
-        opset_imports: Opsets imported by the function.
-        doc_string: Documentation string.
-        meta: Metadata store for graph transform passes.
-        metadata_props: Metadata that will be serialized to the ONNX file.
     """
 
     __slots__ = (
@@ -4534,10 +4520,12 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
     def identifier(self) -> _protocols.OperatorIdentifier:
+        """Return ``(domain, name, overload)`` for this function."""
         return self.domain, self.name, self.overload
 
     @property
     def name(self) -> str:
+        """The function name."""
         return self._name
 
     @name.setter
@@ -4546,6 +4534,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def domain(self) -> str:
+        """The function domain."""
         return self._domain
 
     @domain.setter
@@ -4554,6 +4543,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def overload(self) -> str:
+        """The overload name for this function."""
         return self._overload
 
     @overload.setter
@@ -4562,14 +4552,17 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """The function input values."""
         return self._graph.inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """The function output values."""
         return self._graph.outputs
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
+        """The function attribute definitions."""
         return self._attributes
 
     @property
@@ -4606,6 +4599,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def doc_string(self) -> str | None:
+        """The function documentation string."""
         return self._graph.doc_string
 
     @doc_string.setter
@@ -4614,6 +4608,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """The opset imports as ``{domain: version}``."""
         return self._graph.opset_imports
 
     @property
@@ -5028,7 +5023,7 @@ class Attr(
 # NOTE: The following functions are just for convenience
 
 
-def RefAttr(  # noqa: N802
+def RefAttr(  # ruff: ignore[invalid-function-name]
     name: str,
     ref_attr_name: str,
     type: _enums.AttributeType,
@@ -5049,7 +5044,7 @@ def RefAttr(  # noqa: N802
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5060,7 +5055,7 @@ def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = 
     )
 
 
-def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5071,7 +5066,7 @@ def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None)
     )
 
 
-def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a str attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5082,7 +5077,7 @@ def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  #
     )
 
 
-def AttrTensor(  # noqa: N802
+def AttrTensor(  # ruff: ignore[invalid-function-name]
     name: str, value: _protocols.TensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a tensor attribute."""
@@ -5095,7 +5090,7 @@ def AttrTensor(  # noqa: N802
     )
 
 
-def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a graph attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5106,7 +5101,7 @@ def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  
     )
 
 
-def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a float sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5117,7 +5112,7 @@ def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = Non
     )
 
 
-def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create an int sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5128,7 +5123,7 @@ def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -
     )
 
 
-def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a string sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5139,7 +5134,7 @@ def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) 
     )
 
 
-def AttrTensors(  # noqa: N802
+def AttrTensors(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[_protocols.TensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a tensor sequence attribute."""
@@ -5152,7 +5147,7 @@ def AttrTensors(  # noqa: N802
     )
 
 
-def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a graph sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5164,7 +5159,7 @@ def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None)
 
 
 # NOTE: SparseTensor should be a sparse tensor proto
-def AttrSparseTensor(  # noqa: N802
+def AttrSparseTensor(  # ruff: ignore[invalid-function-name]
     name: str, value: _protocols.SparseTensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor attribute."""
@@ -5177,7 +5172,7 @@ def AttrSparseTensor(  # noqa: N802
     )
 
 
-def AttrSparseTensors(  # noqa: N802
+def AttrSparseTensors(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[_protocols.SparseTensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor sequence attribute."""
@@ -5201,7 +5196,7 @@ class TypeAndShape:
     shape: Shape | None
 
 
-def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a type attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -5212,7 +5207,7 @@ def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None)
     )
 
 
-def AttrTypeProtos(  # noqa: N802
+def AttrTypeProtos(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[TypeAndShape], doc_string: str | None = None
 ) -> Attr:
     """Create a type sequence attribute."""
