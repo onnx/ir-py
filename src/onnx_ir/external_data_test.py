@@ -53,7 +53,7 @@ class ExternalDataTest(unittest.TestCase):
         expected_dir = "something_else"
         external_data.set_base_dir(model.graph, expected_dir)
 
-        initializer_tensor = model.graph.initializers["test_tensor"].const_value
+        initializer_tensor = model.graph.initializers.get_tensor("test_tensor")
         assert isinstance(initializer_tensor, ir.ExternalTensor)
         self.assertEqual(initializer_tensor.base_dir, expected_dir)
         attr_tensor = model.graph.node(0).attributes["value"].value
@@ -319,23 +319,23 @@ class OffloadExternalTensorTest(unittest.TestCase):
         model_custom_tensor = self.model_with_custom_tensor_class
         model.graph.initializers["tensor_same_file"] = ir.Value(
             name="tensor_same_file",
-            const_value=model_same_path.graph.initializers["tensor_same_file"].const_value,
+            const_value=model_same_path.graph.initializers.get_tensor("tensor_same_file"),
         )
         model.graph.initializers["tensor_ext1_1"] = ir.Value(
             name="tensor_ext1_1",
-            const_value=model_diff_path.graph.initializers["tensor_ext1_1"].const_value,
+            const_value=model_diff_path.graph.initializers.get_tensor("tensor_ext1_1"),
         )
         model.graph.initializers["tensor_ext1_2"] = ir.Value(
             name="tensor_ext1_2",
-            const_value=model_diff_path.graph.initializers["tensor_ext1_2"].const_value,
+            const_value=model_diff_path.graph.initializers.get_tensor("tensor_ext1_2"),
         )
         model.graph.initializers["tensor_ext2_1"] = ir.Value(
             name="tensor_ext2_1",
-            const_value=model_diff_path.graph.initializers["tensor_ext2_1"].const_value,
+            const_value=model_diff_path.graph.initializers.get_tensor("tensor_ext2_1"),
         )
         model.graph.initializers["custom_tensor"] = ir.Value(
             name="custom_tensor",
-            const_value=model_custom_tensor.graph.initializers["custom_tensor"].const_value,
+            const_value=model_custom_tensor.graph.initializers.get_tensor("custom_tensor"),
         )
         return model
 
@@ -343,8 +343,8 @@ class OffloadExternalTensorTest(unittest.TestCase):
         model_with_external_data = external_data.unload_from_model(
             self.model, self.base_path, self.external_data_name
         )
-        external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
-        external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
+        external_tensor = model_with_external_data.graph.initializers.get_tensor("tensor1")
+        external_tensor2 = model_with_external_data.graph.initializers.get_tensor("tensor2")
 
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
@@ -358,11 +358,11 @@ class OffloadExternalTensorTest(unittest.TestCase):
             self.base_path,
             self.external_data_name,
         )
-        external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
-        external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
-        external_tensor3 = model_with_external_data.graph.initializers[
+        external_tensor = model_with_external_data.graph.initializers.get_tensor("tensor1")
+        external_tensor2 = model_with_external_data.graph.initializers.get_tensor("tensor2")
+        external_tensor3 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_same_file"
-        ].const_value
+        )
 
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
@@ -378,17 +378,17 @@ class OffloadExternalTensorTest(unittest.TestCase):
             self.base_path,
             self.external_data_name,
         )
-        external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
-        external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
-        external_tensor3 = model_with_external_data.graph.initializers[
+        external_tensor = model_with_external_data.graph.initializers.get_tensor("tensor1")
+        external_tensor2 = model_with_external_data.graph.initializers.get_tensor("tensor2")
+        external_tensor3 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext1_1"
-        ].const_value
-        external_tensor4 = model_with_external_data.graph.initializers[
+        )
+        external_tensor4 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext1_2"
-        ].const_value
-        external_tensor5 = model_with_external_data.graph.initializers[
+        )
+        external_tensor5 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext2_1"
-        ].const_value
+        )
 
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
@@ -408,11 +408,11 @@ class OffloadExternalTensorTest(unittest.TestCase):
             self.base_path,
             self.external_data_name,
         )
-        external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
-        external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
-        external_tensor3 = model_with_external_data.graph.initializers[
+        external_tensor = model_with_external_data.graph.initializers.get_tensor("tensor1")
+        external_tensor2 = model_with_external_data.graph.initializers.get_tensor("tensor2")
+        external_tensor3 = model_with_external_data.graph.initializers.get_tensor(
             "custom_tensor"
-        ].const_value
+        )
 
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
@@ -426,23 +426,23 @@ class OffloadExternalTensorTest(unittest.TestCase):
         model_with_external_data = external_data.unload_from_model(
             self.model_with_mixed_external_data, self.base_path, self.external_data_name
         )
-        external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
-        external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
-        external_tensor3 = model_with_external_data.graph.initializers[
+        external_tensor = model_with_external_data.graph.initializers.get_tensor("tensor1")
+        external_tensor2 = model_with_external_data.graph.initializers.get_tensor("tensor2")
+        external_tensor3 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_same_file"
-        ].const_value
-        external_tensor4 = model_with_external_data.graph.initializers[
+        )
+        external_tensor4 = model_with_external_data.graph.initializers.get_tensor(
             "custom_tensor"
-        ].const_value
-        external_tensor5 = model_with_external_data.graph.initializers[
+        )
+        external_tensor5 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext1_1"
-        ].const_value
-        external_tensor6 = model_with_external_data.graph.initializers[
+        )
+        external_tensor6 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext1_2"
-        ].const_value
-        external_tensor7 = model_with_external_data.graph.initializers[
+        )
+        external_tensor7 = model_with_external_data.graph.initializers.get_tensor(
             "tensor_ext2_1"
-        ].const_value
+        )
 
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
@@ -468,15 +468,15 @@ class OffloadExternalTensorTest(unittest.TestCase):
         )
         file_path = os.path.join(self.base_path, self.external_data_name)
         expected_tensor_order = [
-            model_with_external_data.graph.initializers["tensor2"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext1_1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers[
+            model_with_external_data.graph.initializers.get_tensor("tensor2").tobytes(),
+            model_with_external_data.graph.initializers.get_tensor("tensor_ext1_1").tobytes(),
+            model_with_external_data.graph.initializers.get_tensor("tensor1").tobytes(),
+            model_with_external_data.graph.initializers.get_tensor(
                 "tensor_same_file"
-            ].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext1_2"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext2_1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["custom_tensor"].const_value.tobytes(),
+            ).tobytes(),
+            model_with_external_data.graph.initializers.get_tensor("tensor_ext1_2").tobytes(),
+            model_with_external_data.graph.initializers.get_tensor("tensor_ext2_1").tobytes(),
+            model_with_external_data.graph.initializers.get_tensor("custom_tensor").tobytes(),
         ]
         sorted_tensor_order = [
             self.data_float16.tobytes(),
