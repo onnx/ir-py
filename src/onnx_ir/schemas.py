@@ -95,6 +95,7 @@ class Parameter:
         return f"{self.name}: {type_str}"
 
     def has_default(self) -> bool:
+        """Return True if the parameter has a default value."""
         return self.default is not _EMPTY_DEFAULT
 
     def is_param(self) -> bool:
@@ -102,6 +103,7 @@ class Parameter:
         return True
 
     def is_attribute(self) -> bool:
+        """Return False because this is an input/output parameter."""
         return False
 
 
@@ -121,9 +123,11 @@ class AttributeParameter:
         return f"{self.name}: {type_str}"
 
     def has_default(self) -> bool:
+        """Return True if the attribute parameter has a default value."""
         return self.default is not None
 
     def is_param(self) -> bool:
+        """Return False because this parameter models an attribute."""
         return False
 
     def is_attribute(self) -> bool:
@@ -227,6 +231,7 @@ class OpSignature:
         name: str,
         default: Parameter | AttributeParameter | None = None,
     ) -> Parameter | AttributeParameter | None:
+        """Return a parameter by name, or ``default`` when missing."""
         return self.params_map.get(name, default)
 
     def __contains__(self, name: str) -> bool:
