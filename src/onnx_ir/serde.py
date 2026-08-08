@@ -32,6 +32,7 @@ __all__ = [
     "deserialize_node",
     "deserialize_node_device_configuration",
     "deserialize_opset_import",
+    "deserialize_sparse_tensor",
     "deserialize_tensor",
     "deserialize_tensor_shape",
     "deserialize_type_proto_for_shape",
@@ -56,6 +57,8 @@ __all__ = [
     "serialize_shape_into",
     "serialize_reference_attribute_into",
     "serialize_reference_attribute",
+    "serialize_sparse_tensor_into",
+    "serialize_sparse_tensor",
     "serialize_tensor_into",
     "serialize_tensor",
     "serialize_type_into",
@@ -132,6 +135,8 @@ def from_proto(proto: onnx.NodeProto) -> _core.Node: ...  # type: ignore[overloa
 @typing.overload
 def from_proto(proto: onnx.TensorProto) -> _protocols.TensorProtocol: ...  # type: ignore[overload-overlap]
 @typing.overload
+def from_proto(proto: onnx.SparseTensorProto) -> _core.SparseTensor: ...  # type: ignore[overload-overlap]
+@typing.overload
 def from_proto(proto: onnx.AttributeProto) -> _core.Attr: ...  # type: ignore[overload-overlap]
 @typing.overload
 def from_proto(proto: onnx.ValueInfoProto) -> _core.Value: ...  # type: ignore[overload-overlap]
@@ -161,6 +166,8 @@ def from_proto(proto: object) -> object:
         return deserialize_node(proto)
     if isinstance(proto, onnx.TensorProto):
         return deserialize_tensor(proto)
+    if isinstance(proto, onnx.SparseTensorProto):
+        return deserialize_sparse_tensor(proto)
     if isinstance(proto, onnx.AttributeProto):
         return deserialize_attribute(proto)
     if isinstance(proto, onnx.ValueInfoProto):
@@ -264,6 +271,8 @@ def to_proto(ir_object: _protocols.NodeProtocol) -> onnx.NodeProto: ...  # type:
 @typing.overload
 def to_proto(ir_object: _protocols.TensorProtocol) -> onnx.TensorProto: ...  # type: ignore[overload-overlap]
 @typing.overload
+def to_proto(ir_object: _protocols.SparseTensorProtocol) -> onnx.SparseTensorProto: ...  # type: ignore[overload-overlap]
+@typing.overload
 def to_proto(ir_object: _protocols.AttributeProtocol) -> onnx.AttributeProto: ...  # type: ignore[overload-overlap]
 @typing.overload
 def to_proto(ir_object: _protocols.ReferenceAttributeProtocol) -> onnx.AttributeProto: ...  # type: ignore[overload-overlap]
@@ -287,6 +296,8 @@ def to_proto(ir_object: object) -> object:
         return serialize_node(ir_object)
     if isinstance(ir_object, _protocols.TensorProtocol):
         return serialize_tensor(ir_object)
+    if isinstance(ir_object, _protocols.SparseTensorProtocol):
+        return serialize_sparse_tensor(ir_object)
     if isinstance(ir_object, _protocols.ValueProtocol):
         return serialize_value(ir_object)
     if isinstance(ir_object, _protocols.AttributeProtocol) and not ir_object.is_ref():
@@ -836,6 +847,48 @@ def _deserialize_graph(
             values[initializer_name] = initializer_value
         initializer_values.append(initializer_value)
 
+    # Create values for sparse initializers
+    sparse_initializer_tensors = [
+        deserialize_sparse_tensor(tensor) for tensor in proto.sparse_initializer
+    ]
+    for i, sparse_tensor in enumerate(sparse_initializer_tensors):
+        initializer_name = sparse_tensor.name
+        if not initializer_name:
+            logger.warning(
+                "Sparse initializer tensor must have a name but the %s-th sparse initializer does not. Skipping this initializer.",
+                i,
+            )
+            continue
+        if initializer_name in values:
+            # The sparse initializer is for an existing value (e.g., an input)
+            initializer_value = values[initializer_name]
+            initializer_value.const_sparse_value = sparse_tensor
+            if initializer_name in value_info:
+                deserialize_value_info_proto(value_info[initializer_name], initializer_value)
+            if initializer_value.name in quantization_annotations:
+                _deserialize_quantization_annotation(
+                    quantization_annotations[initializer_value.name], initializer_value
+                )
+            values[initializer_name] = initializer_value
+        else:
+            # The sparse initializer is for a new value. Create the value first
+            initializer_value = _core.Value(
+                None,
+                index=None,
+                name=initializer_name,
+                type=_core.SparseTensorType(_enums.DataType(sparse_tensor.values.dtype)),
+                shape=_core.Shape(sparse_tensor.dims),
+                const_sparse_value=sparse_tensor,
+            )
+            if initializer_name in value_info:
+                deserialize_value_info_proto(value_info[initializer_name], initializer_value)
+            if initializer_value.name in quantization_annotations:
+                _deserialize_quantization_annotation(
+                    quantization_annotations[initializer_value.name], initializer_value
+                )
+            values[initializer_name] = initializer_value
+        initializer_values.append(initializer_value)
+
     # Declare values for all node outputs from this graph scope. This is necessary
     # to handle the case where a node in a subgraph uses a value that is declared out
     # of order in the outer graph. Declaring the values first allows us to find the
@@ -1179,6 +1232,21 @@ def deserialize_tensor(
     return TensorProtoTensor(proto)
 
 
+def deserialize_sparse_tensor(proto: onnx.SparseTensorProto) -> _core.SparseTensor:
+    """Deserialize an ONNX SparseTensorProto into an IR SparseTensor.
+
+    Args:
+        proto: The ONNX SparseTensorProto to deserialize.
+
+    Returns:
+        An :class:`onnx_ir.SparseTensor` representing the sparse tensor.
+    """
+    values = deserialize_tensor(proto.values)
+    indices = deserialize_tensor(proto.indices)
+    dims = list(proto.dims)
+    return _core.SparseTensor(values, indices, dims)
+
+
 def deserialize_metadata_props(
     proto: Sequence[onnx.StringStringEntryProto],
 ) -> dict[str, str] | None:
@@ -1259,12 +1327,14 @@ def _deserialize_attribute(
             doc_string=doc_string,
         )
     if type_ == _enums.AttributeType.SPARSE_TENSOR:
-        raise NotImplementedError(
-            f"Sparse tensors are not supported yet. {_PLEASE_CONTRIBUTE}"
+        return _core.AttrSparseTensor(
+            name, deserialize_sparse_tensor(proto.sparse_tensor), doc_string=doc_string
         )
     if type_ == _enums.AttributeType.SPARSE_TENSORS:
-        raise NotImplementedError(
-            f"Sparse tensors are not supported yet. {_PLEASE_CONTRIBUTE}"
+        return _core.AttrSparseTensors(
+            name,
+            [deserialize_sparse_tensor(st) for st in proto.sparse_tensors],
+            doc_string=doc_string,
         )
     if type_ == _enums.AttributeType.TYPE_PROTO:
         ir_type = deserialize_type_proto_for_type(proto.tp)
@@ -1868,20 +1938,28 @@ def serialize_graph_into(
             # Annotations for initializers will be added below to avoid double adding
             _maybe_add_quantization_annotation(graph_proto, input_)
     input_names = {input_.name for input_ in from_.inputs}
-    # TODO(justinchuby): Support sparse_initializer
     for value in from_.initializers.values():
         _maybe_add_quantization_annotation(graph_proto, value)
         if _should_create_value_info_for_value(value) and value.name not in input_names:
             # Serialize information about all initializers into value_info,
             # except for those that are also graph inputs
             serialize_value_into(graph_proto.value_info.add(), value)
-        if value.const_value is None:
+        if value.const_sparse_value is not None:
+            # Serialize sparse initializers into sparse_initializer
+            value.const_sparse_value.name = value.name
+            serialize_sparse_tensor_into(
+                graph_proto.sparse_initializer.add(), from_=value.const_sparse_value
+            )
+        elif value.const_value is not None:
+            # Make sure the tensor's name is the same as the value's name
+            value.const_value.name = value.name
+            serialize_tensor_into(graph_proto.initializer.add(), from_=value.const_value)
+        else:
             # Skip initializers without constant values
-            logger.warning("Initializer '%s' does not have a constant value set.", value.name)
-            continue
-        # Make sure the tensor's name is the same as the value's name
-        value.const_value.name = value.name
-        serialize_tensor_into(graph_proto.initializer.add(), from_=value.const_value)
+            if not isinstance(value.type, _core.SparseTensorType):
+                logger.warning(
+                    "Initializer '%s' does not have a constant value set.", value.name
+                )
     for node in from_:
         serialize_node_into(
             graph_proto.node.add(), from_=node, model_ir_version=model_ir_version
@@ -2144,6 +2222,38 @@ def serialize_tensor_into(
     _serialize_metadata_props_into(tensor_proto.metadata_props, from_.metadata_props)
 
 
+def serialize_sparse_tensor(
+    sparse_tensor: _protocols.SparseTensorProtocol,
+) -> onnx.SparseTensorProto:
+    """Serialize a sparse tensor to an ONNX SparseTensorProto.
+
+    Args:
+        sparse_tensor: The sparse tensor to serialize.
+
+    Returns:
+        The serialized ONNX SparseTensorProto object.
+    """
+    sparse_tensor_proto = onnx.SparseTensorProto()
+    serialize_sparse_tensor_into(sparse_tensor_proto, from_=sparse_tensor)
+    return sparse_tensor_proto
+
+
+@_capture_errors(lambda sparse_tensor_proto, from_: repr(from_))
+def serialize_sparse_tensor_into(
+    sparse_tensor_proto: onnx.SparseTensorProto,
+    from_: _protocols.SparseTensorProtocol,
+) -> None:
+    """Serialize a sparse tensor into an ONNX SparseTensorProto in-place.
+
+    Args:
+        sparse_tensor_proto: The proto to serialize into.
+        from_: The sparse tensor to serialize.
+    """
+    serialize_tensor_into(sparse_tensor_proto.values, from_.values)
+    serialize_tensor_into(sparse_tensor_proto.indices, from_.indices)
+    sparse_tensor_proto.dims.extend(from_.dims)
+
+
 def serialize_attribute(attribute: _protocols.AttributeProtocol) -> onnx.AttributeProto:
     """Serialize an IR Attribute to an ONNX AttributeProto.
 
@@ -2225,13 +2335,14 @@ def _fill_in_value_for_attribute(
             serialize_graph_into(attribute_proto.graphs.add(), graph)
         attribute_proto.type = onnx.AttributeProto.GRAPHS
     elif type_ == _enums.AttributeType.SPARSE_TENSOR:
-        raise NotImplementedError(
-            f"Sparse tensors are not supported yet. {_PLEASE_CONTRIBUTE}"
-        )
+        # value: _protocols.SparseTensorProtocol
+        serialize_sparse_tensor_into(attribute_proto.sparse_tensor, value)
+        attribute_proto.type = onnx.AttributeProto.SPARSE_TENSOR
     elif type_ == _enums.AttributeType.SPARSE_TENSORS:
-        raise NotImplementedError(
-            f"Sparse tensors are not supported yet. {_PLEASE_CONTRIBUTE}"
-        )
+        # value: Sequence[_protocols.SparseTensorProtocol]
+        for sparse_tensor in value:
+            serialize_sparse_tensor_into(attribute_proto.sparse_tensors.add(), sparse_tensor)
+        attribute_proto.type = onnx.AttributeProto.SPARSE_TENSORS
     elif type_ == _enums.AttributeType.TYPE_PROTO:
         # value: _core.TypeAndShape
         if value.type is not None:

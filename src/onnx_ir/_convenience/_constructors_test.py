@@ -5,6 +5,7 @@
 import unittest
 
 import numpy as np
+import pytest
 
 import onnx_ir as ir
 from onnx_ir._convenience import _constructors
@@ -25,6 +26,78 @@ class ConstructorsTest(unittest.TestCase):
     def test_tensor_handles_empty_sequence_with_dtype(self):
         tensor = _constructors.tensor([], dtype=ir.DataType.FLOAT)
         np.testing.assert_array_equal(tensor.numpy(), np.array([], dtype=np.float32))
+
+    def test_from_scipy_sparse_coo(self):
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        coo = sp.coo_array((data, ([0, 1], [1, 0])), shape=(3, 3))
+        sparse = ir.SparseTensor.from_scipy_sparse(coo, name="my_sparse")
+        self.assertIsInstance(sparse, ir.SparseTensor)
+        self.assertEqual(sparse.name, "my_sparse")
+        self.assertEqual(sparse.dims, [3, 3])
+        np.testing.assert_array_equal(sparse.values.numpy(), data)
+        # Indices shape is [NNZ, rank]: each row is one non-zero's coordinate
+        # NNZ 0 at (row=0, col=1), NNZ 1 at (row=1, col=0)
+        np.testing.assert_array_equal(
+            sparse.indices.numpy(), np.array([[0, 1], [1, 0]], dtype=np.int64)
+        )
+
+    def test_from_scipy_sparse_coo_asymmetric_nnz_rank(self):
+        """from_scipy_sparse with NNZ != rank produces [NNZ, rank] indices (validates layout)."""
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # NNZ=4, rank=2 — layout ambiguity only resolved when NNZ != rank
+        rows = [0, 1, 3, 4]
+        cols = [0, 3, 1, 2]
+        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        coo = sp.coo_array((data, (rows, cols)), shape=(5, 4))
+        sparse = ir.SparseTensor.from_scipy_sparse(coo)
+        self.assertEqual(sparse.dims, [5, 4])
+        # Indices must have shape [NNZ=4, rank=2]
+        self.assertEqual(sparse.indices.numpy().shape, (4, 2))
+        # Round-trip via numpy() must reproduce the original dense array
+        np.testing.assert_array_equal(sparse.numpy().toarray(), coo.toarray())
+
+    def test_from_scipy_sparse_csr(self):
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        csr = sp.eye(4, format="csr", dtype=np.float64)
+        sparse = ir.SparseTensor.from_scipy_sparse(csr)
+        self.assertIsInstance(sparse, ir.SparseTensor)
+        self.assertEqual(sparse.dims, [4, 4])
+        result = sparse.numpy()
+        np.testing.assert_array_equal(result.toarray(), np.eye(4, dtype=np.float64))
+
+    def test_from_scipy_sparse_roundtrip(self):
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        data = np.array([3.0, 7.0], dtype=np.float64)
+        original = sp.coo_array((data, ([0, 2], [1, 0])), shape=(4, 3))
+        sparse = ir.SparseTensor.from_scipy_sparse(original)
+        roundtripped = sparse.numpy()
+        np.testing.assert_array_equal(roundtripped.toarray(), original.toarray())
+
+    def test_from_scipy_sparse_rejects_dense_array(self):
+        pytest.importorskip("scipy")
+        with self.assertRaises(TypeError):
+            ir.SparseTensor.from_scipy_sparse(np.eye(2, dtype=np.float32))
+
+    def test_from_scipy_sparse_legacy_spmatrix(self):
+        pytest.importorskip("scipy")
+        import scipy.sparse as sp
+
+        # Legacy spmatrix.tocoo() returns a coo_matrix, which lacks ``coords``
+        # on scipy<1.13; from_scipy_sparse() must still handle it.
+        matrix = sp.csr_matrix(np.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]], dtype=np.float32))
+        sparse = ir.SparseTensor.from_scipy_sparse(matrix)
+        self.assertIsInstance(sparse, ir.SparseTensor)
+        self.assertEqual(sparse.dims, [2, 3])
+        np.testing.assert_array_equal(sparse.numpy().toarray(), matrix.toarray())
 
 
 class ValueConstructorTest(unittest.TestCase):
