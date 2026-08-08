@@ -8,7 +8,7 @@
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+    :toctree: generated/functions
     :template: functiontemplate.rst
     :nosignatures:
 
@@ -60,40 +60,46 @@
 See [Multi-Device Configurations](../multi_device.md) for a guide.
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.ModelConfiguration
-    onnx_ir.NodeDeviceConfiguration
-    onnx_ir.ShardingSpec
-    onnx_ir.ShardedDim
-    onnx_ir.SimpleShardedDim
-    onnx_ir.IndexToDeviceGroupMapEntry
+    ModelConfiguration
+    NodeDeviceConfiguration
+    ShardingSpec
+    ShardedDim
+    SimpleShardedDim
+    IndexToDeviceGroupMapEntry
 ```
 
 ## Enums
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.DataType
-    onnx_ir.AttributeType
+    DataType
+    AttributeType
 ```
 
 ### Internal Containers
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate_inherited.rst
     :nosignatures:
 
-    onnx_ir._graph_containers.GraphInitializers
-    onnx_ir._graph_containers.Attributes
-    onnx_ir._metadata.MetadataStore
+    _graph_containers.GraphInitializers
+    _graph_containers.Attributes
+    _metadata.MetadataStore
 ```
