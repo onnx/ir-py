@@ -10,6 +10,13 @@
     :undoc-members:
     :inherited-members:
     :member-order: bysource
+{{ {
+    "ExternalTensor": "    :exclude-members: base_dir, doc_string, dtype, length, location, metadata_props, name, offset, path, shape",
+    "Graph": "    :exclude-members: name",
+    "GraphView": "    :exclude-members: doc_string, initializers, inputs, name, opset_imports, outputs",
+    "LazyTensor": "    :exclude-members: cache",
+    "TensorProtocol": "    :exclude-members: doc_string, dtype, meta, metadata_props, name, raw, shape",
+}.get(name, "") }}
 
 
 ..

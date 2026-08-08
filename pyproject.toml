@@ -14,7 +14,7 @@ requires-python = ">=3.9"
 license = "Apache-2.0"
 license-files = ["LICEN[CS]E*"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
 ]
 dependencies = ["numpy", "onnx>=1.16", "typing_extensions>=4.10", "ml_dtypes>=0.5.0", "sympy>=1.13"]
 

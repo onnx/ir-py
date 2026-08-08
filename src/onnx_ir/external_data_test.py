@@ -201,7 +201,7 @@ class OffloadExternalTensorTest(unittest.TestCase):
                 self._raw = value
                 if isinstance(value, np.ndarray):
                     self._dtype = ir._enums.DataType.from_numpy(value.dtype)
-                self._shape = ir.Shape(getattr(value, "shape"), frozen=True)  # noqa: B009
+                self._shape = ir.Shape(getattr(value, "shape"), frozen=True)  # ruff: ignore[get-attr-with-constant]
 
             @property
             def dtype(self) -> ir._enums.DataType:
