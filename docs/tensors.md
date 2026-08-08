@@ -75,11 +75,27 @@ To create a tensor from objects other than NumPy array, you need to specify the 
 
 Use {py:class}`onnx_ir.StringTensor <onnx_ir.StringTensor>` to create a string tensor.
 
-<!-- TODO(justinchuby): Document make tensor helper -->
+### Convenience tensor constructor
+
+Use {py:func}`onnx_ir.tensor` to create the appropriate tensor implementation
+from Python values, NumPy-compatible arrays, PyTorch tensors, or `TensorProto`:
+
+```python
+weights = ir.tensor(
+    [[1.0, 2.0], [3.0, 4.0]],
+    dtype=ir.DataType.FLOAT,
+    name="weights",
+)
+```
+
+When creating tensors from plain Python values, specify `dtype` when the operator
+requires a particular ONNX element type. Array-backed inputs preserve their
+compatible dtype.
 
 ### Sparse Tensor
 
-Sparse tensors are not yet supported, but they are on our roadmap.
+Sparse tensor types and attributes can be represented, but a general-purpose
+sparse tensor data implementation is not currently provided.
 
 (from-tensorprotos-and-back)=
 ## From `TensorProto`s and back
