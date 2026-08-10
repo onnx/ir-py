@@ -483,7 +483,6 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
             [then_maxpool.outputs[0]],
             nodes=[then_maxpool],
             name="then_graph",
-            opset_imports={},
         )
 
         else_identity = ir.Node("", "Identity", [x], num_outputs=1, name="else_identity")
@@ -492,7 +491,6 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
             [else_identity.outputs[0]],
             nodes=[else_identity],
             name="else_graph",
-            opset_imports={},
         )
 
         if_node = ir.Node(
@@ -518,7 +516,7 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
         # was used for the subgraph with missing opset imports.
         self.assertEqual(len(next(iter(updated_then)).outputs), 1)
 
-    def test_mismatched_schema_outputs_does_not_crash_optional_output_removal(self):
+    def test_subgraph_opset_imports_are_ignored_for_optional_output_removal(self):
         x = ir.Value(name="x")
         cond = ir.Value(name="cond")
 
@@ -566,9 +564,9 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
         onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
 
         updated_then = if_node.attributes["then_branch"].as_graph()
-        # Opset 1 schema has fewer outputs for MaxPool; this assertion verifies that the pass
-        # did not crash on output/schema length mismatch and preserved outputs safely.
-        self.assertEqual(len(next(iter(updated_then)).outputs), 2)
+        # Subgraph opset imports are ignored. The main-graph opset (17) is used, so
+        # MaxPool optional output #1 is removed.
+        self.assertEqual(len(next(iter(updated_then)).outputs), 1)
 
 
 if __name__ == "__main__":
