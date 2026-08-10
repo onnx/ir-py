@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import builtins
 import weakref
 from typing import Any
 
@@ -34,8 +35,6 @@ class JournalEntry:
         ref: A weak reference to the object on which the operation was performed.
             To access the object, call ``ref()``. Note that ``ref`` may be ``None``,
             and ``ref()`` may return ``None`` if the object has been garbage-collected.
-        obj: The referenced object, or None if it has been garbage-collected or not recorded.
-            This is the same as calling ``entry.ref() if entry.ref is not None else None``.
         object_id: The unique identifier of the object (id()).
         stack_trace: The stack trace at the time of the operation.
         details: Additional details about the operation.
@@ -43,7 +42,7 @@ class JournalEntry:
 
     timestamp: float
     operation: str
-    class_: type
+    class_: builtins.type
     class_name: str
     ref: weakref.ref | None
     object_id: int
@@ -52,7 +51,7 @@ class JournalEntry:
 
     @property
     def obj(self) -> Any | None:
-        """Get the referenced object, or None if it has been garbage-collected or not recorded."""
+        """The referenced object, or None if it has been garbage-collected or not recorded."""
         if self.ref is None:
             return None
         return self.ref()
@@ -168,7 +167,7 @@ class Journal:
 
     @property
     def entries(self) -> Sequence[JournalEntry]:
-        """Get all recorded journal entries."""
+        """All recorded journal entries."""
         return self._entries
 
     def record(self, obj: Any, operation: str, details: str | None = None) -> None:

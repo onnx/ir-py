@@ -1,7 +1,6 @@
 # onnx_ir.journaling
 
 ```{eval-rst}
-.. automodule:: onnx_ir.journaling
 .. currentmodule:: onnx_ir.journaling
 ```
 
@@ -10,6 +9,9 @@ The `onnx_ir.journaling` module provides a journaling system for tracking and de
 :::{warning}
 This module is in alpha. The APIs can change.
 :::
+
+See [Debugging transformations](../debugging.md) for guidance on choosing a
+journal scope and combining journaling with structural inspection and validation.
 
 ## Quick Start
 
@@ -45,7 +47,6 @@ The `Journal` class is the main interface for recording operations on the ONNX I
 ```{eval-rst}
 .. autoclass:: Journal
    :members:
-   :undoc-members:
 ```
 
 ## The `JournalEntry` class
@@ -55,7 +56,6 @@ Each recorded operation is stored as a `JournalEntry`. This dataclass contains a
 ```{eval-rst}
 .. autoclass:: JournalEntry
    :members:
-   :undoc-members:
 ```
 
 ## Using Hooks

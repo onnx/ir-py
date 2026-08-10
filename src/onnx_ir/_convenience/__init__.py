@@ -23,7 +23,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Union
 
 import numpy as np
-import onnx  # noqa: TID251
+import onnx  # ruff: ignore[banned-api]
 
 from onnx_ir import _core, _enums, _protocols, serde, traversal
 

@@ -13,7 +13,7 @@ import typing
 from collections.abc import Mapping, Sequence
 
 import numpy as np
-import onnx  # noqa: TID251
+import onnx  # ruff: ignore[banned-api]
 
 from onnx_ir import _convenience, _core, _enums, _protocols, serde, tensor_adapters
 

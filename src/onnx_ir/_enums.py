@@ -122,12 +122,12 @@ class DataType(enum.IntEnum):
 
     @property
     def itemsize(self) -> float:
-        """Returns the size of the data type in bytes."""
+        """The size of the data type in bytes."""
         return self.bitwidth / 8
 
     @property
     def bitwidth(self) -> int:
-        """Returns the bit width of the data type.
+        """The bit width of the data type.
 
         .. versionadded:: 0.1.2
 
@@ -140,7 +140,7 @@ class DataType(enum.IntEnum):
 
     @property
     def exponent_bitwidth(self) -> int:
-        """Returns the bit width of the exponent for floating-point types.
+        """The bit width of the exponent for floating-point types.
 
         .. versionadded:: 0.1.8
 
@@ -154,7 +154,7 @@ class DataType(enum.IntEnum):
 
     @property
     def mantissa_bitwidth(self) -> int:
-        """Returns the bit width of the mantissa for floating-point types.
+        """The bit width of the mantissa for floating-point types.
 
         .. versionadded:: 0.1.8
 
@@ -168,7 +168,7 @@ class DataType(enum.IntEnum):
 
     @property
     def eps(self) -> int | np.floating[Any]:
-        """Returns the difference between 1.0 and the next smallest representable float larger than 1.0 for the ONNX data type.
+        """The difference between 1.0 and the next smallest representable float larger than 1.0 for the ONNX data type.
 
         Returns 1 for integers.
 
@@ -187,7 +187,7 @@ class DataType(enum.IntEnum):
 
     @property
     def tiny(self) -> int | np.floating[Any]:
-        """Returns the smallest positive non-zero value for the ONNX data type.
+        """The smallest positive non-zero value for the ONNX data type.
 
         Returns 1 for integers.
 
@@ -206,7 +206,7 @@ class DataType(enum.IntEnum):
 
     @property
     def min(self) -> int | np.floating[Any]:
-        """Returns the minimum representable value for the ONNX data type.
+        """The minimum representable value for the ONNX data type.
 
         .. versionadded:: 0.1.8
 
@@ -223,7 +223,7 @@ class DataType(enum.IntEnum):
 
     @property
     def max(self) -> int | np.floating[Any]:
-        """Returns the maximum representable value for the ONNX data type.
+        """The maximum representable value for the ONNX data type.
 
         .. versionadded:: 0.1.8
 
@@ -240,7 +240,7 @@ class DataType(enum.IntEnum):
 
     @property
     def precision(self) -> int:
-        """Returns the precision for the ONNX dtype if supported.
+        """The precision for the ONNX dtype if supported.
 
         For floats returns the approximate number of decimal digits to which
         this kind of float is precise. Returns 0 for integers.
@@ -260,7 +260,7 @@ class DataType(enum.IntEnum):
 
     @property
     def resolution(self) -> int | np.floating[Any]:
-        """Returns the resolution for the ONNX dtype if supported.
+        """The resolution for the ONNX dtype if supported.
 
         Returns the approximate decimal resolution of this type, i.e.,
          10**-precision. Returns 1 for integers.
