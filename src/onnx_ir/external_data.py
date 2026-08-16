@@ -442,6 +442,13 @@ class _ByteBudget:
             self._condition.notify_all()
 
 
+def _reservation_bytes(tensor: _protocols.TensorProtocol, tensor_length: int) -> int:
+    """Return the maximum userspace memory needed while writing a tensor."""
+    if isinstance(tensor, _core.ExternalTensor):
+        return min(tensor_length, _core._EXTERNAL_TENSOR_COPY_CHUNK_SIZE)
+    return tensor_length
+
+
 def _write_tensor_at(
     tensor: _protocols.TensorProtocol,
     file,
@@ -533,7 +540,7 @@ def _write_external_data(
             # A shard may use a serial writer while other shards are written
             # concurrently. Honor their shared budget here too; otherwise one
             # tensor per shard can be materialized at once with no byte bound.
-            reserved = budget.acquire(tensor_info.length)
+            reserved = budget.acquire(_reservation_bytes(tensor, tensor_info.length))
             try:
                 _write_tensor_at(tensor, data_file, tensor_info.offset)
             finally:
@@ -596,7 +603,7 @@ def _write_external_data_parallel(
         assert tensor is not None
         with callback_lock:
             invoke_callback(index, tensor, info.offset)
-        reserved = budget.acquire(info.length)
+        reserved = budget.acquire(_reservation_bytes(tensor, info.length))
         try:
             _write_tensor_at(tensor, _thread_file(), info.offset)
         finally:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import io
 import os
 import pathlib
@@ -1009,6 +1010,67 @@ class ExternalTensorTest(unittest.TestCase):
             # Verify the written data matches expected
             expected_data = self.data.tobytes()
             self.assertEqual(written_data, expected_data)
+
+    def test_tofile_uses_copy_file_range_when_available(self):
+        external_tensor = self.model.graph.initializer[1]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT16,
+            base_dir=self.base_path,
+            name="input2",
+            shape=_core.Shape(external_tensor.dims),
+        )
+        calls = []
+
+        def copy_file_range(src_fd, dst_fd, count, *, offset_src=None, offset_dst=None):
+            calls.append((count, offset_src, offset_dst))
+            data = os.pread(src_fd, count, offset_src)
+            return os.pwrite(dst_fd, data, offset_dst)
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(os, "copy_file_range", copy_file_range, create=True),
+        ):
+            output.write(b"prefix")
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertTrue(calls)
+        self.assertEqual(calls[0][1], external_info.offset)
+        self.assertEqual(calls[0][2], len(b"prefix"))
+        self.assertEqual(written_data, b"prefix" + self.data_float16.tobytes())
+
+    def test_tofile_falls_back_when_copy_file_range_is_unsupported(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=OSError(errno.EXDEV, "cross-device link"),
+                create=True,
+            ),
+        ):
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(written_data, self.data.tobytes())
 
     def test_tofile_empty_tensor(self):
         """Test ExternalTensor.tofile() with empty tensor."""

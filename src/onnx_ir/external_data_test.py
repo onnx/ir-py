@@ -1051,6 +1051,23 @@ class ParallelWriteTest(unittest.TestCase):
         budget.release(regular)
         thread.join()
 
+    def test_external_tensor_reserves_only_copy_buffer(self):
+        length = 10 * 1024 * 1024
+        tensor = ir.ExternalTensor(
+            "source.data",
+            offset=0,
+            length=length,
+            dtype=ir.DataType.UINT8,
+            shape=ir.Shape([length]),
+            base_dir=self.base_path,
+            name="external",
+        )
+
+        self.assertEqual(
+            external_data._reservation_bytes(tensor, length),
+            1024 * 1024,
+        )
+
     def test_serial_shard_writer_honors_shared_byte_budget(self):
         class TrackingBudget:
             def __init__(self):
