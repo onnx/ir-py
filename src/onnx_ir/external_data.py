@@ -909,6 +909,13 @@ def unload_from_model(
             # Shards are distinct files with no ordering dependency, so they are
             # written concurrently. They share one byte budget so that peak memory
             # does not grow with the number of shards.
+            #
+            # Split ``max_workers`` across the two levels instead of using it at
+            # both: nesting a pool of that size inside each of that many shard
+            # threads would spawn up to ``max_workers ** 2`` threads, breaking
+            # the contract that ``max_workers`` bounds the thread count.
+            shard_workers = min(max_workers, len(shard_jobs))
+            workers_per_shard = max(1, max_workers // shard_workers)
             shared_budget = _ByteBudget(max_in_flight_bytes)
             shard_lock = threading.Lock()
 
@@ -921,7 +928,7 @@ def unload_from_model(
 
                 return _wrapped
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=shard_workers) as executor:
                 shard_futures = [
                     executor.submit(
                         convert_tensors_to_external,
@@ -933,7 +940,7 @@ def unload_from_model(
                             if job_callback is not None
                             else None
                         ),
-                        max_workers=max_workers,
+                        max_workers=workers_per_shard,
                         alignment=alignment,
                         align_threshold=align_threshold,
                         _budget=shared_budget,

@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import typing
 import unittest
 
@@ -1009,6 +1010,49 @@ class ParallelWriteTest(unittest.TestCase):
         amount = budget.acquire(10_000)
         self.assertEqual(amount, 100)
         budget.release(amount)
+
+    def test_sharded_save_respects_the_worker_limit(self):
+        # Shards are written concurrently and each shard writes its tensors
+        # concurrently. Using max_workers at both levels would spawn up to
+        # max_workers ** 2 threads, so the budget must be split, not squared.
+        rng = np.random.default_rng(3)
+        graph = ir.Graph(inputs=[], outputs=[], nodes=[], initializers=[], name="g")
+        for i in range(40):
+            tensor = ir.Tensor(
+                rng.integers(0, 255, size=200_000, dtype=np.uint8), name=f"w{i}"
+            )
+            graph.register_initializer(ir.Value(name=f"w{i}", const_value=tensor))
+        model = ir.Model(graph, ir_version=10)
+
+        max_workers = 4
+        peak = 0
+        stop = threading.Event()
+
+        def monitor():
+            nonlocal peak
+            while not stop.is_set():
+                peak = max(peak, threading.active_count())
+                time.sleep(0.001)
+
+        watcher = threading.Thread(target=monitor)
+        watcher.start()
+        # Sample the baseline with the watcher already running so it is not
+        # mistaken for a worker.
+        time.sleep(0.01)
+        baseline = threading.active_count()
+        try:
+            external_data.unload_from_model(
+                model,
+                self.base_path,
+                "model.data",
+                max_shard_size_bytes=1_000_000,
+                max_workers=max_workers,
+            )
+        finally:
+            stop.set()
+            watcher.join()
+
+        self.assertLessEqual(peak - baseline, max_workers)
 
     def test_parallel_sharded_save_matches_serial(self):
         def build_model():
