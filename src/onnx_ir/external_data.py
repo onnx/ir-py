@@ -32,9 +32,6 @@ from onnx_ir._polyfill import zip
 # Default alignment threshold used when alignment is enabled: only tensors larger
 # than this get their offset aligned, so small initializers don't waste file space.
 _DEFAULT_ALIGN_THRESHOLD = 1048576  # 1MB
-# Default allocation granularity for mmap() support. Typically 64KB on Windows
-# and 4KB elsewhere; 64KB is the safe cross-platform choice.
-_DEFAULT_ALLOCATION_GRANULARITY = 65536  # 64KB
 # Default upper bound on materialized tensor bytes held in memory while writing
 # external data concurrently. Peak memory is this plus the largest single tensor.
 _DEFAULT_MAX_IN_FLIGHT_BYTES = 1 << 30  # 1GB
@@ -425,8 +422,6 @@ def _write_tensor_at(
         tensor.tofile(file)
     else:
         file.write(tensor.tobytes())
-    if isinstance(tensor, _core.ExternalTensor):
-        tensor.release()
 
 
 def _write_tensor_with_budget_at(
@@ -501,6 +496,10 @@ def _write_external_data(
             max_in_flight_bytes=max_in_flight_bytes,
         )
         writer.write()
+        # Windows cannot atomically replace a file while one of its mmap handles
+        # is open. Other ExternalTensors are left untouched.
+        for tensor in overwritten_tensors:
+            tensor.release()
         if os.path.exists(destination_path):
             shutil.copymode(destination_path, temporary_path)
         os.replace(temporary_path, destination_path)

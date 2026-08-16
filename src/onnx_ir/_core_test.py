@@ -24,6 +24,32 @@ import onnx_ir as ir
 from onnx_ir import _core, _type_casting
 
 
+def _copy_file_range_with_portable_os_calls(
+    src_fd: int,
+    dst_fd: int,
+    count: int,
+    *,
+    offset_src: int | None,
+    offset_dst: int | None,
+) -> int:
+    """Emulate explicit-offset copy_file_range without Unix-only pread/pwrite."""
+    assert offset_src is not None
+    assert offset_dst is not None
+    src_position = os.lseek(src_fd, 0, os.SEEK_CUR)
+    dst_position = os.lseek(dst_fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(src_fd, offset_src, os.SEEK_SET)
+        data = os.read(src_fd, count)
+        os.lseek(dst_fd, offset_dst, os.SEEK_SET)
+        written = 0
+        while written < len(data):
+            written += os.write(dst_fd, data[written:])
+        return written
+    finally:
+        os.lseek(src_fd, src_position, os.SEEK_SET)
+        os.lseek(dst_fd, dst_position, os.SEEK_SET)
+
+
 class TensorTest(unittest.TestCase):
     def test_initialize(self):
         tensor = _core.Tensor(
@@ -1027,8 +1053,13 @@ class ExternalTensorTest(unittest.TestCase):
 
         def copy_file_range(src_fd, dst_fd, count, *, offset_src=None, offset_dst=None):
             calls.append((count, offset_src, offset_dst))
-            data = os.pread(src_fd, count, offset_src)
-            return os.pwrite(dst_fd, data, offset_dst)
+            return _copy_file_range_with_portable_os_calls(
+                src_fd,
+                dst_fd,
+                count,
+                offset_src=offset_src,
+                offset_dst=offset_dst,
+            )
 
         with (
             tempfile.NamedTemporaryFile() as output,
@@ -1091,8 +1122,13 @@ class ExternalTensorTest(unittest.TestCase):
             call_count += 1
             if call_count > 1:
                 raise OSError(errno.EXDEV, "cross-device link")
-            data = os.pread(src_fd, min(count, 3), offset_src)
-            return os.pwrite(dst_fd, data, offset_dst)
+            return _copy_file_range_with_portable_os_calls(
+                src_fd,
+                dst_fd,
+                min(count, 3),
+                offset_src=offset_src,
+                offset_dst=offset_dst,
+            )
 
         with (
             tempfile.NamedTemporaryFile() as output,

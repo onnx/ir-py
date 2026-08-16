@@ -403,6 +403,7 @@ class OffloadExternalTensorTest(unittest.TestCase):
             any(name.startswith(temporary_prefix) for name in os.listdir(self.base_path))
         )
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX mode bits are unavailable on Windows")
     def test_atomic_replace_preserves_existing_file_mode(self):
         destination = os.path.join(self.base_path, self.external_data_name)
         with open(destination, "wb") as data_file:
@@ -467,6 +468,23 @@ class OffloadExternalTensorTest(unittest.TestCase):
         self.assertEqual(external_tensor3.numpy().tobytes(), self.data_ext1_1.tobytes())
         self.assertEqual(external_tensor4.numpy().tobytes(), self.data_ext1_2.tobytes())
         self.assertEqual(external_tensor5.numpy().tobytes(), self.data_ext2_1.tobytes())
+
+    def test_different_destination_does_not_release_source_external_tensor(self):
+        source_tensor = self.model_with_external_data_diff_path.graph.initializers[
+            "tensor_ext1_1"
+        ].const_value
+        source_array = source_tensor.numpy()
+
+        external_data.unload_from_model(
+            self.model_with_external_data_diff_path,
+            self.base_path,
+            self.external_data_name,
+        )
+
+        self.assertTrue(source_tensor.valid())
+        np.testing.assert_array_equal(source_array, self.data_ext1_1)
+        del source_array
+        source_tensor.release()
 
     def test_custom_tensor_in_initializers(self):
         model_with_external_data = external_data.unload_from_model(
