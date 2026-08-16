@@ -117,6 +117,54 @@ ir.save(
 )
 ```
 
+## Speed up saving with multiple threads
+
+Pass `max_workers` to overlap tensor materialization (lazy tensor evaluation,
+dtype conversion) with disk writes and to write in parallel. This is most
+effective when initializers need work before they can be written, such as a
+`ir.LazyTensor` that casts from `bfloat16`:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    max_workers=8,
+)
+```
+
+Peak memory stays bounded regardless of the worker count: at most
+`max_in_flight_bytes` (512MB by default) plus the size of the largest single
+tensor. Lower it when memory is tight:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    max_workers=8,
+    max_in_flight_bytes=64 * 1024**2,
+)
+```
+
+```{note}
+When `max_workers` is greater than 1, the `callback` is called from worker
+threads. Calls are serialized with a lock, so the callback does not need to be
+thread-safe itself, but it is **no longer invoked in `info.index` order**. Write
+progress callbacks as counters rather than assuming `index` increases:
+
+    import threading
+
+    lock = threading.Lock()
+    done = 0
+
+    def callback(tensor, info):
+        global done
+        with lock:
+            done += 1
+            print(f"[{done}/{info.total}] {tensor.name}")
+```
+
 ## Save with safetensors backend
 
 ```python

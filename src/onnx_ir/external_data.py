@@ -80,9 +80,17 @@ class _ExternalDataInfo:
 class CallbackInfo:
     """A class that shares information about a tensor that is to be saved as external data for callback functions.
 
+    .. note::
+        When saving with ``max_workers`` greater than 1, callbacks are invoked
+        from worker threads. Calls are serialized with a lock, so the callback
+        itself does not need to be thread-safe, but they are **not** delivered in
+        ``index`` order. Progress reporting should count invocations rather than
+        rely on ``index`` increasing monotonically.
+
     Attributes:
         total: The total number of tensors to save.
-        index: The index of the tensor being saved.
+        index: The index of the tensor being saved. Not necessarily the order in
+            which callbacks are invoked when saving concurrently.
         offset: The offset of the tensor in the external data file.
         filename: The filename of the external data file.
     """
