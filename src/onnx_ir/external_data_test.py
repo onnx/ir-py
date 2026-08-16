@@ -546,13 +546,21 @@ class ShardFilenameTest(unittest.TestCase):
             "model-00003-of-00003.data",
         )
 
-    def test_onnx_data_compound_suffix_is_preserved(self):
-        self.assertEqual(
-            external_data._get_shard_filename("model.onnx.data", 2, 9),
-            "model-00002-of-00009.onnx.data",
-        )
+    def test_compound_suffixes_are_preserved(self):
+        cases = {
+            "model.onnx.data": "model-00002-of-00009.onnx.data",
+            "model.weights.bin": "model-00002-of-00009.weights.bin",
+            "archive.tar.gz": "archive-00002-of-00009.tar.gz",
+            ".weights.data": ".weights-00002-of-00009.data",
+        }
+        for filename, expected in cases.items():
+            with self.subTest(filename=filename):
+                self.assertEqual(
+                    external_data._get_shard_filename(filename, 2, 9),
+                    expected,
+                )
 
-    def test_onnx_data_compound_suffix_with_directory(self):
+    def test_compound_suffix_with_directory(self):
         self.assertEqual(
             external_data._get_shard_filename("weights.dir/model.onnx.data", 3, 10),
             os.path.join("weights.dir", "model-00003-of-00010.onnx.data"),

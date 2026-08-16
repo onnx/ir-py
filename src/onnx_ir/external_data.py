@@ -173,16 +173,18 @@ def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> st
         return base_name
 
     dir_name, filename = os.path.split(base_name)
-    # ``.onnx.data`` is a conventional compound suffix. Treating only
-    # ``.data`` as the extension would produce
-    # ``model.onnx-00001-of-00003.data``; keep the compound suffix intact so
-    # the shard marker belongs to the model stem instead.
-    compound_suffix = ".onnx.data"
-    if filename.endswith(compound_suffix):
-        name = filename[: -len(compound_suffix)]
-        ext = compound_suffix
-    else:
-        name, ext = os.path.splitext(filename)
+    # Preserve the full suffix chain so the shard marker stays attached to the
+    # filename stem: ``model.onnx.data`` becomes
+    # ``model-00001-of-00003.onnx.data``. Repeated splitext calls implement the
+    # same general rule for any compound suffix without importing pathlib.
+    name = filename
+    suffixes = []
+    while True:
+        name, suffix = os.path.splitext(name)
+        if not suffix:
+            break
+        suffixes.append(suffix)
+    ext = "".join(reversed(suffixes))
 
     # Always use 5 digits to follow transformers convention
     shard_filename = f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
