@@ -777,6 +777,132 @@ def convert_tensors_to_external(
     ]
 
 
+def _write_external_tensors(
+    tensors: Sequence[_protocols.TensorProtocol],
+    base_dir: str | os.PathLike,
+    relative_path: str | os.PathLike,
+    *,
+    max_shard_size_bytes: int | None,
+    callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
+    max_workers: int | None,
+    max_in_flight_bytes: int,
+    alignment: int | None,
+    align_threshold: int,
+) -> list[_core.ExternalTensor]:
+    """Write tensors to one file or coordinate writes across shard files."""
+    # Write strategy:
+    #
+    # tensors
+    # |-- one destination file
+    # |   `-- _ExternalDataWriter -> serial or parallel tensor writes
+    # `-- multiple shard files
+    #     `-- shard thread pool
+    #         `-- one _ExternalDataWriter per shard -> serial or parallel
+    if max_shard_size_bytes is None:
+        # The single-file path keeps its long-standing permissive overwrite
+        # semantics. Sharded writes reject collisions because layouts with
+        # different shard counts have different, potentially ambiguous names.
+        # TODO(justinchuby): both paths should eventually share one policy.
+        return convert_tensors_to_external(
+            tensors,
+            base_dir=base_dir,
+            relative_path=relative_path,
+            callback=callback,
+            max_workers=max_workers,
+            max_in_flight_bytes=max_in_flight_bytes,
+            alignment=alignment,
+            align_threshold=align_threshold,
+        )
+
+    tensor_shards = _shard_tensors(tensors, max_shard_size_bytes, alignment, align_threshold)
+    total_shards = len(tensor_shards)
+    shard_relative_paths = [
+        _get_shard_filename(str(relative_path), shard_idx, total_shards)
+        for shard_idx in range(1, total_shards + 1)
+    ]
+    destination_paths = [
+        os.path.join(base_dir, shard_relative_path)
+        for shard_relative_path in shard_relative_paths
+    ]
+    # No shard may overwrite an existing file. This also guarantees that no
+    # input ExternalTensor is backed by a destination about to be overwritten,
+    # so shard inputs do not need to be staged in memory.
+    _check_no_existing_shard_files(destination_paths)
+
+    shard_jobs: list[
+        tuple[
+            Sequence[_protocols.TensorProtocol],
+            str,
+            Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
+        ]
+    ] = []
+    global_index = 0
+    for shard_tensors, shard_relative_path in zip(
+        tensor_shards, shard_relative_paths, strict=True
+    ):
+        shard_callback = (
+            _make_shard_callback(callback, len(tensors), global_index)
+            if callback is not None
+            else None
+        )
+        shard_jobs.append((shard_tensors, shard_relative_path, shard_callback))
+        global_index += len(shard_tensors)
+
+    external_tensors: list[_core.ExternalTensor] = []
+    if max_workers is not None and max_workers > 1 and len(shard_jobs) > 1:
+        # Shard driver threads count toward max_workers. Split the remaining
+        # workers among inner writers instead of nesting max_workers-sized pools.
+        shard_workers = min(max_workers, len(shard_jobs))
+        workers_per_shard = max(1, (max_workers - shard_workers) // shard_workers)
+        shared_budget = _ByteBudget(max_in_flight_bytes)
+        callback_lock = threading.Lock()
+
+        def _locked_callback(
+            inner: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
+        ) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
+            def _wrapped(tensor: _protocols.TensorProtocol, info: CallbackInfo) -> None:
+                with callback_lock:
+                    inner(tensor, info)
+
+            return _wrapped
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=shard_workers) as executor:
+            shard_futures = [
+                executor.submit(
+                    convert_tensors_to_external,
+                    job_tensors,
+                    base_dir=base_dir,
+                    relative_path=job_path,
+                    callback=(
+                        _locked_callback(job_callback) if job_callback is not None else None
+                    ),
+                    max_workers=workers_per_shard,
+                    alignment=alignment,
+                    align_threshold=align_threshold,
+                    _budget=shared_budget,
+                )
+                for job_tensors, job_path, job_callback in shard_jobs
+            ]
+            for shard_future in shard_futures:
+                external_tensors.extend(shard_future.result())
+        return external_tensors
+
+    for job_tensors, job_path, job_callback in shard_jobs:
+        external_tensors.extend(
+            convert_tensors_to_external(
+                job_tensors,
+                base_dir=base_dir,
+                relative_path=job_path,
+                callback=job_callback,
+                max_workers=max_workers,
+                max_in_flight_bytes=max_in_flight_bytes,
+                alignment=alignment,
+                align_threshold=align_threshold,
+            )
+        )
+    return external_tensors
+
+
 def load_to_model(model: _core.Model) -> _core.Model:
     """Convert all external model initializers to memory tensors in-place.
 
@@ -914,140 +1040,21 @@ def unload_from_model(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
     )
 
-    external_tensors: list[_core.ExternalTensor]
-    if max_shard_size_bytes is None:
-        # No sharding: write all tensors to the single destination file. The
-        # single-file write path keeps its long-standing permissive semantics
-        # of overwriting whatever happens to be at ``relative_path``; the
-        # collision check below is sharded-only because shard layouts are
-        # ambiguous (different shard counts produce different filenames) and
-        # so silent overwrite is much more dangerous there.
-        # TODO(justinchuby): the single-file and sharded paths should
-        # eventually share the same overwrite policy.
-        tensors_to_externalize: list[_protocols.TensorProtocol] = [
-            v.const_value  # type: ignore[misc]
-            for v in initializers_to_become_external
-        ]
-        external_tensors = convert_tensors_to_external(
-            tensors_to_externalize,
-            base_dir=base_dir,
-            relative_path=relative_path,
-            callback=callback,
-            max_workers=max_workers,
-            max_in_flight_bytes=max_in_flight_bytes,
-            alignment=alignment,
-            align_threshold=align_threshold,
-        )
-    else:
-        # Sharding: distribute tensors across multiple numbered shard files
-        tensors_to_externalize = [
-            v.const_value  # type: ignore[misc]
-            for v in initializers_to_become_external
-        ]
-        tensor_shards = _shard_tensors(
-            tensors_to_externalize, max_shard_size_bytes, alignment, align_threshold
-        )
-        total_shards = len(tensor_shards)
-        total_tensors = len(tensors_to_externalize)
-        shard_relative_paths = [
-            _get_shard_filename(str(relative_path), shard_idx, total_shards)
-            for shard_idx in range(1, total_shards + 1)
-        ]
-        destination_paths = [
-            os.path.join(base_dir, shard_relative_path)
-            for shard_relative_path in shard_relative_paths
-        ]
-        # Contract: the sharded write path never overwrites a pre-existing
-        # file. If any destination shard already exists on disk we raise
-        # FileExistsError so the caller cannot silently clobber another
-        # model's shards or leave stale shards behind. Because no destination
-        # is ever overwritten, no input ExternalTensor can be backed by a file
-        # we are about to write — so there is no need to pre-materialize
-        # tensors or stage temporary files before writing the shards.
-        _check_no_existing_shard_files(destination_paths)
-
-        external_tensors = []
-        shard_jobs: list[tuple[Sequence[_protocols.TensorProtocol], str, Callable | None]] = []
-        global_index = 0
-
-        for shard_relative_path, shard_tensor_count in zip(
-            shard_relative_paths,
-            [len(shard) for shard in tensor_shards],
-            strict=True,
-        ):
-            shard_tensors = tensors_to_externalize[
-                global_index : global_index + shard_tensor_count
-            ]
-            # Wrap the callback so that index/total reflect the global position across shards
-            shard_callback: (
-                Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None
-            ) = None
-            if callback is not None:
-                shard_callback = _make_shard_callback(callback, total_tensors, global_index)
-            shard_jobs.append((shard_tensors, shard_relative_path, shard_callback))
-            global_index += shard_tensor_count
-
-        if max_workers is not None and max_workers > 1 and len(shard_jobs) > 1:
-            # Shards are distinct files with no ordering dependency, so they are
-            # written concurrently. They share one byte budget so that peak memory
-            # does not grow with the number of shards.
-            #
-            # Split ``max_workers`` across the two levels instead of using it at
-            # both: nesting a pool of that size inside each of that many shard
-            # threads would spawn up to ``max_workers ** 2`` threads, breaking
-            # the contract that ``max_workers`` bounds the thread count.
-            # The shard driver threads count against the budget too: each one
-            # occupies a thread while its inner pool runs. Reserve them first so
-            # that drivers + inner workers stay within max_workers.
-            shard_workers = min(max_workers, len(shard_jobs))
-            workers_per_shard = max(1, (max_workers - shard_workers) // shard_workers)
-            shared_budget = _ByteBudget(max_in_flight_bytes)
-            shard_lock = threading.Lock()
-
-            def _locked_callback(
-                inner: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
-            ) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
-                def _wrapped(tensor: _protocols.TensorProtocol, info: CallbackInfo) -> None:
-                    with shard_lock:
-                        inner(tensor, info)
-
-                return _wrapped
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=shard_workers) as executor:
-                shard_futures = [
-                    executor.submit(
-                        convert_tensors_to_external,
-                        job_tensors,
-                        base_dir=base_dir,
-                        relative_path=job_path,
-                        callback=(
-                            _locked_callback(job_callback)
-                            if job_callback is not None
-                            else None
-                        ),
-                        max_workers=workers_per_shard,
-                        alignment=alignment,
-                        align_threshold=align_threshold,
-                        _budget=shared_budget,
-                    )
-                    for job_tensors, job_path, job_callback in shard_jobs
-                ]
-                for shard_future in shard_futures:
-                    external_tensors.extend(shard_future.result())
-        else:
-            for job_tensors, job_path, job_callback in shard_jobs:
-                external_tensors.extend(
-                    convert_tensors_to_external(
-                        job_tensors,
-                        base_dir=base_dir,
-                        relative_path=job_path,
-                        callback=job_callback,
-                        max_workers=max_workers,
-                        max_in_flight_bytes=max_in_flight_bytes,
-                        alignment=alignment,
-                        align_threshold=align_threshold,
-                    )
-                )
+    tensors_to_externalize: list[_protocols.TensorProtocol] = [
+        v.const_value  # type: ignore[misc]
+        for v in initializers_to_become_external
+    ]
+    external_tensors = _write_external_tensors(
+        tensors_to_externalize,
+        base_dir,
+        relative_path,
+        max_shard_size_bytes=max_shard_size_bytes,
+        callback=callback,
+        max_workers=max_workers,
+        max_in_flight_bytes=max_in_flight_bytes,
+        alignment=alignment,
+        align_threshold=align_threshold,
+    )
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(
