@@ -532,10 +532,6 @@ def _write_external_data(
         ):
             assert tensor is not None
             _invoke_callback(i, tensor, tensor_info.offset)
-            # Pad the file up to the target offset if needed
-            file_size = data_file.tell()
-            if tensor_info.offset > file_size:
-                data_file.write(b"\0" * (tensor_info.offset - file_size))
             if budget is None:
                 _write_tensor_at(tensor, data_file, tensor_info.offset)
                 continue
