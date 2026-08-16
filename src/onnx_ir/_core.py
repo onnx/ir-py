@@ -21,6 +21,7 @@ import logging
 import math
 import mmap
 import os
+import stat
 import sys
 import textwrap
 import typing
@@ -389,6 +390,16 @@ def _supports_fileno(file: Any) -> bool:
     except Exception:  # pylint: disable=broad-except
         return False
     return True
+
+
+def _is_regular_file(file: Any) -> bool:
+    """Return whether a file-like object is backed by a regular file."""
+    if not _supports_fileno(file):
+        return False
+    try:
+        return stat.S_ISREG(os.fstat(file.fileno()).st_mode)
+    except OSError:
+        return False
 
 
 _EXTERNAL_TENSOR_COPY_CHUNK_SIZE = 1024 * 1024
@@ -916,7 +927,11 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             # on macOS/Windows and can reject cross-filesystem copies, so keep
             # the portable chunked path as a transparent fallback.
             copy_file_range = getattr(os, "copy_file_range", None)
-            if copy_file_range is not None and _supports_fileno(file):
+            if (
+                copy_file_range is not None
+                and _is_regular_file(src)
+                and _is_regular_file(file)
+            ):
                 file.flush()
                 destination_offset = file.tell()
                 try:

@@ -1072,6 +1072,75 @@ class ExternalTensorTest(unittest.TestCase):
 
         self.assertEqual(written_data, self.data.tobytes())
 
+    def test_tofile_continues_fallback_after_partial_kernel_copy(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+        call_count = 0
+
+        def copy_file_range(src_fd, dst_fd, count, *, offset_src=None, offset_dst=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                raise OSError(errno.EXDEV, "cross-device link")
+            data = os.pread(src_fd, min(count, 3), offset_src)
+            return os.pwrite(dst_fd, data, offset_dst)
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(os, "copy_file_range", copy_file_range, create=True),
+        ):
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(written_data, self.data.tobytes())
+
+    def test_tofile_does_not_use_copy_file_range_for_pipe(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        class PipeBackedBytesIO(io.BytesIO):
+            def __init__(self, file_descriptor):
+                super().__init__()
+                self._file_descriptor = file_descriptor
+
+            def fileno(self):
+                return self._file_descriptor
+
+        read_fd, write_fd = os.pipe()
+        try:
+            output = PipeBackedBytesIO(write_fd)
+            with unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=AssertionError("must not use kernel copy for a pipe"),
+                create=True,
+            ):
+                tensor.tofile(output)
+            self.assertEqual(output.getvalue(), self.data.tobytes())
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
     def test_tofile_empty_tensor(self):
         """Test ExternalTensor.tofile() with empty tensor."""
         expected_array = np.array([], dtype=np.float32)
