@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+import threading
 import typing
 import unittest
 
@@ -60,55 +61,39 @@ class ExternalDataTest(unittest.TestCase):
         self.assertEqual(attr_tensor.base_dir, expected_dir)
 
 
-class OffsetCalcTest(unittest.TestCase):
-    """Test the offset calculation for the external tensor class."""
+class AlignmentTest(unittest.TestCase):
+    """Test the external data offset alignment policy."""
 
-    def test_align_offset_false(self):
-        # Tensor size > Align Threshold
-        current_offset = 20000
-        tensor_size = 1048
-        new_offset = external_data._compute_new_offset(  # pylint: disable=protected-access
-            current_offset, tensor_size, align_offset=False
-        )
-        self.assertEqual(current_offset, new_offset)
+    def test_dense_packing_is_the_default(self):
+        # No alignment object means offsets are never advanced.
+        large = external_data._DEFAULT_ALIGN_THRESHOLD + 1
+        tensors = [
+            ir.Tensor(np.zeros(large, dtype=np.uint8), name="a"),
+            ir.Tensor(np.zeros(large, dtype=np.uint8), name="b"),
+        ]
+        self.assertEqual(external_data._estimate_shard_size_bytes(tensors), 2 * large)
 
-    def test_align_with_small_align_threshold(self):
-        # Tensor size < Align Threshold
-        current_offset = 20000
-        tensor_size = 1048
-        new_offset = external_data._compute_new_offset(  # pylint: disable=protected-access
-            current_offset,
-            tensor_size,
-            align_threshold=1000,
+    def test_tensor_at_or_below_threshold_is_not_aligned(self):
+        self.assertEqual(
+            external_data._align_offset(20000, 1000, 65536, align_threshold=1000), 20000
         )
-        self.assertNotEqual(current_offset, new_offset)
 
-    def test_align_with_large_align_threshold(self):
-        # Tensor size > Align Threshold
-        current_offset = 20000
-        tensor_size = 1048
-        new_offset = external_data._compute_new_offset(  # pylint: disable=protected-access
-            current_offset,
-            tensor_size,
-        )
-        self.assertEqual(current_offset, new_offset)
+    def test_tensor_above_threshold_is_aligned(self):
+        new_offset = external_data._align_offset(20000, 1048, 65536, align_threshold=1000)
+        self.assertNotEqual(new_offset, 20000)
+        self.assertEqual(new_offset % 65536, 0)
 
-    def test_allocation_granularity_diff(self):
-        # Tensor size > Align Threshold
-        current_offset = 20000
-        tensor_size = 1048577
-        new_offset_1 = external_data._compute_new_offset(  # pylint: disable=protected-access
-            current_offset,
-            tensor_size,
-            allocation_granularity=4000,
+    def test_already_aligned_offset_is_unchanged(self):
+        self.assertEqual(
+            external_data._align_offset(65536 * 3, 1048, 65536, align_threshold=1000),
+            65536 * 3,
         )
-        new_offset_2 = external_data._compute_new_offset(  # pylint: disable=protected-access
-            current_offset,
-            tensor_size,
-        )
-        self.assertNotEqual(current_offset, new_offset_1)
-        self.assertNotEqual(current_offset, new_offset_2)
-        self.assertNotEqual(new_offset_1, new_offset_2)
+
+    def test_alignment_is_floored_at_one_page(self):
+        # A granularity below a 4KB page is raised to 4096.
+        offset = external_data._align_offset(20000, 1048, 4000, align_threshold=1000)
+        self.assertEqual(offset % 4096, 0)
+        self.assertEqual(offset, 20480)
 
 
 class OffloadExternalTensorTest(unittest.TestCase):
@@ -460,42 +445,77 @@ class OffloadExternalTensorTest(unittest.TestCase):
         self.assertEqual(external_tensor6.numpy().tobytes(), self.data_ext1_2.tobytes())
         self.assertEqual(external_tensor7.numpy().tobytes(), self.data_ext2_1.tobytes())
 
-    def test_external_data_sorted(self):
+    def test_external_data_written_in_declaration_order(self):
         model_with_external_data = external_data.unload_from_model(
             self.model_with_mixed_external_data,
             self.base_path,
             self.external_data_name,
         )
         file_path = os.path.join(self.base_path, self.external_data_name)
+        # Every tensor here is below the alignment threshold, so they are all in
+        # the packed prefix and keep their initializer declaration order.
+        initializers = model_with_external_data.graph.initializers
         expected_tensor_order = [
-            model_with_external_data.graph.initializers["tensor2"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext1_1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers[
-                "tensor_same_file"
-            ].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext1_2"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["tensor_ext2_1"].const_value.tobytes(),
-            model_with_external_data.graph.initializers["custom_tensor"].const_value.tobytes(),
-        ]
-        sorted_tensor_order = [
-            self.data_float16.tobytes(),
-            self.data_ext1_1.tobytes(),
-            self.data.tobytes(),
-            self.data_other.tobytes(),
-            self.data_ext1_2.tobytes(),
-            self.data_ext2_1.tobytes(),
-            self.custom_data.tobytes(),
+            value.const_value.tobytes() for value in initializers.values()
         ]
         with open(file_path, "r+b") as data_file:
             current_offset = 0
-            for i, tensor_bytes in enumerate(sorted_tensor_order):
+            for i, tensor_bytes in enumerate(expected_tensor_order):
                 data_file.seek(current_offset)
-                tensor_length = len(tensor_bytes)
-                tensor_data = data_file.read(tensor_length)
-                current_offset += tensor_length
-                self.assertEqual(tensor_data, tensor_bytes)
-                self.assertEqual(tensor_data, expected_tensor_order[i])
+                tensor_data = data_file.read(len(tensor_bytes))
+                current_offset += len(tensor_bytes)
+                self.assertEqual(
+                    tensor_data,
+                    tensor_bytes,
+                    f"Tensor at declaration index {i} is not at the expected offset",
+                )
+
+    def test_tensors_are_packed_densely_in_declaration_order(self):
+        # Dense packing means offset N+1 == offset N + length N, with no gaps,
+        # and the on-disk order is exactly the declaration order.
+        threshold = external_data._DEFAULT_ALIGN_THRESHOLD
+        tensors = [
+            ir.Tensor(np.zeros(16, dtype=np.uint8), name="small_a"),
+            ir.Tensor(np.full(threshold + 1, 1, dtype=np.uint8), name="large_a"),
+            ir.Tensor(np.zeros(16, dtype=np.uint8), name="small_b"),
+            ir.Tensor(np.full(threshold + 1, 2, dtype=np.uint8), name="large_b"),
+        ]
+        result = external_data.convert_tensors_to_external(
+            tensors, self.base_path, "dense.bin"
+        )
+        self.assertEqual([t.name for t in result], [t.name for t in tensors])
+        expected_offset = 0
+        for original, external in zip(tensors, result):
+            self.assertEqual(external.offset, expected_offset, f"{external.name}")
+            expected_offset += original.nbytes
+        # The file has no padding at all.
+        self.assertEqual(
+            os.path.getsize(os.path.join(self.base_path, "dense.bin")),
+            sum(t.nbytes for t in tensors),
+        )
+
+    def test_alignment_is_opt_in_and_aligns_large_tensors(self):
+        alignment = 65536
+        threshold = external_data._DEFAULT_ALIGN_THRESHOLD
+        tensors = [
+            ir.Tensor(np.zeros(16, dtype=np.uint8), name="small_a"),
+            ir.Tensor(np.full(threshold + 1, 1, dtype=np.uint8), name="large_a"),
+            ir.Tensor(np.zeros(16, dtype=np.uint8), name="small_b"),
+            ir.Tensor(np.full(threshold + 1, 2, dtype=np.uint8), name="large_b"),
+        ]
+        result = external_data.convert_tensors_to_external(
+            tensors, self.base_path, "aligned.bin", alignment=alignment
+        )
+        # Declaration order is preserved regardless of the alignment policy.
+        self.assertEqual([t.name for t in result], [t.name for t in tensors])
+        by_name = {tensor.name: tensor for tensor in result}
+        # Small tensors are never aligned; large ones always are.
+        self.assertEqual(by_name["small_a"].offset, 0)
+        for name in ("large_a", "large_b"):
+            self.assertEqual(by_name[name].offset % alignment, 0)
+        # Reading back yields the original bytes despite the padding gaps.
+        for original, external in zip(tensors, result):
+            np.testing.assert_array_equal(external.numpy(), original.numpy())
 
 
 class ShardFilenameTest(unittest.TestCase):
@@ -591,77 +611,63 @@ class ShardTensorsTest(unittest.TestCase):
         self.assertIs(shards[1][0], t_small)
         self.assertRegex(logs.output[0], r"exceeds max_shard_size_bytes")
 
-    def test_sharding_accounts_for_alignment(self):
-        t0 = self._make_tensor("t0", external_data._ALIGN_THRESHOLD + 4)
-        t1 = self._make_tensor("t1", external_data._ALIGN_THRESHOLD + 4)
-        # Naively this would fit in one shard by nbytes sum, but alignment padding
-        # when writing forces a split.
-        shards = external_data._shard_tensors([t0, t1], t0.nbytes + t1.nbytes)
-        self.assertEqual(len(shards), 2)
-        self.assertEqual([len(s) for s in shards], [1, 1])
+    def test_sharding_is_dense_by_default(self):
+        # Without alignment a shard's size is exactly the sum of its tensors,
+        # so two tensors summing to the limit fit in a single shard.
+        t0 = self._make_uint8_tensor("t0", 1000)
+        t1 = self._make_uint8_tensor("t1", 1000)
+        shards = external_data._shard_tensors([t0, t1], 2000)
+        self.assertEqual(len(shards), 1)
 
-    def test_incremental_size_matches_reference_estimate(self):
-        # The incremental accumulator used by _shard_tensors must match the
-        # reference size simulation for arbitrary mixes of tensor sizes,
-        # especially around the alignment threshold.
-        threshold = external_data._ALIGN_THRESHOLD
+    def test_sharding_accounts_for_alignment_when_enabled(self):
+        alignment = 65536
+        t0 = self._make_uint8_tensor("t0", external_data._DEFAULT_ALIGN_THRESHOLD + 4)
+        t1 = self._make_uint8_tensor("t1", external_data._DEFAULT_ALIGN_THRESHOLD + 4)
+        # These fit in one shard by raw byte sum, but the alignment padding
+        # inserted before ``t1`` when writing forces a split.
+        shards = external_data._shard_tensors([t0, t1], t0.nbytes + t1.nbytes, alignment)
+        self.assertEqual([len(shard) for shard in shards], [1, 1])
+
+    def test_shards_never_exceed_the_limit_they_estimate(self):
+        # Property test: for arbitrary size mixes, with and without alignment,
+        # every shard must fit within the limit once laid out on disk (unless it
+        # holds a single oversized tensor, which is allowed by contract).
+        alignment = 65536
+        threshold = external_data._DEFAULT_ALIGN_THRESHOLD
         size_choices = [1, 100, threshold - 1, threshold, threshold + 1, 3 * threshold]
         rng = np.random.default_rng(0)
-        for _ in range(500):
-            count = int(rng.integers(0, 100))
+        for policy in (None, alignment):
+            for _ in range(200):
+                count = int(rng.integers(1, 40))
+                sizes = [int(rng.choice(size_choices)) for _ in range(count)]
+                tensors = [self._make_uint8_tensor(f"t{i}", s) for i, s in enumerate(sizes)]
+                limit = int(rng.choice([threshold, 4 * threshold, 16 * threshold]))
+                shards = external_data._shard_tensors(tensors, limit, policy)
+                # Every tensor is placed exactly once, in declaration order.
+                self.assertEqual(
+                    [t.name for shard in shards for t in shard],
+                    [t.name for t in tensors],
+                )
+                for shard in shards:
+                    size = external_data._estimate_shard_size_bytes(shard, policy)
+                    if len(shard) > 1:
+                        self.assertLessEqual(size, limit, f"sizes={sizes} limit={limit}")
+
+    def test_estimated_size_matches_written_size(self):
+        # The size the sharder predicts must match what actually lands on disk.
+        alignment = 65536
+        for policy in (None, alignment):
             tensors = [
-                self._make_tensor(f"t{i}", int(rng.choice(size_choices))) for i in range(count)
+                self._make_uint8_tensor("small", 128),
+                self._make_uint8_tensor("large", external_data._DEFAULT_ALIGN_THRESHOLD + 4),
+                self._make_uint8_tensor("small2", 64),
             ]
-            accumulator = external_data._ShardSizeAccumulator()
-            for tensor in tensors:
-                accumulator.add(tensor)
-            self.assertEqual(
-                accumulator.size,
-                external_data._estimate_shard_size_bytes(tensors),
-            )
-
-    def test_incremental_size_at_strict_alignment_threshold_boundary(self):
-        # Round-2 review: the float32 ``nbytes // 4`` helper collapses
-        # ``threshold + 1`` back down to ``threshold`` because the floor
-        # divide rounds away the 1-byte excess. Use exact-byte uint8
-        # tensors to actually exercise the strict ``> _ALIGN_THRESHOLD``
-        # branch in :meth:`_ShardSizeAccumulator.add`.
-        threshold = external_data._ALIGN_THRESHOLD
-        for sizes in (
-            [threshold - 1, threshold, threshold + 1],
-            [threshold + 1, threshold, threshold - 1],
-            [threshold + 1, threshold + 1, threshold - 1, threshold],
-        ):
-            tensors = [self._make_uint8_tensor(f"t{i}", s) for i, s in enumerate(sizes)]
-            for tensor, expected_size in zip(tensors, sizes):
-                self.assertEqual(tensor.nbytes, expected_size)
-            accumulator = external_data._ShardSizeAccumulator()
-            for tensor in tensors:
-                accumulator.add(tensor)
-            self.assertEqual(
-                accumulator.size,
-                external_data._estimate_shard_size_bytes(tensors),
-                f"sizes={sizes}",
-            )
-
-    def test_incremental_size_invariant_under_add_order(self):
-        # The accumulator is fed tensors in the order ``_shard_tensors`` sees
-        # them (i.e. unsorted), but :func:`_estimate_shard_size_bytes` sorts
-        # internally. Their results must agree regardless of the input order.
-        threshold = external_data._ALIGN_THRESHOLD
-        size_choices = [1, 100, threshold - 1, threshold, threshold + 1, 3 * threshold]
-        rng = np.random.default_rng(123)
-        for _ in range(200):
-            count = int(rng.integers(1, 40))
-            sizes = [int(rng.choice(size_choices)) for _ in range(count)]
-            tensors = [self._make_uint8_tensor(f"t{i}", s) for i, s in enumerate(sizes)]
-            reference = external_data._estimate_shard_size_bytes(tensors)
-            shuffled = list(tensors)
-            rng.shuffle(shuffled)
-            accumulator = external_data._ShardSizeAccumulator()
-            for tensor in shuffled:
-                accumulator.add(tensor)
-            self.assertEqual(accumulator.size, reference)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                external_data.convert_tensors_to_external(
+                    tensors, tmp_dir, "estimate.bin", alignment=policy
+                )
+                actual = os.path.getsize(os.path.join(tmp_dir, "estimate.bin"))
+            self.assertEqual(external_data._estimate_shard_size_bytes(tensors, policy), actual)
 
 
 class ShardedExternalDataTest(unittest.TestCase):
@@ -872,6 +878,171 @@ class ShardedExternalDataTest(unittest.TestCase):
             )
         with open(foreign, "rb") as f:
             self.assertEqual(f.read(), b"foreign")
+
+
+class ParallelWriteTest(unittest.TestCase):
+    """Tests for the concurrent external data write pipeline."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_path = self.temp_dir.name
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _make_tensors(self, count=24, size=40_000):
+        rng = np.random.default_rng(7)
+        return [
+            ir.Tensor(rng.integers(0, 255, size=size, dtype=np.uint8), name=f"t{i}")
+            for i in range(count)
+        ]
+
+    def test_parallel_output_is_byte_identical_to_serial(self):
+        tensors = self._make_tensors()
+        serial_dir = os.path.join(self.base_path, "serial")
+        parallel_dir = os.path.join(self.base_path, "parallel")
+        os.makedirs(serial_dir)
+        os.makedirs(parallel_dir)
+
+        serial = external_data.convert_tensors_to_external(
+            tensors, serial_dir, "model.data", max_workers=None
+        )
+        parallel = external_data.convert_tensors_to_external(
+            tensors, parallel_dir, "model.data", max_workers=8
+        )
+
+        with open(os.path.join(serial_dir, "model.data"), "rb") as f:
+            serial_bytes = f.read()
+        with open(os.path.join(parallel_dir, "model.data"), "rb") as f:
+            parallel_bytes = f.read()
+        self.assertEqual(serial_bytes, parallel_bytes)
+
+        # Offsets, lengths and order must match too.
+        self.assertEqual(
+            [(t.name, t.offset, t.length) for t in serial],
+            [(t.name, t.offset, t.length) for t in parallel],
+        )
+
+    def test_parallel_roundtrip_preserves_values(self):
+        tensors = self._make_tensors()
+        result = external_data.convert_tensors_to_external(
+            tensors, self.base_path, "model.data", max_workers=4
+        )
+        for original, external in zip(tensors, result):
+            np.testing.assert_array_equal(external.numpy(), original.numpy())
+
+    def test_parallel_with_alignment_matches_serial(self):
+        alignment = 4096
+        tensors = self._make_tensors(count=12)
+        serial_dir = os.path.join(self.base_path, "serial")
+        parallel_dir = os.path.join(self.base_path, "parallel")
+        os.makedirs(serial_dir)
+        os.makedirs(parallel_dir)
+        external_data.convert_tensors_to_external(
+            tensors, serial_dir, "m.data", alignment=alignment, align_threshold=1024
+        )
+        external_data.convert_tensors_to_external(
+            tensors,
+            parallel_dir,
+            "m.data",
+            max_workers=6,
+            alignment=alignment,
+            align_threshold=1024,
+        )
+        with open(os.path.join(serial_dir, "m.data"), "rb") as f:
+            serial_bytes = f.read()
+        with open(os.path.join(parallel_dir, "m.data"), "rb") as f:
+            parallel_bytes = f.read()
+        # Padding bytes must be zeros in both cases, not stale file content.
+        self.assertEqual(serial_bytes, parallel_bytes)
+
+    def test_callback_is_invoked_once_per_tensor(self):
+        tensors = self._make_tensors(count=16)
+        seen = []
+        lock = threading.Lock()
+
+        def callback(tensor, info):
+            with lock:
+                seen.append((tensor.name, info.index, info.total))
+
+        external_data.convert_tensors_to_external(
+            tensors, self.base_path, "model.data", callback=callback, max_workers=8
+        )
+        self.assertEqual(len(seen), len(tensors))
+        self.assertEqual({name for name, _, _ in seen}, {t.name for t in tensors})
+        self.assertEqual(sorted(index for _, index, _ in seen), list(range(len(tensors))))
+        self.assertTrue(all(total == len(tensors) for _, _, total in seen))
+
+    def test_exception_in_worker_propagates(self):
+        class ExplodingTensor(ir.Tensor):
+            def tofile(self, file):
+                raise RuntimeError("boom")
+
+        tensors = self._make_tensors(count=4)
+        tensors[2] = ExplodingTensor(np.zeros(40_000, dtype=np.uint8), name=tensors[2].name)
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            external_data.convert_tensors_to_external(
+                tensors, self.base_path, "model.data", max_workers=4
+            )
+
+    def test_byte_budget_bounds_in_flight_bytes(self):
+        budget = external_data._ByteBudget(1000)
+        first = budget.acquire(600)
+        self.assertEqual(first, 600)
+        acquired = threading.Event()
+
+        def worker():
+            budget.acquire(600)
+            acquired.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        # The second acquire must block while the first is outstanding.
+        self.assertFalse(acquired.wait(timeout=0.2))
+        budget.release(first)
+        self.assertTrue(acquired.wait(timeout=5))
+        thread.join()
+
+    def test_byte_budget_admits_tensor_larger_than_capacity(self):
+        # An oversized tensor must not deadlock; it is admitted on its own.
+        budget = external_data._ByteBudget(100)
+        amount = budget.acquire(10_000)
+        self.assertEqual(amount, 100)
+        budget.release(amount)
+
+    def test_parallel_sharded_save_matches_serial(self):
+        def build_model():
+            rng = np.random.default_rng(11)
+            graph = ir.Graph(inputs=[], outputs=[], nodes=[], initializers=[], name="g")
+            for i in range(12):
+                tensor = ir.Tensor(
+                    rng.integers(0, 255, size=30_000, dtype=np.uint8), name=f"w{i}"
+                )
+                graph.register_initializer(ir.Value(name=f"w{i}", const_value=tensor))
+            return ir.Model(graph, ir_version=10)
+
+        serial_dir = os.path.join(self.base_path, "serial")
+        parallel_dir = os.path.join(self.base_path, "parallel")
+        os.makedirs(serial_dir)
+        os.makedirs(parallel_dir)
+        external_data.unload_from_model(
+            build_model(), serial_dir, "model.data", max_shard_size_bytes=100_000
+        )
+        external_data.unload_from_model(
+            build_model(),
+            parallel_dir,
+            "model.data",
+            max_shard_size_bytes=100_000,
+            max_workers=4,
+        )
+        serial_files = sorted(os.listdir(serial_dir))
+        self.assertEqual(serial_files, sorted(os.listdir(parallel_dir)))
+        self.assertGreater(len(serial_files), 1)
+        for name in serial_files:
+            with open(os.path.join(serial_dir, name), "rb") as f:
+                expected = f.read()
+            with open(os.path.join(parallel_dir, name), "rb") as f:
+                self.assertEqual(f.read(), expected, name)
 
 
 if __name__ == "__main__":

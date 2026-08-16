@@ -47,6 +47,9 @@ def save(
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
+    max_workers: int | None = None,
+    alignment: int | None = None,
+    align_threshold: int = 1048576,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -103,7 +106,21 @@ def save(
             shard file.
             Effective only when ``external_data`` is set.
         callback: A callback function that is called for each tensor that is saved to external data
-            for debugging or logging purposes.
+            for debugging or logging purposes. When ``max_workers`` enables concurrency the
+            callback is serialized with a lock but is no longer invoked in index order.
+        max_workers: Number of threads used to write external data. ``None`` (the default)
+            or ``1`` writes serially. Values above 1 overlap tensor materialization
+            (lazy tensor evaluation, dtype conversion) with disk writes and parallelize
+            both, which is significantly faster for large models. Peak memory stays
+            bounded regardless of the worker count.
+            Effective only when ``external_data`` is set.
+        alignment: Alignment to apply to the offsets of large tensors, in bytes.
+            ``None`` (the default) packs tensors densely with no padding, producing
+            smaller files. When set, offsets are aligned to ``max(4096, alignment)``;
+            65536 matches the Windows allocation granularity used for memory mapping.
+            Effective only when ``external_data`` is set.
+        align_threshold: Only tensors strictly larger than this many bytes are aligned.
+            Ignored when ``alignment`` is ``None``.
 
     Raises:
         ValueError: If the external data path is an absolute path.
@@ -147,6 +164,9 @@ def save(
                 size_threshold_bytes=size_threshold_bytes,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
+                max_workers=max_workers,
+                alignment=alignment,
+                align_threshold=align_threshold,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)

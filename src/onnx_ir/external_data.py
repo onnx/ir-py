@@ -15,27 +15,50 @@ __all__ = [
     "CallbackInfo",
 ]
 
+import concurrent.futures
 import dataclasses
 import logging
 import os
+import threading
 from collections.abc import Iterator, Sequence
 
 from onnx_ir import _core, _enums, _protocols
 from onnx_ir import traversal as _traversal
 from onnx_ir._polyfill import zip
 
-# Note: If needed in future, add these as parameters to the function calls
-# align_offset: Offset will always be page aligned and alloction granularity aligned for mmap support. This is done by padding previous tensor data with zeros keeping same length. Tensor data will be aligned if > align_threshold
-_ALIGN_OFFSET = True
-# align_threshold: Alignment threshold for size of data. Having a low threshold will waste file space for small initializers. Only when tensor's data is > the page_align_threshold it will be force aligned.
-_ALIGN_THRESHOLD = 1048576  # 1MB
-# allocation_granularity: The allocation Granularity for mmap() support. Typically 64KB for Windows & 4KB for other OSes.
-_ALLOCATION_GRANULARITY = 65536  # 64KB
-# The factor that tensor offsets are aligned to when alignment is enabled.
-_ALIGNMENT_FACTOR = max(4096, _ALLOCATION_GRANULARITY)
+# Default alignment threshold used when alignment is enabled: only tensors larger
+# than this get their offset aligned, so small initializers don't waste file space.
+_DEFAULT_ALIGN_THRESHOLD = 1048576  # 1MB
+# Default allocation granularity for mmap() support. Typically 64KB on Windows
+# and 4KB elsewhere; 64KB is the safe cross-platform choice.
+_DEFAULT_ALLOCATION_GRANULARITY = 65536  # 64KB
+# Default upper bound on materialized tensor bytes held in memory while writing
+# external data concurrently. Peak memory is this plus the largest single tensor.
+_DEFAULT_MAX_IN_FLIGHT_BYTES = 1 << 29  # 512MB
 
 
 logger = logging.getLogger(__name__)
+
+
+def _align_offset(
+    current_offset: int, tensor_size: int, alignment: int | None, align_threshold: int
+) -> int:
+    """Return the offset at which a tensor of ``tensor_size`` bytes should start.
+
+    Alignment used to be applied unconditionally because ONNX Runtime refused to
+    memory-map a tensor whose offset was not a multiple of the allocation
+    granularity. ORT now rounds the offset down to the containing page or
+    allocation block itself, so alignment is no longer required for correctness.
+    Dense packing produces smaller files and matches what safetensors does, so
+    ``alignment=None`` is the default.
+    """
+    if alignment is None:
+        return current_offset
+    if tensor_size <= align_threshold:
+        # Aligning small initializers wastes file space for no benefit.
+        return current_offset
+    factor = max(4096, alignment)
+    return (current_offset + factor - 1) // factor * factor
 
 
 @dataclasses.dataclass
@@ -164,88 +187,32 @@ def _make_shard_callback(
     return _shard_callback
 
 
-@dataclasses.dataclass
-class _ShardSizeAccumulator:
-    """Incrementally track the on-disk size of a shard in O(1) per tensor.
-
-    The size matches :func:`_estimate_shard_size_bytes` (tensors written in
-    size-sorted order with offset alignment) but is maintained incrementally so
-    that sharding does not need to re-sort the shard on every tensor append.
-
-    Load-bearing invariants:
-
-    * :func:`convert_tensors_to_external` writes tensors in ascending-``nbytes``
-      order, so every *unaligned* tensor (``nbytes <= _ALIGN_THRESHOLD``) is
-      written strictly before every *aligned* tensor (``nbytes > _ALIGN_THRESHOLD``).
-      The final on-disk size therefore only depends on a few running aggregates,
-      not on the order in which we observe the tensors here.
-    * Because aligned tensors are written largest-last, the largest aligned
-      tensor sits at the end of the file and contributes only its raw
-      (unpadded) length — that's why ``size`` subtracts
-      ``largest_aligned_padded`` and adds back ``largest_aligned_raw``.
-    * The transition from the unaligned prefix to the first aligned tensor
-      forces the writer to pad up to the next alignment boundary, which the
-      ``leading`` computation accounts for.
-    """
-
-    sum_unaligned: int = 0
-    # ``sum_aligned_padded`` is the *padded* (aligned) total for every aligned
-    # tensor seen so far. The last aligned tensor's padding is subtracted in
-    # ``size`` because it's written last and never followed by another tensor.
-    sum_aligned_padded: int = 0
-    largest_aligned_raw: int = 0
-    largest_aligned_padded: int = 0
-
-    def add(self, tensor: _protocols.TensorProtocol) -> None:
-        size = tensor.nbytes
-        if _ALIGN_OFFSET and size > _ALIGN_THRESHOLD:
-            padded = (size + _ALIGNMENT_FACTOR - 1) // _ALIGNMENT_FACTOR * _ALIGNMENT_FACTOR
-            self.sum_aligned_padded += padded
-            if size >= self.largest_aligned_raw:
-                self.largest_aligned_raw = size
-                self.largest_aligned_padded = padded
-        else:
-            self.sum_unaligned += size
-
-    @property
-    def size(self) -> int:
-        if self.largest_aligned_raw == 0:
-            return self.sum_unaligned
-        # The first aligned tensor pads the unaligned prefix up to an alignment
-        # boundary; the largest aligned tensor is written last and is not padded.
-        leading = (
-            (self.sum_unaligned + _ALIGNMENT_FACTOR - 1)
-            // _ALIGNMENT_FACTOR
-            * _ALIGNMENT_FACTOR
-        )
-        return (
-            leading
-            + self.sum_aligned_padded
-            - self.largest_aligned_padded
-            + self.largest_aligned_raw
-        )
-
-
 def _shard_tensors(
     tensors: Sequence[_protocols.TensorProtocol],
     max_shard_size_bytes: int,
+    alignment: int | None = None,
+    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> list[list[_protocols.TensorProtocol]]:
     """Shard tensors into multiple groups based on max_shard_size_bytes.
 
-    Each tensor is always placed in exactly one shard. A new shard is started when
-    adding the next tensor would exceed the limit once the shard is written using
-    the same layout as :func:`convert_tensors_to_external` (size-sorted write order
-    plus offset alignment).
+    Each tensor is always placed in exactly one shard, in declaration order. A new
+    shard is started when adding the next tensor would exceed the limit. Without
+    alignment a shard's on-disk size is simply the sum of its tensor sizes; with
+    alignment the padding inserted before large tensors is accounted for too.
 
     Args:
         tensors: The tensors to shard.
         max_shard_size_bytes: Maximum cumulative size in bytes for each shard.
+        alignment: Alignment in bytes for the offsets of large tensors, or ``None``
+            for dense packing.
+        align_threshold: Only tensors strictly larger than this many bytes are
+            aligned. Ignored when ``alignment`` is ``None``.
 
     Returns:
         A list of tensor groups, one per shard.
     """
     shards: list[list[_protocols.TensorProtocol]] = [[]]
-    accumulator = _ShardSizeAccumulator()
+    shard_size = 0
 
     for tensor in tensors:
         if tensor.nbytes > max_shard_size_bytes:
@@ -255,18 +222,16 @@ def _shard_tensors(
                 tensor.nbytes,
                 max_shard_size_bytes,
             )
-        candidate = dataclasses.replace(accumulator)
-        candidate.add(tensor)
+        offset = shard_size
+        offset = _align_offset(offset, tensor.nbytes, alignment, align_threshold)
         # Start a new shard when the current one would be exceeded
         # (but never leave a shard empty).
-        if candidate.size > max_shard_size_bytes and len(shards[-1]) > 0:
+        if offset + tensor.nbytes > max_shard_size_bytes and shards[-1]:
             shards.append([])
-            accumulator = _ShardSizeAccumulator()
-            accumulator.add(tensor)
-        else:
-            accumulator = candidate
+            offset = 0
 
         shards[-1].append(tensor)
+        shard_size = offset + tensor.nbytes
 
     return shards
 
@@ -292,38 +257,17 @@ def _external_tensor_to_memory_tensor(
     return _core.Tensor(tensor_data, name=tensor.name, dtype=tensor.dtype)
 
 
-def _compute_new_offset(
-    current_offset: int,
-    tensor_size: int,
-    align_offset: bool = _ALIGN_OFFSET,
-    align_threshold: int = _ALIGN_THRESHOLD,
-    allocation_granularity: int = _ALLOCATION_GRANULARITY,
+def _estimate_shard_size_bytes(
+    tensors: Sequence[_protocols.TensorProtocol],
+    alignment: int | None = None,
+    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> int:
-    """Compute the offset to align the tensor data based on the current offset.
-
-    Args:
-        current_offset: Current location in the file at which tensor data will be written to.
-        tensor_size: Size of the tensor data to be written to file.
-        align_offset: Offset will always be page aligned and alloction granularity aligned for mmap support. This is done by padding previous tensor data with zeros keeping same length. Tensor data will be aligned if > align_threshold
-        align_threshold: Alignment threshold for size of data. Having a low threshold will waste file space for small initializers. Only when tensor's data is > the page_align_threshold it will be force aligned.
-        allocation_granularity: The allocation Granularity for mmap() support. Typically 64KB for Windows & 4KB for other OSes.
-
-    Returns:
-        The updated offset value.
-    """
-    if align_offset and tensor_size > align_threshold:
-        alignment_factor = max(4096, allocation_granularity)
-        # Align to the next page or alloc granularity
-        return (current_offset + alignment_factor - 1) // alignment_factor * alignment_factor
-    return current_offset
-
-
-def _estimate_shard_size_bytes(tensors: Sequence[_protocols.TensorProtocol]) -> int:
     """Estimate the shard file size in bytes for tensors written to one file."""
     current_offset = 0
-    sorted_tensors = sorted(tensors, key=lambda tensor: tensor.nbytes)
-    for tensor in sorted_tensors:
-        current_offset = _compute_new_offset(current_offset, tensor.nbytes)
+    for tensor in tensors:
+        current_offset = _align_offset(
+            current_offset, tensor.nbytes, alignment, align_threshold
+        )
         current_offset += tensor.nbytes
     return current_offset
 
@@ -415,11 +359,12 @@ def _check_no_existing_shard_files(
 def _compute_external_data_info(
     tensor: _protocols.TensorProtocol,
     current_offset: int,
+    alignment: int | None = None,
+    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> _ExternalDataInfo:
     """Capture information about a tensor that is to be stored as external data."""
     tensor_size = tensor.nbytes
-    # Calculate updated offset and align tensors
-    current_offset = _compute_new_offset(current_offset, tensor_size)
+    current_offset = _align_offset(current_offset, tensor_size, alignment, align_threshold)
     # Store offset and tensor size as ExternalDataInfo
     external_data_info = _ExternalDataInfo(
         tensor.name,
@@ -429,11 +374,69 @@ def _compute_external_data_info(
     return external_data_info
 
 
+class _ByteBudget:
+    """Bound the number of materialized bytes held in memory at any one time.
+
+    Limiting the number of *items* in flight is not enough because a single
+    tensor can be many gigabytes. Limiting bytes gives a hard bound on peak
+    memory of ``capacity + max(tensor.nbytes)``: a tensor larger than the whole
+    budget is admitted alone (otherwise it could never be admitted at all).
+    """
+
+    def __init__(self, capacity: int) -> None:
+        self._capacity = max(capacity, 1)
+        self._in_flight = 0
+        self._condition = threading.Condition()
+
+    def _clamp(self, nbytes: int) -> int:
+        return min(max(nbytes, 0), self._capacity)
+
+    def acquire(self, nbytes: int) -> int:
+        """Reserve ``nbytes`` of budget, blocking until it fits.
+
+        Returns the clamped amount that must be passed back to :meth:`release`.
+        """
+        amount = self._clamp(nbytes)
+        with self._condition:
+            # ``self._in_flight == 0`` lets an oversized tensor through instead
+            # of deadlocking forever waiting for a budget it can never fit in.
+            self._condition.wait_for(
+                lambda: self._in_flight + amount <= self._capacity or self._in_flight == 0
+            )
+            self._in_flight += amount
+        return amount
+
+    def release(self, amount: int) -> None:
+        with self._condition:
+            self._in_flight -= amount
+            self._condition.notify_all()
+
+
+def _write_tensor_at(
+    tensor: _protocols.TensorProtocol,
+    file,
+    offset: int,
+) -> None:
+    """Write one tensor's bytes at an absolute ``offset`` in an open binary file."""
+    file.seek(offset)
+    if hasattr(tensor, "tofile"):
+        # Some existing implementation of TensorProtocol
+        # may not have tofile() as it was introduced in v0.1.11
+        tensor.tofile(file)
+    else:
+        file.write(tensor.tobytes())
+    if isinstance(tensor, _core.ExternalTensor):
+        tensor.release()
+
+
 def _write_external_data(
     tensors: Sequence[_protocols.TensorProtocol],
     external_data_infos: Sequence[_ExternalDataInfo],
     file_path: str | os.PathLike,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
+    max_workers: int | None = None,
+    max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
+    budget: _ByteBudget | None = None,
 ) -> None:
     """Write tensor data to an external file according to information stored in ExternalDataInfo objects.
 
@@ -443,41 +446,129 @@ def _write_external_data(
         file_path: Location to which external data is to be stored.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes.
+        max_workers: Number of threads used to materialize and write tensors. ``None``
+            or ``1`` writes serially.
+        max_in_flight_bytes: Upper bound on materialized tensor bytes held in memory
+            when writing concurrently. Ignored when ``budget`` is given.
+        budget: An existing byte budget to share across concurrent shard writes so that
+            peak memory does not scale with the number of shards.
     """
     tensors_count = len(tensors)
     assert tensors_count == len(external_data_infos), (
         "Number of tensors and external data infos should match"
     )
+
+    filename = os.path.basename(file_path)
+
+    def _invoke_callback(index: int, tensor: _protocols.TensorProtocol, offset: int) -> None:
+        if callback is None:
+            return
+        callback(
+            tensor,
+            CallbackInfo(
+                total=tensors_count,
+                index=index,
+                offset=offset,
+                filename=filename,
+            ),
+        )
+
+    if max_workers is not None and max_workers > 1 and tensors_count > 1:
+        _write_external_data_parallel(
+            tensors,
+            external_data_infos,
+            file_path,
+            _invoke_callback,
+            max_workers=max_workers,
+            max_in_flight_bytes=max_in_flight_bytes,
+            budget=budget,
+        )
+        return
+
     with open(file_path, "wb") as data_file:
         for i, (tensor, tensor_info) in enumerate(
             zip(tensors, external_data_infos, strict=True)
         ):
-            if callback is not None:
-                callback(
-                    tensor,
-                    CallbackInfo(
-                        total=tensors_count,
-                        index=i,
-                        offset=tensor_info.offset,
-                        filename=os.path.basename(file_path),
-                    ),
-                )
-            current_offset = tensor_info.offset
             assert tensor is not None
-            # Pad file to required offset if needed
+            _invoke_callback(i, tensor, tensor_info.offset)
+            # Pad the file up to the target offset if needed
             file_size = data_file.tell()
-            if current_offset > file_size:
-                data_file.write(b"\0" * (current_offset - file_size))
+            if tensor_info.offset > file_size:
+                data_file.write(b"\0" * (tensor_info.offset - file_size))
+            _write_tensor_at(tensor, data_file, tensor_info.offset)
 
-            if hasattr(tensor, "tofile"):
-                # Some existing implementation of TensorProtocol
-                # may not have tofile() as it was introduced in v0.1.11
-                tensor.tofile(data_file)
-            else:
-                raw_data = tensor.tobytes()
-                if isinstance(tensor, _core.ExternalTensor):
-                    tensor.release()
-                data_file.write(raw_data)
+
+def _write_external_data_parallel(
+    tensors: Sequence[_protocols.TensorProtocol],
+    external_data_infos: Sequence[_ExternalDataInfo],
+    file_path: str | os.PathLike,
+    invoke_callback: Callable[[int, _protocols.TensorProtocol, int], None],
+    *,
+    max_workers: int,
+    max_in_flight_bytes: int,
+    budget: _ByteBudget | None = None,
+) -> None:
+    """Write tensors concurrently to preassigned offsets in ``file_path``.
+
+    Every tensor's byte range is known up front, so writes have no ordering
+    dependency on one another. The file is preallocated to its final size and
+    each worker opens its own file object, giving every thread an independent
+    file position and removing the need for a write lock. Both ``write()`` and
+    the numpy/torch work behind materialization release the GIL, so this
+    overlaps computation with I/O *and* parallelizes each of them.
+
+    Peak memory is bounded by a byte budget rather than a queue length: a worker
+    reserves a tensor's size before materializing it and releases the
+    reservation once the bytes have reached the file.
+
+    The bytes written are identical to the serial path.
+    """
+    total_size = max(
+        (info.offset + info.length for info in external_data_infos),
+        default=0,
+    )
+    # Preallocate so that every worker can seek to its own offset. Holes read
+    # back as zeros, matching the explicit zero padding written serially.
+    with open(file_path, "wb") as data_file:
+        data_file.truncate(total_size)
+
+    budget = budget if budget is not None else _ByteBudget(max_in_flight_bytes)
+    callback_lock = threading.Lock()
+    thread_local = threading.local()
+    files: list = []
+    files_lock = threading.Lock()
+
+    def _thread_file():
+        data_file = getattr(thread_local, "data_file", None)
+        if data_file is None:
+            # Closed in the caller's finally block, after all workers are done.
+            data_file = open(file_path, "r+b")  # ruff: ignore[open-file-with-context-handler]
+            thread_local.data_file = data_file
+            with files_lock:
+                files.append(data_file)
+        return data_file
+
+    def _write_one(index: int) -> None:
+        tensor = tensors[index]
+        info = external_data_infos[index]
+        assert tensor is not None
+        with callback_lock:
+            invoke_callback(index, tensor, info.offset)
+        reserved = budget.acquire(info.length)
+        try:
+            _write_tensor_at(tensor, _thread_file(), info.offset)
+        finally:
+            budget.release(reserved)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_write_one, i) for i in range(len(tensors))]
+            # Surface the first failure while letting the pool unwind cleanly.
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+    finally:
+        for data_file in files:
+            data_file.close()
 
 
 def _create_external_tensor(
@@ -527,53 +618,73 @@ def convert_tensors_to_external(
     base_dir: str | os.PathLike,
     relative_path: str | os.PathLike,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
+    max_workers: int | None = None,
+    max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
+    alignment: int | None = None,
+    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
+    _budget: _ByteBudget | None = None,
 ) -> list[_core.ExternalTensor]:
     """Convert a sequence of any TensorProtocol tensors to external tensors.
 
     Existing external tensors are loaded to memory if they are referring to the
     same file path as the destination path.
 
+    Tensors are written in the order they are given, packed densely unless
+    ``alignment`` is set. Preserving the input order matters: initializers are
+    declared in topological order by every mainstream exporter, so the weights of
+    one layer stay adjacent on disk. Runtimes memory-map each tensor separately
+    and do not prefetch, so page faults are served in execution order and
+    adjacency turns that into a sequential read.
+
     Args:
         tensors: Tensors to be converted to external tensors. They can be external tensors themselves.
         base_dir: Path of base directory.
         relative_path: Path to which external data is to be stored, relative to the ONNX file.
         callback: A callback function that is called for each tensor that is saved to external data
-            for debugging or logging purposes.
+            for debugging or logging purposes. When ``max_workers`` enables concurrency the
+            callback is serialized with a lock but is no longer invoked in index order.
+        max_workers: Number of threads used to materialize and write tensors. ``None``
+            or ``1`` writes serially.
+        max_in_flight_bytes: Upper bound on materialized tensor bytes held in memory
+            when writing concurrently.
+        alignment: Alignment to apply to the offsets of large tensors, in bytes.
+            ``None`` (the default) packs tensors densely with no padding. When set,
+            offsets are aligned to ``max(4096, alignment)``; 65536 matches the
+            Windows allocation granularity used for memory mapping.
+        align_threshold: Only tensors strictly larger than this many bytes are
+            aligned. Ignored when ``alignment`` is ``None``.
 
     Returns:
         A list of external tensors derived from a list of input tensors. The order
-        should match the input tensor order.
+        matches the input tensor order.
     """
     path = os.path.join(base_dir, relative_path)
     tensors = _materialize_external_tensors_for_destination_paths(tensors, [path])
 
-    external_data_infos: list[_ExternalDataInfo] = []
-    # Sort all tensors based on tensor sizes, in order to avoid unnecessary alignment.
-    # All the smaller tensors are written earlier and alignment is performed for the larger tensors.
-    sorted_indices = sorted(range(len(tensors)), key=lambda i: tensors[i].nbytes)
-    sorted_tensors = [tensors[i] for i in sorted_indices]
-
     # Compute external data information for each tensor and write to disk
+    external_data_infos: list[_ExternalDataInfo] = []
     current_offset = 0
-    for tensor in sorted_tensors:
-        external_info = _compute_external_data_info(tensor, current_offset)
+    for tensor in tensors:
+        external_info = _compute_external_data_info(
+            tensor, current_offset, alignment, align_threshold
+        )
         external_data_infos.append(external_info)
         current_offset = external_info.offset + external_info.length
-    _write_external_data(sorted_tensors, external_data_infos, path, callback=callback)
+    _write_external_data(
+        tensors,
+        external_data_infos,
+        path,
+        callback=callback,
+        max_workers=max_workers,
+        max_in_flight_bytes=max_in_flight_bytes,
+        budget=_budget,
+    )
 
     # Create external tensor objects
-    external_tensors: list[_core.ExternalTensor] = [
+    return [
         _create_external_tensor(tensor, external_info, base_dir, relative_path)
-        for tensor, external_info in zip(sorted_tensors, external_data_infos, strict=True)
+        for tensor, external_info in zip(tensors, external_data_infos, strict=True)
     ]
-
-    # Sort external_tensors based on original key order. So that it can match the input tensor order
-    external_tensors = [
-        external_tensors[i]
-        for i in sorted(range(len(external_tensors)), key=lambda i: sorted_indices[i])
-    ]
-
-    return external_tensors
 
 
 def load_to_model(model: _core.Model) -> _core.Model:
@@ -612,6 +723,10 @@ def unload_from_model(
     size_threshold_bytes: int = 0,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
+    max_workers: int | None = None,
+    max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
+    alignment: int | None = None,
+    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> _core.Model:
     """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
 
@@ -645,7 +760,24 @@ def unload_from_model(
             in its own oversized shard.
         callback: A callback function that is called for each tensor that is saved to external data
             for debugging or logging purposes. Under sharding the callback index reflects
-            each shard's size-sorted write order while remaining globally contiguous.
+            each shard's write order while remaining globally contiguous. When
+            ``max_workers`` enables concurrency the callback is serialized with a lock
+            but is no longer invoked in index order.
+        max_workers: Number of threads used to materialize and write tensors. ``None``
+            (the default) or ``1`` writes serially, preserving the previous behavior.
+            Values above 1 overlap tensor materialization (dtype conversion, lazy tensor
+            evaluation) with disk writes and parallelize both. Shards are also written
+            concurrently.
+        max_in_flight_bytes: Upper bound on materialized tensor bytes held in memory
+            when writing concurrently. Peak memory is bounded by this value plus the
+            size of the largest single tensor. Shared across shards so that peak memory
+            does not grow with the shard count.
+        alignment: Alignment to apply to the offsets of large tensors, in bytes.
+            ``None`` (the default) packs tensors densely with no padding. When set,
+            offsets are aligned to ``max(4096, alignment)``; 65536 matches the
+            Windows allocation granularity used for memory mapping.
+        align_threshold: Only tensors strictly larger than this many bytes are
+            aligned. Ignored when ``alignment`` is ``None``.
 
     Returns:
         An ir.Model with all initializer data equal or above ``size_threshold_bytes``
@@ -711,6 +843,10 @@ def unload_from_model(
             base_dir=base_dir,
             relative_path=relative_path,
             callback=callback,
+            max_workers=max_workers,
+            max_in_flight_bytes=max_in_flight_bytes,
+            alignment=alignment,
+            align_threshold=align_threshold,
         )
     else:
         # Sharding: distribute tensors across multiple numbered shard files
@@ -718,7 +854,9 @@ def unload_from_model(
             v.const_value  # type: ignore[misc]
             for v in initializers_to_become_external
         ]
-        tensor_shards = _shard_tensors(tensors_to_externalize, max_shard_size_bytes)
+        tensor_shards = _shard_tensors(
+            tensors_to_externalize, max_shard_size_bytes, alignment, align_threshold
+        )
         total_shards = len(tensor_shards)
         total_tensors = len(tensors_to_externalize)
         shard_relative_paths = [
@@ -739,6 +877,7 @@ def unload_from_model(
         _check_no_existing_shard_files(destination_paths)
 
         external_tensors = []
+        shard_jobs: list[tuple[Sequence[_protocols.TensorProtocol], str, Callable | None]] = []
         global_index = 0
 
         for shard_relative_path, shard_tensor_count in zip(
@@ -755,16 +894,60 @@ def unload_from_model(
             ) = None
             if callback is not None:
                 shard_callback = _make_shard_callback(callback, total_tensors, global_index)
-
-            shard_external_tensors = convert_tensors_to_external(
-                shard_tensors,
-                base_dir=base_dir,
-                relative_path=shard_relative_path,
-                callback=shard_callback,
-            )
-
-            external_tensors.extend(shard_external_tensors)
+            shard_jobs.append((shard_tensors, shard_relative_path, shard_callback))
             global_index += shard_tensor_count
+
+        if max_workers is not None and max_workers > 1 and len(shard_jobs) > 1:
+            # Shards are distinct files with no ordering dependency, so they are
+            # written concurrently. They share one byte budget so that peak memory
+            # does not grow with the number of shards.
+            shared_budget = _ByteBudget(max_in_flight_bytes)
+            shard_lock = threading.Lock()
+
+            def _locked_callback(
+                inner: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
+            ) -> Callable[[_protocols.TensorProtocol, CallbackInfo], None]:
+                def _wrapped(tensor: _protocols.TensorProtocol, info: CallbackInfo) -> None:
+                    with shard_lock:
+                        inner(tensor, info)
+
+                return _wrapped
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                shard_futures = [
+                    executor.submit(
+                        convert_tensors_to_external,
+                        job_tensors,
+                        base_dir=base_dir,
+                        relative_path=job_path,
+                        callback=(
+                            _locked_callback(job_callback)
+                            if job_callback is not None
+                            else None
+                        ),
+                        max_workers=max_workers,
+                        alignment=alignment,
+                        align_threshold=align_threshold,
+                        _budget=shared_budget,
+                    )
+                    for job_tensors, job_path, job_callback in shard_jobs
+                ]
+                for shard_future in shard_futures:
+                    external_tensors.extend(shard_future.result())
+        else:
+            for job_tensors, job_path, job_callback in shard_jobs:
+                external_tensors.extend(
+                    convert_tensors_to_external(
+                        job_tensors,
+                        base_dir=base_dir,
+                        relative_path=job_path,
+                        callback=job_callback,
+                        max_workers=max_workers,
+                        max_in_flight_bytes=max_in_flight_bytes,
+                        alignment=alignment,
+                        align_threshold=align_threshold,
+                    )
+                )
 
     # Replace the initializer values with external tensors and save the model
     for value, external_tensor in zip(
