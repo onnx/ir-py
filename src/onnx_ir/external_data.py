@@ -503,7 +503,17 @@ def _write_external_data(
             file_size = data_file.tell()
             if tensor_info.offset > file_size:
                 data_file.write(b"\0" * (tensor_info.offset - file_size))
-            _write_tensor_at(tensor, data_file, tensor_info.offset)
+            if budget is None:
+                _write_tensor_at(tensor, data_file, tensor_info.offset)
+                continue
+            # A shard may use a serial writer while other shards are written
+            # concurrently. Honor their shared budget here too; otherwise one
+            # tensor per shard can be materialized at once with no byte bound.
+            reserved = budget.acquire(tensor_info.length)
+            try:
+                _write_tensor_at(tensor, data_file, tensor_info.offset)
+            finally:
+                budget.release(reserved)
 
 
 def _write_external_data_parallel(

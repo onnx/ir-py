@@ -1018,6 +1018,40 @@ class ParallelWriteTest(unittest.TestCase):
         self.assertEqual(amount, 100)
         budget.release(amount)
 
+    def test_serial_shard_writer_honors_shared_byte_budget(self):
+        class TrackingBudget:
+            def __init__(self):
+                self.acquired = []
+                self.released = []
+
+            def acquire(self, nbytes):
+                self.acquired.append(nbytes)
+                return nbytes
+
+            def release(self, nbytes):
+                self.released.append(nbytes)
+
+        tensors = self._make_tensors(count=3)
+        infos = []
+        offset = 0
+        for tensor in tensors:
+            info = external_data._compute_external_data_info(tensor, offset)
+            infos.append(info)
+            offset += info.length
+        budget = TrackingBudget()
+
+        external_data._write_external_data(
+            tensors,
+            infos,
+            os.path.join(self.base_path, "model.data"),
+            max_workers=1,
+            budget=budget,  # type: ignore[arg-type]
+        )
+
+        expected = [info.length for info in infos]
+        self.assertEqual(budget.acquired, expected)
+        self.assertEqual(budget.released, expected)
+
     def test_sharded_save_respects_the_worker_limit(self):
         # Shards are written concurrently and each shard writes its tensors
         # concurrently. Applying max_workers at both levels would spawn up to
