@@ -1027,11 +1027,29 @@ class ParallelWriteTest(unittest.TestCase):
         thread.join()
 
     def test_byte_budget_admits_tensor_larger_than_capacity(self):
-        # An oversized tensor must not deadlock; it is admitted on its own.
+        # One oversized tensor may coexist with regular reservations, but a
+        # second oversized tensor waits so peak memory remains
+        # capacity + largest tensor.
         budget = external_data._ByteBudget(100)
-        amount = budget.acquire(10_000)
-        self.assertEqual(amount, 100)
-        budget.release(amount)
+        oversized = budget.acquire(10_000)
+        self.assertEqual(oversized, -1)
+        regular = budget.acquire(100)
+        self.assertEqual(regular, 100)
+
+        second_acquired = threading.Event()
+
+        def acquire_second_oversized():
+            reservation = budget.acquire(20_000)
+            second_acquired.set()
+            budget.release(reservation)
+
+        thread = threading.Thread(target=acquire_second_oversized)
+        thread.start()
+        self.assertFalse(second_acquired.wait(timeout=0.2))
+        budget.release(oversized)
+        self.assertTrue(second_acquired.wait(timeout=5))
+        budget.release(regular)
+        thread.join()
 
     def test_serial_shard_writer_honors_shared_byte_budget(self):
         class TrackingBudget:

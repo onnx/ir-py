@@ -34,7 +34,7 @@ _DEFAULT_ALIGN_THRESHOLD = 1048576  # 1MB
 _DEFAULT_ALLOCATION_GRANULARITY = 65536  # 64KB
 # Default upper bound on materialized tensor bytes held in memory while writing
 # external data concurrently. Peak memory is this plus the largest single tensor.
-_DEFAULT_MAX_IN_FLIGHT_BYTES = 1 << 29  # 512MB
+_DEFAULT_MAX_IN_FLIGHT_BYTES = 1 << 30  # 1GB
 
 
 logger = logging.getLogger(__name__)
@@ -405,36 +405,40 @@ class _ByteBudget:
 
     Limiting the number of *items* in flight is not enough because a single
     tensor can be many gigabytes. Limiting bytes gives a hard bound on peak
-    memory of ``capacity + max(tensor.nbytes)``: a tensor larger than the whole
-    budget is admitted alone (otherwise it could never be admitted at all).
+    memory of ``capacity + max(tensor.nbytes)``. At most one tensor larger than
+    the whole budget is admitted at a time, alongside regular reservations up
+    to ``capacity``. This keeps the pipeline moving while the oversized tensor
+    is written without allowing multiple oversized tensors to accumulate.
     """
 
     def __init__(self, capacity: int) -> None:
         self._capacity = max(capacity, 1)
         self._in_flight = 0
+        self._oversized_active = False
         self._condition = threading.Condition()
-
-    def _clamp(self, nbytes: int) -> int:
-        return min(max(nbytes, 0), self._capacity)
 
     def acquire(self, nbytes: int) -> int:
         """Reserve ``nbytes`` of budget, blocking until it fits.
 
-        Returns the clamped amount that must be passed back to :meth:`release`.
+        Returns a reservation token that must be passed back to
+        :meth:`release`. ``-1`` represents the single oversized reservation.
         """
-        amount = self._clamp(nbytes)
+        amount = max(nbytes, 0)
         with self._condition:
-            # ``self._in_flight == 0`` lets an oversized tensor through instead
-            # of deadlocking forever waiting for a budget it can never fit in.
-            self._condition.wait_for(
-                lambda: self._in_flight + amount <= self._capacity or self._in_flight == 0
-            )
+            if amount > self._capacity:
+                self._condition.wait_for(lambda: not self._oversized_active)
+                self._oversized_active = True
+                return -1
+            self._condition.wait_for(lambda: self._in_flight + amount <= self._capacity)
             self._in_flight += amount
         return amount
 
-    def release(self, amount: int) -> None:
+    def release(self, reservation: int) -> None:
         with self._condition:
-            self._in_flight -= amount
+            if reservation == -1:
+                self._oversized_active = False
+            else:
+                self._in_flight -= reservation
             self._condition.notify_all()
 
 
