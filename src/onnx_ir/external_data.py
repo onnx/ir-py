@@ -546,6 +546,7 @@ def _write_external_data(
             try:
                 _write_tensor_at(tensor, data_file, tensor_info.offset)
             finally:
+                # Release the budget if writing fails; the exception still propagates.
                 budget.release(reserved)
 
 
@@ -609,6 +610,7 @@ def _write_external_data_parallel(
         try:
             _write_tensor_at(tensor, _thread_file(), info.offset)
         finally:
+            # Release the budget if writing fails; the exception still propagates.
             budget.release(reserved)
 
     try:
