@@ -468,6 +468,25 @@ def _write_tensor_at(
         tensor.release()
 
 
+def _write_tensor_with_budget_at(
+    tensor: _protocols.TensorProtocol,
+    file,
+    offset: int,
+    length: int,
+    budget: _ByteBudget | None,
+) -> None:
+    """Write a tensor while accounting for its userspace memory."""
+    if budget is None:
+        _write_tensor_at(tensor, file, offset)
+        return
+    reservation = budget.acquire(_reservation_bytes(tensor, length))
+    try:
+        _write_tensor_at(tensor, file, offset)
+    finally:
+        # Release the budget if writing fails; the exception still propagates.
+        budget.release(reservation)
+
+
 def _write_external_data(
     tensors: Sequence[_protocols.TensorProtocol],
     external_data_infos: Sequence[_ExternalDataInfo],
@@ -534,18 +553,16 @@ def _write_external_data(
         ):
             assert tensor is not None
             _invoke_callback(i, tensor, tensor_info.offset)
-            if budget is None:
-                _write_tensor_at(tensor, data_file, tensor_info.offset)
-                continue
             # A shard may use a serial writer while other shards are written
             # concurrently. Honor their shared budget here too; otherwise one
             # tensor per shard can be materialized at once with no byte bound.
-            reserved = budget.acquire(_reservation_bytes(tensor, tensor_info.length))
-            try:
-                _write_tensor_at(tensor, data_file, tensor_info.offset)
-            finally:
-                # Release the budget if writing fails; the exception still propagates.
-                budget.release(reserved)
+            _write_tensor_with_budget_at(
+                tensor,
+                data_file,
+                tensor_info.offset,
+                tensor_info.length,
+                budget,
+            )
 
 
 def _write_external_data_parallel(
@@ -577,8 +594,8 @@ def _write_external_data_parallel(
         (info.offset + info.length for info in external_data_infos),
         default=0,
     )
-    # Preallocate so that every worker can seek to its own offset. Holes read
-    # back as zeros, matching the explicit zero padding written serially.
+    # Preallocate so that every worker can seek to its own offset. Gaps between
+    # tensors read back as zeros, matching the sparse holes created serially.
     with open(file_path, "wb") as data_file:
         data_file.truncate(total_size)
 
@@ -604,12 +621,13 @@ def _write_external_data_parallel(
         assert tensor is not None
         with callback_lock:
             invoke_callback(index, tensor, info.offset)
-        reserved = budget.acquire(_reservation_bytes(tensor, info.length))
-        try:
-            _write_tensor_at(tensor, _thread_file(), info.offset)
-        finally:
-            # Release the budget if writing fails; the exception still propagates.
-            budget.release(reserved)
+        _write_tensor_with_budget_at(
+            tensor,
+            _thread_file(),
+            info.offset,
+            info.length,
+            budget,
+        )
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
