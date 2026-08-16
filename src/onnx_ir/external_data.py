@@ -527,6 +527,8 @@ def _write_external_data(
         return
 
     with open(file_path, "wb") as data_file:
+        # Seeking past EOF creates a file hole that reads back as zeros, so
+        # aligned offsets need no explicit padding allocation or write.
         for i, (tensor, tensor_info) in enumerate(
             zip(tensors, external_data_infos, strict=True)
         ):
