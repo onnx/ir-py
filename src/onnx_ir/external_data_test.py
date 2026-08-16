@@ -7,6 +7,7 @@ import threading
 import time
 import typing
 import unittest
+import unittest.mock
 
 import numpy as np
 import onnx
@@ -346,11 +347,22 @@ class OffloadExternalTensorTest(unittest.TestCase):
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
 
     def test_same_path_external_data(self):
-        model_with_external_data = external_data.unload_from_model(
-            self.model_with_external_data_same_path,
-            self.base_path,
-            self.external_data_name,
-        )
+        original_external_tensor = self.model_with_external_data_same_path.graph.initializers[
+            "tensor_same_file"
+        ].const_value
+        with unittest.mock.patch.object(
+            external_data,
+            "_external_tensor_to_memory_tensor",
+            side_effect=AssertionError(
+                "same-path writes should stream through a temporary file"
+            ),
+        ):
+            model_with_external_data = external_data.unload_from_model(
+                self.model_with_external_data_same_path,
+                self.base_path,
+                self.external_data_name,
+            )
+        self.assertFalse(original_external_tensor.valid())
         external_tensor = model_with_external_data.graph.initializers["tensor1"].const_value
         external_tensor2 = model_with_external_data.graph.initializers["tensor2"].const_value
         external_tensor3 = model_with_external_data.graph.initializers[
@@ -364,6 +376,67 @@ class OffloadExternalTensorTest(unittest.TestCase):
         self.assertEqual(external_tensor.numpy().tobytes(), self.data.tobytes())
         self.assertEqual(external_tensor2.numpy().tobytes(), self.data_float16.tobytes())
         self.assertEqual(external_tensor3.numpy().tobytes(), self.data_other.tobytes())
+
+    def test_write_failure_preserves_existing_external_data(self):
+        class ExplodingTensor(ir.Tensor):
+            def tofile(self, file):
+                file.write(b"partial")
+                raise RuntimeError("boom")
+
+        destination = os.path.join(self.base_path, self.external_data_name)
+        original_data = b"existing external data"
+        with open(destination, "wb") as data_file:
+            data_file.write(original_data)
+        tensor = ExplodingTensor(np.zeros(4, dtype=np.uint8), name="exploding")
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            external_data.convert_tensors_to_external(
+                [tensor],
+                self.base_path,
+                self.external_data_name,
+            )
+
+        with open(destination, "rb") as data_file:
+            self.assertEqual(data_file.read(), original_data)
+        temporary_prefix = f".{self.external_data_name}."
+        self.assertFalse(
+            any(name.startswith(temporary_prefix) for name in os.listdir(self.base_path))
+        )
+
+    def test_atomic_replace_preserves_existing_file_mode(self):
+        destination = os.path.join(self.base_path, self.external_data_name)
+        with open(destination, "wb") as data_file:
+            data_file.write(b"old")
+        os.chmod(destination, 0o640)
+
+        external_data.convert_tensors_to_external(
+            [ir.Tensor(np.zeros(4, dtype=np.uint8), name="tensor")],
+            self.base_path,
+            self.external_data_name,
+        )
+
+        self.assertEqual(os.stat(destination).st_mode & 0o777, 0o640)
+
+    def test_atomic_replace_preserves_destination_symlink(self):
+        target_name = "target.data"
+        target = os.path.join(self.base_path, target_name)
+        link = os.path.join(self.base_path, self.external_data_name)
+        with open(target, "wb") as data_file:
+            data_file.write(b"old")
+        try:
+            os.symlink(target_name, link)
+        except OSError as error:
+            self.skipTest(f"Cannot create symlink on this platform: {error}")
+
+        external_data.convert_tensors_to_external(
+            [ir.Tensor(np.arange(4, dtype=np.uint8), name="tensor")],
+            self.base_path,
+            self.external_data_name,
+        )
+
+        self.assertTrue(os.path.islink(link))
+        with open(target, "rb") as data_file:
+            self.assertEqual(data_file.read(), bytes(range(4)))
 
     def test_external_data_diff_paths(self):
         model_with_external_data = external_data.unload_from_model(

@@ -64,6 +64,17 @@ def save(
         Added the ``max_workers``, ``max_in_flight_bytes``, ``alignment``, and
         ``align_threshold`` parameters.
 
+    .. versionchanged:: 1.1.0
+        External tensors are packed densely by default instead of aligning tensors
+        larger than 1 MiB to 64 KiB offsets. Pass ``alignment=65536`` to retain the
+        previous layout.
+
+        Single-file external data writes now use a same-filesystem temporary file
+        and atomically replace the destination after a successful write. Failures
+        leave an existing destination unchanged. Replacement preserves symlinks and
+        file permissions, but creates a new inode, so other hardlinks keep the old
+        file contents.
+
     .. tip::
 
         A simple progress bar can be implemented by passing a callback function as the following::
@@ -140,8 +151,8 @@ def save(
             destination shard file already exists on disk. The sharded write
             path never overwrites existing files; delete the conflicting
             files or choose a different external data path to re-save. The
-            single-file path (``max_shard_size_bytes is None``) instead
-            overwrites ``external_data`` unconditionally and never raises here.
+            single-file path (``max_shard_size_bytes is None``) atomically
+            replaces ``external_data`` only after the new file is complete.
     """
     if max_shard_size_bytes is not None and external_data is None:
         raise ValueError(

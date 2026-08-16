@@ -16,9 +16,12 @@ __all__ = [
 ]
 
 import concurrent.futures
+import contextlib
 import dataclasses
 import logging
 import os
+import shutil
+import tempfile
 import threading
 from collections.abc import Iterator, Sequence
 
@@ -313,48 +316,6 @@ def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike
         return False
 
 
-def _materialize_external_tensors_for_destination_paths(
-    tensors: Sequence[_protocols.TensorProtocol],
-    destination_paths: Sequence[str | os.PathLike],
-) -> list[_protocols.TensorProtocol]:
-    """Load into memory any external tensor whose backing file is about to be overwritten or deleted.
-
-    Safety-critical: this is what allows ``unload_from_model`` to re-save a
-    loaded sharded model — even when the new shard layout differs from the
-    old one — without reading from a file that has already been clobbered or
-    cleaned up. Callers must pass *every* path that will be written, renamed,
-    or deleted by the upcoming save, not just the immediate destination.
-    """
-    existing_destination_paths = [path for path in destination_paths if os.path.exists(path)]
-    if not existing_destination_paths:
-        return list(tensors)
-
-    converted_tensors: list[_protocols.TensorProtocol] = []
-    for tensor in tensors:
-        if isinstance(tensor, _core.ExternalTensor) and any(
-            _paths_refer_to_same_file(tensor.path, destination_path)
-            for destination_path in existing_destination_paths
-        ):
-            # TODO(justinchuby): If there is a non-initializer tensor that
-            # is referring to this file, that tensor is now invalid.
-            # This is a special case we are ok not handling right now.
-            converted_tensors.append(_external_tensor_to_memory_tensor(tensor))
-            # Mark the original external tensor as invalid because it is now pointing
-            # to a file that is going to be overwritten.
-            tensor.invalidate()
-            logger.warning(
-                "External tensor %s is referring to the destination path. "
-                "It has been invalidated because the data file is changed. To avoid this, "
-                "save the external data to a different path or load the newly saved model back "
-                "with ir.load().",
-                tensor,
-            )
-        else:
-            converted_tensors.append(tensor)
-
-    return converted_tensors
-
-
 def _check_no_existing_shard_files(
     destination_paths: Sequence[str | os.PathLike],
 ) -> None:
@@ -511,16 +472,51 @@ def _write_external_data(
         budget: An existing byte budget to share across concurrent shard writes so that
             peak memory does not scale with the number of shards.
     """
-    writer = _ExternalDataWriter(
-        tensors,
-        external_data_infos,
-        file_path,
-        callback,
-        budget=budget,
-        max_workers=max_workers,
-        max_in_flight_bytes=max_in_flight_bytes,
+    requested_path = os.fspath(file_path)
+    destination_path = (
+        os.path.realpath(requested_path) if os.path.islink(requested_path) else requested_path
     )
-    writer.write()
+    destination_dir = os.path.dirname(destination_path) or "."
+    temporary_dir = tempfile.mkdtemp(
+        dir=destination_dir,
+        prefix=f".{os.path.basename(destination_path)}.",
+    )
+    temporary_path = os.path.join(temporary_dir, os.path.basename(destination_path))
+
+    overwritten_tensors = [
+        tensor
+        for tensor in tensors
+        if isinstance(tensor, _core.ExternalTensor)
+        and _paths_refer_to_same_file(tensor.path, destination_path)
+    ]
+    try:
+        writer = _ExternalDataWriter(
+            tensors,
+            external_data_infos,
+            temporary_path,
+            callback,
+            callback_filename=os.path.basename(requested_path),
+            budget=budget,
+            max_workers=max_workers,
+            max_in_flight_bytes=max_in_flight_bytes,
+        )
+        writer.write()
+        if os.path.exists(destination_path):
+            shutil.copymode(destination_path, temporary_path)
+        os.replace(temporary_path, destination_path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(temporary_path)
+        with contextlib.suppress(FileNotFoundError):
+            os.rmdir(temporary_dir)
+
+    for tensor in overwritten_tensors:
+        tensor.invalidate()
+        logger.warning(
+            "External tensor %s referred to the overwritten destination and has "
+            "been invalidated. Load the newly saved model to obtain a valid tensor.",
+            tensor,
+        )
 
 
 class _ExternalDataWriter:
@@ -533,6 +529,7 @@ class _ExternalDataWriter:
         file_path: str | os.PathLike,
         callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
         *,
+        callback_filename: str,
         budget: _ByteBudget | None,
         max_workers: int | None,
         max_in_flight_bytes: int,
@@ -543,7 +540,7 @@ class _ExternalDataWriter:
         self._tensors = tensors
         self._external_data_infos = external_data_infos
         self._file_path = file_path
-        self._filename = os.path.basename(file_path)
+        self._filename = callback_filename
         self._callback = callback
         self._budget = budget
         self._max_workers = max_workers
@@ -716,8 +713,10 @@ def convert_tensors_to_external(
 ) -> list[_core.ExternalTensor]:
     """Convert a sequence of any TensorProtocol tensors to external tensors.
 
-    Existing external tensors are loaded to memory if they are referring to the
-    same file path as the destination path.
+    Data is written to a temporary file in the destination directory and atomically
+    replaces the destination only after the write succeeds. Existing external
+    tensors backed by the destination stream directly into the temporary file and
+    are invalidated after replacement.
 
     Tensors are written in the order they are given, packed densely unless
     ``alignment`` is set. Preserving the input order matters: initializers are
@@ -749,7 +748,6 @@ def convert_tensors_to_external(
         matches the input tensor order.
     """
     path = os.path.join(base_dir, relative_path)
-    tensors = _materialize_external_tensors_for_destination_paths(tensors, [path])
 
     # Compute external data information for each tensor and write to disk
     external_data_infos: list[_ExternalDataInfo] = []
@@ -799,10 +797,9 @@ def _write_external_tensors(
     #     `-- shard thread pool
     #         `-- one _ExternalDataWriter per shard -> serial or parallel
     if max_shard_size_bytes is None:
-        # The single-file path keeps its long-standing permissive overwrite
-        # semantics. Sharded writes reject collisions because layouts with
-        # different shard counts have different, potentially ambiguous names.
-        # TODO(justinchuby): both paths should eventually share one policy.
+        # Single-file writes atomically replace an existing destination.
+        # Sharded writes reject collisions because layouts with different
+        # shard counts have different, potentially ambiguous names.
         return convert_tensors_to_external(
             tensors,
             base_dir=base_dir,
@@ -1006,8 +1003,8 @@ def unload_from_model(
             path never overwrites existing files (re-saving a model whose
             shards already exist therefore requires deleting them first or
             choosing a different external data path). The single-file path
-            (``max_shard_size_bytes is None``) instead overwrites
-            ``relative_path`` unconditionally.
+            (``max_shard_size_bytes is None``) atomically replaces
+            ``relative_path`` only after the new file is complete.
 
     Notes:
         Stale shards from a previous save (when the new layout produces

@@ -99,7 +99,9 @@ Notes:
 
 - `external_data` must be a **relative** path.
 - `max_shard_size_bytes` requires `external_data`.
-- Single-file mode overwrites destination data file.
+- Single-file mode writes in the destination directory and atomically replaces
+  the destination only after the new data file is complete. A failed write
+  leaves the previous file unchanged.
 - Sharded mode is stricter and can raise `FileExistsError` for collisions.
 
 ## Save external data with progress callback
