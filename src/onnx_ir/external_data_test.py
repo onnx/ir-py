@@ -825,6 +825,9 @@ class ShardedExternalDataTest(unittest.TestCase):
         self.assertTrue(all(i.total == 3 for i in infos))
         # indices should be 0, 1, 2 across all shards
         self.assertEqual(sorted(i.index for i in infos), [0, 1, 2])
+        # Each tensor is in its own shard, so per-shard progress is 0 of 1.
+        self.assertTrue(all(i.shard_total == 1 for i in infos))
+        self.assertTrue(all(i.shard_index == 0 for i in infos))
 
     def test_cleanup_leaves_unowned_zero_indexed_shard_files_alone(self):
         # Shard indices are 1-indexed and the 0-indexed file *is* invalid, but

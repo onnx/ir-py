@@ -247,7 +247,7 @@ def _save_file(
 
             # Build tensor_dict for this shard only
             shard_dict: dict[str, Any] = {}
-            for tensor in tensor_shard:
+            for shard_index, tensor in enumerate(tensor_shard):
                 if callback is not None:
                     callback(
                         tensor,
@@ -256,6 +256,8 @@ def _save_file(
                             index=current_index,
                             offset=current_offset,
                             filename=shard_filename,
+                            shard_total=len(tensor_shard),
+                            shard_index=shard_index,
                         ),
                     )
                 assert tensor.name is not None

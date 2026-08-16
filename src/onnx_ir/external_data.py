@@ -93,12 +93,19 @@ class CallbackInfo:
             which callbacks are invoked when saving concurrently.
         offset: The offset of the tensor in the external data file.
         filename: The filename of the external data file.
+        shard_total: The number of tensors in this external data file. ``None``
+            when the writer does not provide per-file progress information.
+        shard_index: The index of this tensor within its external data file.
+            ``None`` when the writer does not provide per-file progress
+            information.
     """
 
     total: int
     index: int
     offset: int
     filename: str
+    shard_total: int | None = None
+    shard_index: int | None = None
 
 
 def _all_tensors(
@@ -189,6 +196,8 @@ def _make_shard_callback(
                 index=index_offset + info.index,
                 offset=info.offset,
                 filename=info.filename,
+                shard_total=info.total,
+                shard_index=info.index,
             ),
         )
 
@@ -478,6 +487,8 @@ def _write_external_data(
                 index=index,
                 offset=offset,
                 filename=filename,
+                shard_total=tensors_count,
+                shard_index=index,
             ),
         )
 
