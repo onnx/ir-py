@@ -60,6 +60,10 @@ def save(
     to load the newly saved model, or provide a different external data path that
     is not currently referenced by any tensors in the model.
 
+    .. versionadded:: 1.1.0
+        Added the ``max_workers``, ``max_in_flight_bytes``, ``alignment``, and
+        ``align_threshold`` parameters.
+
     .. tip::
 
         A simple progress bar can be implemented by passing a callback function as the following::
