@@ -511,133 +511,154 @@ def _write_external_data(
         budget: An existing byte budget to share across concurrent shard writes so that
             peak memory does not scale with the number of shards.
     """
-    tensors_count = len(tensors)
-    assert tensors_count == len(external_data_infos), (
-        "Number of tensors and external data infos should match"
+    writer = _ExternalDataWriter(
+        tensors,
+        external_data_infos,
+        file_path,
+        callback,
+        budget=budget,
+        max_workers=max_workers,
+        max_in_flight_bytes=max_in_flight_bytes,
     )
+    writer.write()
 
-    filename = os.path.basename(file_path)
 
-    def _invoke_callback(index: int, tensor: _protocols.TensorProtocol, offset: int) -> None:
-        if callback is None:
+class _ExternalDataWriter:
+    """Coordinate serial or parallel writes to one external data file."""
+
+    def __init__(
+        self,
+        tensors: Sequence[_protocols.TensorProtocol],
+        external_data_infos: Sequence[_ExternalDataInfo],
+        file_path: str | os.PathLike,
+        callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
+        *,
+        budget: _ByteBudget | None,
+        max_workers: int | None,
+        max_in_flight_bytes: int,
+    ) -> None:
+        assert len(tensors) == len(external_data_infos), (
+            "Number of tensors and external data infos should match"
+        )
+        self._tensors = tensors
+        self._external_data_infos = external_data_infos
+        self._file_path = file_path
+        self._filename = os.path.basename(file_path)
+        self._callback = callback
+        self._budget = budget
+        self._max_workers = max_workers
+        self._max_in_flight_bytes = max_in_flight_bytes
+
+    def write(self) -> None:
+        """Select the cheapest writer that provides the requested concurrency."""
+        if self._max_workers is not None and self._max_workers > 1 and len(self._tensors) > 1:
+            self._write_parallel(self._max_workers)
+        else:
+            self._write_serial()
+
+    def _invoke_callback(
+        self, index: int, tensor: _protocols.TensorProtocol, offset: int
+    ) -> None:
+        if self._callback is None:
             return
-        callback(
+        self._callback(
             tensor,
             CallbackInfo(
-                total=tensors_count,
+                total=len(self._tensors),
                 index=index,
                 offset=offset,
-                filename=filename,
-                shard_total=tensors_count,
+                filename=self._filename,
+                shard_total=len(self._tensors),
                 shard_index=index,
             ),
         )
 
-    if max_workers is not None and max_workers > 1 and tensors_count > 1:
-        _write_external_data_parallel(
-            tensors,
-            external_data_infos,
-            file_path,
-            _invoke_callback,
-            max_workers=max_workers,
-            max_in_flight_bytes=max_in_flight_bytes,
-            budget=budget,
-        )
-        return
+    def _write_serial(self) -> None:
+        """Write sequentially through one file descriptor."""
+        with open(self._file_path, "wb") as data_file:
+            # Seeking past EOF creates a file hole that reads back as zeros, so
+            # aligned offsets need no explicit padding allocation or write.
+            for i, (tensor, tensor_info) in enumerate(
+                zip(self._tensors, self._external_data_infos, strict=True)
+            ):
+                assert tensor is not None
+                self._invoke_callback(i, tensor, tensor_info.offset)
+                # A shard may use a serial writer while other shards are written
+                # concurrently. Honor their shared budget here too; otherwise one
+                # tensor per shard can be materialized at once with no byte bound.
+                _write_tensor_with_budget_at(
+                    tensor,
+                    data_file,
+                    tensor_info.offset,
+                    tensor_info.length,
+                    self._budget,
+                )
 
-    with open(file_path, "wb") as data_file:
-        # Seeking past EOF creates a file hole that reads back as zeros, so
-        # aligned offsets need no explicit padding allocation or write.
-        for i, (tensor, tensor_info) in enumerate(
-            zip(tensors, external_data_infos, strict=True)
-        ):
+    def _write_parallel(self, max_workers: int) -> None:
+        """Write concurrently through one file descriptor per worker.
+
+        Every tensor's byte range is known up front, so writes have no ordering
+        dependency. The file is preallocated to its final size and each worker
+        opens its own descriptor. A shared byte budget bounds materialized tensor
+        memory while overlapping computation and I/O. Both file writes and tensor
+        materialization release the GIL, so threads can parallelize this work.
+
+        The bytes written are identical to the serial path.
+        """
+        total_size = max(
+            (info.offset + info.length for info in self._external_data_infos),
+            default=0,
+        )
+        # Preallocate so that every worker can seek to its own offset. Gaps between
+        # tensors read back as zeros, matching the sparse holes created serially.
+        with open(self._file_path, "wb") as data_file:
+            data_file.truncate(total_size)
+
+        budget = (
+            self._budget
+            if self._budget is not None
+            else _ByteBudget(self._max_in_flight_bytes)
+        )
+        callback_lock = threading.Lock()
+        thread_local = threading.local()
+        files: list = []
+        files_lock = threading.Lock()
+
+        def _thread_file():
+            data_file = getattr(thread_local, "data_file", None)
+            if data_file is None:
+                # Closed below after all workers are done.
+                data_file = open(  # ruff: ignore[open-file-with-context-handler]
+                    self._file_path, "r+b"
+                )
+                thread_local.data_file = data_file
+                with files_lock:
+                    files.append(data_file)
+            return data_file
+
+        def _write_one(index: int) -> None:
+            tensor = self._tensors[index]
+            info = self._external_data_infos[index]
             assert tensor is not None
-            _invoke_callback(i, tensor, tensor_info.offset)
-            # A shard may use a serial writer while other shards are written
-            # concurrently. Honor their shared budget here too; otherwise one
-            # tensor per shard can be materialized at once with no byte bound.
+            with callback_lock:
+                self._invoke_callback(index, tensor, info.offset)
             _write_tensor_with_budget_at(
                 tensor,
-                data_file,
-                tensor_info.offset,
-                tensor_info.length,
+                _thread_file(),
+                info.offset,
+                info.length,
                 budget,
             )
 
-
-def _write_external_data_parallel(
-    tensors: Sequence[_protocols.TensorProtocol],
-    external_data_infos: Sequence[_ExternalDataInfo],
-    file_path: str | os.PathLike,
-    invoke_callback: Callable[[int, _protocols.TensorProtocol, int], None],
-    *,
-    max_workers: int,
-    max_in_flight_bytes: int,
-    budget: _ByteBudget | None = None,
-) -> None:
-    """Write tensors concurrently to preassigned offsets in ``file_path``.
-
-    Every tensor's byte range is known up front, so writes have no ordering
-    dependency on one another. The file is preallocated to its final size and
-    each worker opens its own file object, giving every thread an independent
-    file position and removing the need for a write lock. Both ``write()`` and
-    the numpy/torch work behind materialization release the GIL, so this
-    overlaps computation with I/O *and* parallelizes each of them.
-
-    Peak memory is bounded by a byte budget rather than a queue length: a worker
-    reserves a tensor's size before materializing it and releases the
-    reservation once the bytes have reached the file.
-
-    The bytes written are identical to the serial path.
-    """
-    total_size = max(
-        (info.offset + info.length for info in external_data_infos),
-        default=0,
-    )
-    # Preallocate so that every worker can seek to its own offset. Gaps between
-    # tensors read back as zeros, matching the sparse holes created serially.
-    with open(file_path, "wb") as data_file:
-        data_file.truncate(total_size)
-
-    budget = budget if budget is not None else _ByteBudget(max_in_flight_bytes)
-    callback_lock = threading.Lock()
-    thread_local = threading.local()
-    files: list = []
-    files_lock = threading.Lock()
-
-    def _thread_file():
-        data_file = getattr(thread_local, "data_file", None)
-        if data_file is None:
-            # Closed in the caller's finally block, after all workers are done.
-            data_file = open(file_path, "r+b")  # ruff: ignore[open-file-with-context-handler]
-            thread_local.data_file = data_file
-            with files_lock:
-                files.append(data_file)
-        return data_file
-
-    def _write_one(index: int) -> None:
-        tensor = tensors[index]
-        info = external_data_infos[index]
-        assert tensor is not None
-        with callback_lock:
-            invoke_callback(index, tensor, info.offset)
-        _write_tensor_with_budget_at(
-            tensor,
-            _thread_file(),
-            info.offset,
-            info.length,
-            budget,
-        )
-
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_write_one, i) for i in range(len(tensors))]
-            # Surface the first failure while letting the pool unwind cleanly.
-            for future in concurrent.futures.as_completed(futures):
-                future.result()
-    finally:
-        for data_file in files:
-            data_file.close()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_write_one, i) for i in range(len(self._tensors))]
+                # Surface the first failure while letting the pool unwind cleanly.
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+        finally:
+            for data_file in files:
+                data_file.close()
 
 
 def _create_external_tensor(
