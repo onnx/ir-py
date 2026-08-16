@@ -133,6 +133,10 @@ ir.save(
 )
 ```
 
+Weights that live on an accelerator benefit the most. The device-to-host copy
+runs inside the write with the GIL released, so it overlaps with other threads'
+writes instead of serializing behind them.
+
 Peak memory stays bounded regardless of the worker count: at most
 `max_in_flight_bytes` (512MB by default) plus the size of the largest single
 tensor. Lower it when memory is tight:
