@@ -48,6 +48,7 @@ def save(
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
     max_workers: int | None = None,
+    max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = 1048576,
 ) -> None:
@@ -114,6 +115,11 @@ def save(
             both, which is significantly faster for large models. Peak memory stays
             bounded regardless of the worker count.
             Effective only when ``external_data`` is set.
+        max_in_flight_bytes: Upper bound, in bytes, on the total size of tensors held in
+            memory at once while writing. This caps peak memory use. A tensor larger
+            than this budget is still admitted on its own, so the effective peak is
+            roughly this value plus the size of the largest tensor.
+            Effective only when ``external_data`` and ``max_workers`` are set.
         alignment: Alignment to apply to the offsets of large tensors, in bytes.
             ``None`` (the default) packs tensors densely with no padding, producing
             smaller files. When set, offsets are aligned to ``max(4096, alignment)``;
@@ -165,6 +171,7 @@ def save(
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
                 max_workers=max_workers,
+                max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
             )

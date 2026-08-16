@@ -914,8 +914,11 @@ def unload_from_model(
             # both: nesting a pool of that size inside each of that many shard
             # threads would spawn up to ``max_workers ** 2`` threads, breaking
             # the contract that ``max_workers`` bounds the thread count.
+            # The shard driver threads count against the budget too: each one
+            # occupies a thread while its inner pool runs. Reserve them first so
+            # that drivers + inner workers stay within max_workers.
             shard_workers = min(max_workers, len(shard_jobs))
-            workers_per_shard = max(1, max_workers // shard_workers)
+            workers_per_shard = max(1, (max_workers - shard_workers) // shard_workers)
             shared_budget = _ByteBudget(max_in_flight_bytes)
             shard_lock = threading.Lock()
 

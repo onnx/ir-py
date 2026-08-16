@@ -16,6 +16,13 @@ import onnx_ir as ir
 from onnx_ir import external_data
 
 
+def _sample_thread_count(stop: threading.Event, samples: list[int]) -> None:
+    """Poll the live thread count until ``stop`` is set."""
+    while not stop.is_set():
+        samples.append(threading.active_count())
+        time.sleep(0.0005)
+
+
 class ExternalDataTest(unittest.TestCase):
     def test_set_base_dir_sets_base_dir_for_all_external_tensors(self):
         attr_tensor = onnx.helper.make_tensor(
@@ -1013,46 +1020,51 @@ class ParallelWriteTest(unittest.TestCase):
 
     def test_sharded_save_respects_the_worker_limit(self):
         # Shards are written concurrently and each shard writes its tensors
-        # concurrently. Using max_workers at both levels would spawn up to
-        # max_workers ** 2 threads, so the budget must be split, not squared.
-        rng = np.random.default_rng(3)
-        graph = ir.Graph(inputs=[], outputs=[], nodes=[], initializers=[], name="g")
-        for i in range(40):
-            tensor = ir.Tensor(
-                rng.integers(0, 255, size=200_000, dtype=np.uint8), name=f"w{i}"
-            )
-            graph.register_initializer(ir.Value(name=f"w{i}", const_value=tensor))
-        model = ir.Model(graph, ir_version=10)
+        # concurrently. Applying max_workers at both levels would spawn up to
+        # max_workers ** 2 threads, so the budget is split across the two
+        # levels. Shard counts are chosen so that each shard holds several
+        # tensors and the inner pools are genuinely live; with one tensor per
+        # shard the inner pool is skipped and the nesting is never exercised.
+        tensor_count = 64
+        tensor_size = 200_000
+        total_size = tensor_count * tensor_size
 
-        max_workers = 4
-        peak = 0
-        stop = threading.Event()
+        def build_model():
+            rng = np.random.default_rng(3)
+            graph = ir.Graph(inputs=[], outputs=[], nodes=[], initializers=[], name="g")
+            for i in range(tensor_count):
+                tensor = ir.Tensor(
+                    rng.integers(0, 255, size=tensor_size, dtype=np.uint8), name=f"w{i}"
+                )
+                graph.register_initializer(ir.Value(name=f"w{i}", const_value=tensor))
+            return ir.Model(graph, ir_version=10)
 
-        def monitor():
-            nonlocal peak
-            while not stop.is_set():
-                peak = max(peak, threading.active_count())
-                time.sleep(0.001)
+        for shard_count, max_workers in ((2, 8), (3, 8), (4, 8), (2, 4), (4, 16)):
+            with self.subTest(shard_count=shard_count, max_workers=max_workers):
+                model = build_model()
+                directory = tempfile.mkdtemp(dir=self.base_path)
+                stop = threading.Event()
+                samples: list[int] = []
 
-        watcher = threading.Thread(target=monitor)
-        watcher.start()
-        # Sample the baseline with the watcher already running so it is not
-        # mistaken for a worker.
-        time.sleep(0.01)
-        baseline = threading.active_count()
-        try:
-            external_data.unload_from_model(
-                model,
-                self.base_path,
-                "model.data",
-                max_shard_size_bytes=1_000_000,
-                max_workers=max_workers,
-            )
-        finally:
-            stop.set()
-            watcher.join()
+                watcher = threading.Thread(target=_sample_thread_count, args=(stop, samples))
+                watcher.start()
+                # Sample the baseline with the watcher already running so it is
+                # not mistaken for a worker.
+                time.sleep(0.01)
+                baseline = threading.active_count()
+                try:
+                    external_data.unload_from_model(
+                        model,
+                        directory,
+                        "model.data",
+                        max_shard_size_bytes=total_size // shard_count,
+                        max_workers=max_workers,
+                    )
+                finally:
+                    stop.set()
+                    watcher.join()
 
-        self.assertLessEqual(peak - baseline, max_workers)
+                self.assertLessEqual(max(samples, default=baseline) - baseline, max_workers)
 
     def test_parallel_sharded_save_matches_serial(self):
         def build_model():
