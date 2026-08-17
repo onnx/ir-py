@@ -443,6 +443,13 @@ def _write_tensor_with_budget_at(
         budget.release(reservation)
 
 
+def _create_tensor_write_locks(
+    tensors: Sequence[_protocols.TensorProtocol],
+) -> dict[int, threading.Lock]:
+    """Create locks that serialize writes of the same tensor object."""
+    return {id(tensor): threading.Lock() for tensor in tensors}
+
+
 def _write_external_data(
     tensors: Sequence[_protocols.TensorProtocol],
     external_data_infos: Sequence[_ExternalDataInfo],
@@ -451,6 +458,7 @@ def _write_external_data(
     max_workers: int | None = None,
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     budget: _ByteBudget | None = None,
+    tensor_write_locks: dict[int, threading.Lock] | None = None,
 ) -> None:
     """Write tensor data to an external file according to information stored in ExternalDataInfo objects.
 
@@ -466,6 +474,8 @@ def _write_external_data(
             when writing concurrently. Ignored when ``budget`` is given.
         budget: An existing byte budget to share across concurrent shard writes so that
             peak memory does not scale with the number of shards.
+        tensor_write_locks: Locks shared by shard writers to prevent concurrent
+            evaluation of the same tensor object.
     """
     requested_path = os.fspath(file_path)
     destination_path = (
@@ -494,6 +504,11 @@ def _write_external_data(
             budget=budget,
             max_workers=max_workers,
             max_in_flight_bytes=max_in_flight_bytes,
+            tensor_write_locks=(
+                tensor_write_locks
+                if tensor_write_locks is not None
+                else _create_tensor_write_locks(tensors)
+            ),
         )
         writer.write()
         # Windows cannot atomically replace a file while one of its mmap handles
@@ -532,6 +547,7 @@ class _ExternalDataWriter:
         budget: _ByteBudget | None,
         max_workers: int | None,
         max_in_flight_bytes: int,
+        tensor_write_locks: dict[int, threading.Lock],
     ) -> None:
         assert len(tensors) == len(external_data_infos), (
             "Number of tensors and external data infos should match"
@@ -544,6 +560,7 @@ class _ExternalDataWriter:
         self._budget = budget
         self._max_workers = max_workers
         self._max_in_flight_bytes = max_in_flight_bytes
+        self._tensor_write_locks = tensor_write_locks
 
     def write(self) -> None:
         """Select the cheapest writer that provides the requested concurrency."""
@@ -569,6 +586,17 @@ class _ExternalDataWriter:
             ),
         )
 
+    def _write_tensor(self, tensor, file, info: _ExternalDataInfo, budget) -> None:
+        """Write one tensor, serializing repeated references to the same object."""
+        with self._tensor_write_locks[id(tensor)]:
+            _write_tensor_with_budget_at(
+                tensor,
+                file,
+                info.offset,
+                info.length,
+                budget,
+            )
+
     def _write_serial(self) -> None:
         """Write sequentially through one file descriptor."""
         with open(self._file_path, "wb") as data_file:
@@ -582,13 +610,7 @@ class _ExternalDataWriter:
                 # A shard may use a serial writer while other shards are written
                 # concurrently. Honor their shared budget here too; otherwise one
                 # tensor per shard can be materialized at once with no byte bound.
-                _write_tensor_with_budget_at(
-                    tensor,
-                    data_file,
-                    tensor_info.offset,
-                    tensor_info.length,
-                    self._budget,
-                )
+                self._write_tensor(tensor, data_file, tensor_info, self._budget)
 
     def _write_parallel(self, max_workers: int) -> None:
         """Write concurrently through one file descriptor per worker.
@@ -638,13 +660,7 @@ class _ExternalDataWriter:
             assert tensor is not None
             with callback_lock:
                 self._invoke_callback(index, tensor, info.offset)
-            _write_tensor_with_budget_at(
-                tensor,
-                _thread_file(),
-                info.offset,
-                info.length,
-                budget,
-            )
+            self._write_tensor(tensor, _thread_file(), info, budget)
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -709,6 +725,7 @@ def convert_tensors_to_external(
     alignment: int | None = None,
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
     _budget: _ByteBudget | None = None,
+    _tensor_write_locks: dict[int, threading.Lock] | None = None,
 ) -> list[_core.ExternalTensor]:
     """Convert a sequence of any TensorProtocol tensors to external tensors.
 
@@ -765,6 +782,7 @@ def convert_tensors_to_external(
         max_workers=max_workers,
         max_in_flight_bytes=max_in_flight_bytes,
         budget=_budget,
+        tensor_write_locks=_tensor_write_locks,
     )
 
     # Create external tensor objects
@@ -795,6 +813,7 @@ def _write_external_tensors(
     # `-- multiple shard files
     #     `-- shard thread pool
     #         `-- one _ExternalDataWriter per shard -> serial or parallel
+    tensor_write_locks = _create_tensor_write_locks(tensors)
     if max_shard_size_bytes is None:
         # Single-file writes atomically replace an existing destination.
         # Sharded writes reject collisions because layouts with different
@@ -808,6 +827,7 @@ def _write_external_tensors(
             max_in_flight_bytes=max_in_flight_bytes,
             alignment=alignment,
             align_threshold=align_threshold,
+            _tensor_write_locks=tensor_write_locks,
         )
 
     tensor_shards = _shard_tensors(tensors, max_shard_size_bytes, alignment, align_threshold)
@@ -876,6 +896,7 @@ def _write_external_tensors(
                     alignment=alignment,
                     align_threshold=align_threshold,
                     _budget=shared_budget,
+                    _tensor_write_locks=tensor_write_locks,
                 )
                 for job_tensors, job_path, job_callback in shard_jobs
             ]
@@ -894,6 +915,7 @@ def _write_external_tensors(
                 max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
+                _tensor_write_locks=tensor_write_locks,
             )
         )
     return external_tensors

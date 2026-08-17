@@ -1107,6 +1107,50 @@ class ParallelWriteTest(unittest.TestCase):
                 tensors, self.base_path, "model.data", max_workers=4
             )
 
+    def test_shared_lazy_tensor_is_evaluated_once_across_shards(self):
+        evaluation_count = 0
+        count_lock = threading.Lock()
+
+        def evaluate():
+            nonlocal evaluation_count
+            with count_lock:
+                evaluation_count += 1
+            # Make concurrent cache misses deterministic without the write lock.
+            time.sleep(0.1)
+            return ir.tensor([1], dtype=ir.DataType.INT64)
+
+        shared_tensor = ir.LazyTensor(
+            evaluate,
+            dtype=ir.DataType.INT64,
+            shape=ir.Shape([1]),
+            cache=True,
+            name="shared",
+        )
+        model = ir.Model(
+            ir.Graph(
+                [],
+                [],
+                nodes=[],
+                initializers=[
+                    ir.Value(name="first", const_value=shared_tensor),
+                    ir.Value(name="second", const_value=shared_tensor),
+                ],
+                name="graph",
+            ),
+            ir_version=10,
+        )
+
+        external_data.unload_from_model(
+            model,
+            self.base_path,
+            "model.data",
+            size_threshold_bytes=0,
+            max_shard_size_bytes=shared_tensor.nbytes,
+            max_workers=2,
+        )
+
+        self.assertEqual(evaluation_count, 1)
+
     def test_byte_budget_bounds_in_flight_bytes(self):
         budget = external_data._ByteBudget(1000)
         first = budget.acquire(600)
