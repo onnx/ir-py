@@ -103,6 +103,21 @@ Notes:
   the destination only after the new data file is complete. A failed write
   leaves the previous file unchanged.
 - Sharded mode is stricter and can raise `FileExistsError` for collisions.
+  This is a preflight check; another process creating a destination shard
+  concurrently can still race with the final replacement.
+
+By default, tensors are stored densely in initializer declaration order, without
+padding between them. Set `alignment=65536` to retain the previous layout, which
+aligns tensors larger than 1 MiB to Windows' 64 KiB allocation granularity:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    alignment=65536,
+)
+```
 
 ## Save external data with progress callback
 

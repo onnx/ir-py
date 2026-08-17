@@ -28,6 +28,7 @@ from collections.abc import Iterator, Sequence
 from onnx_ir import _core, _enums, _protocols
 from onnx_ir import traversal as _traversal
 from onnx_ir._polyfill import zip
+from onnx_ir._shard_filename import get_shard_filename as _get_shard_filename
 
 # Default alignment threshold used when alignment is enabled: only tensors larger
 # than this get their offset aligned, so small initializers don't waste file space.
@@ -59,6 +60,26 @@ def _align_offset(
         return current_offset
     factor = max(4096, alignment)
     return (current_offset + factor - 1) // factor * factor
+
+
+def _validate_write_options(
+    max_workers: int | None,
+    max_in_flight_bytes: int,
+    alignment: int | None,
+    align_threshold: int,
+) -> None:
+    if max_workers is not None and max_workers <= 0:
+        raise ValueError(f"max_workers must be greater than 0, got {max_workers}.")
+    if max_in_flight_bytes <= 0:
+        raise ValueError(
+            f"max_in_flight_bytes must be greater than 0, got {max_in_flight_bytes}."
+        )
+    if alignment is not None and alignment <= 0:
+        raise ValueError(f"alignment must be greater than 0, got {alignment}.")
+    if align_threshold < 0:
+        raise ValueError(
+            f"align_threshold must be greater than or equal to 0, got {align_threshold}."
+        )
 
 
 @dataclasses.dataclass
@@ -158,39 +179,6 @@ def set_base_dir(graph: _core.Graph, base_dir: str | os.PathLike) -> None:
             tensor.base_dir = base_dir
 
 
-def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
-    """Generate a filename for a shard of external data.
-
-    Args:
-        base_name: The base filename (e.g., 'model.data').
-        shard_idx: The index of this shard (1-indexed).
-        total_shards: The total number of shards.
-
-    Returns:
-        The shard filename (e.g., 'model-00001-of-00003.data').
-    """
-    if total_shards == 1:
-        return base_name
-
-    dir_name, filename = os.path.split(base_name)
-    # Preserve the full suffix chain so the shard marker stays attached to the
-    # filename stem: ``model.onnx.data`` becomes
-    # ``model-00001-of-00003.onnx.data``. Repeated splitext calls implement the
-    # same general rule for any compound suffix without importing pathlib.
-    name = filename
-    suffixes = []
-    while True:
-        name, suffix = os.path.splitext(name)
-        if not suffix:
-            break
-        suffixes.append(suffix)
-    ext = "".join(reversed(suffixes))
-
-    # Always use 5 digits to follow transformers convention
-    shard_filename = f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
-    return os.path.join(dir_name, shard_filename) if dir_name else shard_filename
-
-
 def _make_shard_callback(
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None],
     total: int,
@@ -283,21 +271,6 @@ def _external_tensor_to_memory_tensor(
     tensor_data = tensor.numpy().copy()
     tensor.release()
     return _core.Tensor(tensor_data, name=tensor.name, dtype=tensor.dtype)
-
-
-def _estimate_shard_size_bytes(
-    tensors: Sequence[_protocols.TensorProtocol],
-    alignment: int | None = None,
-    align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
-) -> int:
-    """Estimate the shard file size in bytes for tensors written to one file."""
-    current_offset = 0
-    for tensor in tensors:
-        current_offset = _align_offset(
-            current_offset, tensor.nbytes, alignment, align_threshold
-        )
-        current_offset += tensor.nbytes
-    return current_offset
 
 
 def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike) -> bool:
@@ -662,12 +635,16 @@ class _ExternalDataWriter:
                 self._invoke_callback(index, tensor, info.offset)
             self._write_tensor(tensor, _thread_file(), info, budget)
 
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(_write_one, i) for i in range(len(self._tensors))]
-                # Surface the first failure while letting the pool unwind cleanly.
-                for future in concurrent.futures.as_completed(futures):
-                    future.result()
+            futures = [executor.submit(_write_one, i) for i in range(len(self._tensors))]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+        except BaseException:
+            executor.shutdown(wait=True, cancel_futures=True)
+            raise
+        else:
+            executor.shutdown(wait=True)
         finally:
             for data_file in files:
                 data_file.close()
@@ -729,6 +706,15 @@ def convert_tensors_to_external(
 ) -> list[_core.ExternalTensor]:
     """Convert a sequence of any TensorProtocol tensors to external tensors.
 
+    .. versionadded:: 1.1.0
+        Added ``max_workers``, ``max_in_flight_bytes``, ``alignment``, and
+        ``align_threshold``.
+
+    .. versionchanged:: 1.1.0
+        Tensors are packed densely in input order by default, and writes now
+        atomically replace the destination after succeeding. Added concurrent
+        writing and optional alignment controls.
+
     Data is written to a temporary file in the destination directory and atomically
     replaces the destination only after the write succeeds. Existing external
     tensors backed by the destination stream directly into the temporary file and
@@ -762,7 +748,11 @@ def convert_tensors_to_external(
     Returns:
         A list of external tensors derived from a list of input tensors. The order
         matches the input tensor order.
+
+    Raises:
+        ValueError: If a numeric write option is outside its supported range.
     """
+    _validate_write_options(max_workers, max_in_flight_bytes, alignment, align_threshold)
     path = os.path.join(base_dir, relative_path)
 
     # Compute external data information for each tensor and write to disk
@@ -964,6 +954,15 @@ def unload_from_model(
 ) -> _core.Model:
     """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
 
+    .. versionadded:: 1.1.0
+        Added ``max_shard_size_bytes``, ``max_workers``,
+        ``max_in_flight_bytes``, ``alignment``, and ``align_threshold``.
+
+    .. versionchanged:: 1.1.0
+        Initializers are packed densely in declaration order by default.
+        Single-file writes now replace the destination atomically. Added
+        concurrent writing, sharding, and optional alignment controls.
+
     It should only replace the initializers in the model with external tensors
     and not make any other modifications to the model.
 
@@ -1018,7 +1017,7 @@ def unload_from_model(
         converted to external tensors.
 
     Raises:
-        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        ValueError: If a numeric write option is outside its supported range.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
             destination shard file already exists on disk. The sharded write
             path never overwrites existing files (re-saving a model whose
@@ -1033,6 +1032,7 @@ def unload_from_model(
         responsibility to clean up. This function will neither delete nor
         rename pre-existing files that are not in the new destination set.
     """
+    _validate_write_options(max_workers, max_in_flight_bytes, alignment, align_threshold)
     if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
         raise ValueError(
             f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."

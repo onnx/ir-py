@@ -76,11 +76,7 @@ class AlignmentTest(unittest.TestCase):
     def test_dense_packing_is_the_default(self):
         # No alignment object means offsets are never advanced.
         large = external_data._DEFAULT_ALIGN_THRESHOLD + 1
-        tensors = [
-            ir.Tensor(np.zeros(large, dtype=np.uint8), name="a"),
-            ir.Tensor(np.zeros(large, dtype=np.uint8), name="b"),
-        ]
-        self.assertEqual(external_data._estimate_shard_size_bytes(tensors), 2 * large)
+        self.assertEqual(external_data._align_offset(large, large, None, large - 1), large)
 
     def test_tensor_at_or_below_threshold_is_not_aligned(self):
         self.assertEqual(
@@ -643,6 +639,8 @@ class ShardFilenameTest(unittest.TestCase):
             "model.weights.bin": "model-00002-of-00009.weights.bin",
             "archive.tar.gz": "archive-00002-of-00009.tar.gz",
             ".weights.data": ".weights-00002-of-00009.data",
+            "qwen2.5.onnx.data": "qwen2.5-00002-of-00009.onnx.data",
+            "llama-3.1-8b.onnx.data": "llama-3.1-8b-00002-of-00009.onnx.data",
         }
         for filename, expected in cases.items():
             with self.subTest(filename=filename):
@@ -768,7 +766,12 @@ class ShardTensorsTest(unittest.TestCase):
                     [t.name for t in tensors],
                 )
                 for shard in shards:
-                    size = external_data._estimate_shard_size_bytes(shard, policy)
+                    size = 0
+                    for tensor in shard:
+                        size = external_data._align_offset(
+                            size, tensor.nbytes, policy, threshold
+                        )
+                        size += tensor.nbytes
                     if len(shard) > 1:
                         self.assertLessEqual(size, limit, f"sizes={sizes} limit={limit}")
 
@@ -786,7 +789,16 @@ class ShardTensorsTest(unittest.TestCase):
                     tensors, tmp_dir, "estimate.bin", alignment=policy
                 )
                 actual = os.path.getsize(os.path.join(tmp_dir, "estimate.bin"))
-            self.assertEqual(external_data._estimate_shard_size_bytes(tensors, policy), actual)
+            expected = 0
+            for tensor in tensors:
+                expected = external_data._align_offset(
+                    expected,
+                    tensor.nbytes,
+                    policy,
+                    external_data._DEFAULT_ALIGN_THRESHOLD,
+                )
+                expected += tensor.nbytes
+            self.assertEqual(expected, actual)
 
 
 class ShardedExternalDataTest(unittest.TestCase):
@@ -1106,6 +1118,60 @@ class ParallelWriteTest(unittest.TestCase):
             external_data.convert_tensors_to_external(
                 tensors, self.base_path, "model.data", max_workers=4
             )
+
+    def test_exception_cancels_pending_writes(self):
+        blocker_started = threading.Event()
+        release_blockers = threading.Event()
+        started_count = 0
+        started_lock = threading.Lock()
+
+        class BlockingTensor(ir.Tensor):
+            def tofile(self, file):
+                nonlocal started_count
+                with started_lock:
+                    started_count += 1
+                blocker_started.set()
+                release_blockers.wait()
+                time.sleep(0.1)
+                super().tofile(file)
+
+        class ExplodingTensor(ir.Tensor):
+            def tofile(self, file):
+                blocker_started.wait()
+                release_blockers.set()
+                raise RuntimeError("boom")
+
+        tensors = [
+            BlockingTensor(np.zeros(8, dtype=np.uint8), name=f"t{i}") for i in range(20)
+        ]
+        tensors.insert(1, ExplodingTensor(np.zeros(8, dtype=np.uint8), name="exploding"))
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            external_data.convert_tensors_to_external(
+                tensors, self.base_path, "model.data", max_workers=2
+            )
+
+        self.assertLess(started_count, 20)
+
+    def test_invalid_write_options_raise(self):
+        tensors = self._make_tensors(count=1)
+        invalid_options = (
+            ("max_workers", 0),
+            ("max_in_flight_bytes", 0),
+            ("alignment", 0),
+            ("align_threshold", -1),
+        )
+        for option, value in invalid_options:
+            with (
+                self.subTest(option=option),
+                self.assertRaisesRegex(ValueError, option),
+            ):
+                external_data.convert_tensors_to_external(
+                    tensors,
+                    self.base_path,
+                    f"{option}.data",
+                    **{option: value},
+                )
 
     def test_shared_lazy_tensor_is_evaluated_once_across_shards(self):
         evaluation_count = 0

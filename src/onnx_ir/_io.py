@@ -50,7 +50,7 @@ def save(
     max_workers: int | None = None,
     max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
-    align_threshold: int = 1048576,
+    align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -144,8 +144,8 @@ def save(
             Ignored when ``alignment`` is ``None``.
 
     Raises:
-        ValueError: If the external data path is an absolute path.
-        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        ValueError: If the external data path is absolute or a numeric write
+            option is outside its supported range.
         ValueError: If ``max_shard_size_bytes`` is set without ``external_data``.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
             destination shard file already exists on disk. The sharded write

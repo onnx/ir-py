@@ -915,6 +915,16 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         return self.raw[offset : offset + length]
 
     def tofile(self, file) -> None:
+        """Write the external tensor bytes to a binary file-like object.
+
+        Regular files use ``copy_file_range`` when the platform and filesystem
+        support it. Other destinations use a bounded userspace buffer.
+
+        Args:
+            file: A file-like object with a ``write`` method. Objects that also
+                provide ``fileno``, ``flush``, ``tell``, and ``seek`` may use the
+                kernel-copy fast path.
+        """
         self._check_validity()
         self._check_path_containment()
         with open(self.path, "rb") as src:
@@ -929,6 +939,10 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             copy_file_range = getattr(os, "copy_file_range", None)
             if (
                 copy_file_range is not None
+                and all(
+                    callable(getattr(file, method, None))
+                    for method in ("fileno", "flush", "tell", "seek")
+                )
                 and _is_regular_file(src)
                 and _is_regular_file(file)
             ):

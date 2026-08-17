@@ -1103,6 +1103,49 @@ class ExternalTensorTest(unittest.TestCase):
 
         self.assertEqual(written_data, self.data.tobytes())
 
+    def test_tofile_falls_back_when_destination_has_no_tell(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        class FileWithoutTell:
+            def __init__(self, file):
+                self._file = file
+
+            def fileno(self):
+                return self._file.fileno()
+
+            def flush(self):
+                return self._file.flush()
+
+            def seek(self, offset, whence=os.SEEK_SET):
+                return self._file.seek(offset, whence)
+
+            def write(self, data):
+                return self._file.write(data)
+
+        with tempfile.NamedTemporaryFile() as output:
+            wrapped_output = FileWithoutTell(output)
+            with unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=AssertionError("kernel copy requires tell()"),
+                create=True,
+            ):
+                tensor.tofile(wrapped_output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(written_data, self.data.tobytes())
+
     def test_tofile_continues_fallback_after_partial_kernel_copy(self):
         external_tensor = self.model.graph.initializer[0]
         external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
