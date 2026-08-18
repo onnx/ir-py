@@ -466,6 +466,108 @@ class RemoveUnusedNodesSubgraphTest(unittest.TestCase):
         self.assertNotIn("Relu", op_types)
         self.assertIn("Sigmoid", op_types)
 
+    def test_subgraph_without_opset_import_inherits_parent_for_optional_outputs(self):
+        x = ir.Value(name="x")
+        cond = ir.Value(name="cond")
+
+        then_maxpool = ir.Node(
+            "",
+            "MaxPool",
+            [x],
+            num_outputs=2,
+            attributes=[ir.AttrInt64s("kernel_shape", [2, 2])],
+            name="then_maxpool",
+        )
+        then_graph = ir.Graph(
+            [],
+            [then_maxpool.outputs[0]],
+            nodes=[then_maxpool],
+            name="then_graph",
+        )
+
+        else_identity = ir.Node("", "Identity", [x], num_outputs=1, name="else_identity")
+        else_graph = ir.Graph(
+            [],
+            [else_identity.outputs[0]],
+            nodes=[else_identity],
+            name="else_graph",
+        )
+
+        if_node = ir.Node(
+            "",
+            "If",
+            [cond],
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+            name="if_node",
+        )
+        graph = ir.Graph(
+            [cond, x], [if_node.outputs[0]], nodes=[if_node], opset_imports={"": 17}
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
+
+        updated_then = if_node.attributes["then_branch"].as_graph()
+        # MaxPool output #1 is optional in opset 17. This confirms parent opset inheritance
+        # was used for the subgraph with missing opset imports.
+        self.assertEqual(len(next(iter(updated_then)).outputs), 1)
+
+    def test_subgraph_opset_imports_are_ignored_for_optional_output_removal(self):
+        x = ir.Value(name="x")
+        cond = ir.Value(name="cond")
+
+        then_maxpool = ir.Node(
+            "",
+            "MaxPool",
+            [x],
+            num_outputs=2,
+            attributes=[ir.AttrInt64s("kernel_shape", [2, 2])],
+            name="then_maxpool",
+        )
+        then_graph = ir.Graph(
+            [],
+            [then_maxpool.outputs[0]],
+            nodes=[then_maxpool],
+            name="then_graph",
+            opset_imports={"": 1},
+        )
+
+        else_identity = ir.Node("", "Identity", [x], num_outputs=1, name="else_identity")
+        else_graph = ir.Graph(
+            [],
+            [else_identity.outputs[0]],
+            nodes=[else_identity],
+            name="else_graph",
+            opset_imports={"": 1},
+        )
+
+        if_node = ir.Node(
+            "",
+            "If",
+            [cond],
+            num_outputs=1,
+            attributes=[
+                ir.AttrGraph("then_branch", then_graph),
+                ir.AttrGraph("else_branch", else_graph),
+            ],
+            name="if_node",
+        )
+        graph = ir.Graph(
+            [cond, x], [if_node.outputs[0]], nodes=[if_node], opset_imports={"": 17}
+        )
+        model = ir.Model(graph, ir_version=10)
+
+        onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
+
+        updated_then = if_node.attributes["then_branch"].as_graph()
+        # Subgraph opset imports are ignored. The main-graph opset (17) is used, so
+        # MaxPool optional output #1 is removed.
+        self.assertEqual(len(next(iter(updated_then)).outputs), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
