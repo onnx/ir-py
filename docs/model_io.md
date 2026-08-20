@@ -99,8 +99,25 @@ Notes:
 
 - `external_data` must be a **relative** path.
 - `max_shard_size_bytes` requires `external_data`.
-- Single-file mode overwrites destination data file.
+- Single-file mode writes in the destination directory and atomically replaces
+  the destination only after the new data file is complete. A failed write
+  leaves the previous file unchanged.
 - Sharded mode is stricter and can raise `FileExistsError` for collisions.
+  This is a preflight check; another process creating a destination shard
+  concurrently can still race with the final replacement.
+
+By default, tensors are stored densely in initializer declaration order, without
+padding between them. Set `alignment=65536` to retain the previous layout, which
+aligns tensors larger than 1 MiB to Windows' 64 KiB allocation granularity:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    alignment=65536,
+)
+```
 
 ## Save external data with progress callback
 
@@ -115,6 +132,58 @@ ir.save(
     size_threshold_bytes=0,
     callback=callback,
 )
+```
+
+## Speed up saving with multiple threads
+
+Pass `max_workers` to overlap tensor materialization (lazy tensor evaluation,
+dtype conversion) with disk writes and to write in parallel. This is most
+effective when initializers need work before they can be written, such as a
+`ir.LazyTensor` that casts from `bfloat16`:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    max_workers=8,
+)
+```
+
+Weights that live on an accelerator benefit the most. The device-to-host copy
+runs inside the write with the GIL released, so it overlaps with other threads'
+writes instead of serializing behind them.
+
+Peak memory stays bounded regardless of the worker count: at most
+`max_in_flight_bytes` (1GB by default) plus the size of the largest single
+tensor. Lower it when memory is tight:
+
+```python
+ir.save(
+    model,
+    "model.onnx",
+    external_data="model.data",
+    max_workers=8,
+    max_in_flight_bytes=64 * 1024**2,
+)
+```
+
+```{note}
+When `max_workers` is greater than 1, the `callback` is called from worker
+threads. Calls are serialized with a lock, so the callback does not need to be
+thread-safe itself, but it is **no longer invoked in `info.index` order**. Write
+progress callbacks as counters rather than assuming `index` increases:
+
+    import threading
+
+    lock = threading.Lock()
+    done = 0
+
+    def callback(tensor, info):
+        global done
+        with lock:
+            done += 1
+            print(f"[{done}/{info.total}] {tensor.name}")
 ```
 
 ## Save with safetensors backend
