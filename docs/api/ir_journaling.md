@@ -10,6 +10,9 @@ The `onnx_ir.journaling` module provides a journaling system for tracking and de
 This module is in alpha. The APIs can change.
 :::
 
+See [Debugging transformations](../debugging.md) for guidance on choosing a
+journal scope and combining journaling with structural inspection and validation.
+
 ## Quick Start
 
 Use the `Journal` class as a context manager to record operations:
