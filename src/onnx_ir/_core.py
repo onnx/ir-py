@@ -15,11 +15,13 @@ from __future__ import annotations
 import abc
 import contextlib
 import dataclasses
+import errno
 import heapq
 import logging
 import math
 import mmap
 import os
+import stat
 import sys
 import textwrap
 import typing
@@ -67,6 +69,12 @@ from onnx_ir import (
 if typing.TYPE_CHECKING:
     import numpy.typing as npt
     from typing_extensions import TypeGuard
+
+    from onnx_ir._multi_device import (
+        ModelConfiguration,
+        NodeDeviceConfiguration,
+        ShardingSpec,
+    )
 
 TArrayCompatible = typing.TypeVar(
     "TArrayCompatible",
@@ -384,6 +392,19 @@ def _supports_fileno(file: Any) -> bool:
     return True
 
 
+def _is_regular_file(file: Any) -> bool:
+    """Return whether a file-like object is backed by a regular file."""
+    if not _supports_fileno(file):
+        return False
+    try:
+        return stat.S_ISREG(os.fstat(file.fileno()).st_mode)
+    except OSError:
+        return False
+
+
+_EXTERNAL_TENSOR_COPY_CHUNK_SIZE = 1024 * 1024
+
+
 def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
     """Create a numpy array for the byte representation of the tensor.
 
@@ -436,16 +457,6 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
 
     Subclass this class to efficiently handle different types of tensors from different frameworks.
 
-    Attributes:
-        name: The name of the tensor.
-        shape: The shape of the tensor.
-        dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
-        doc_string: Documentation string.
-        raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -496,7 +507,7 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
                     f"Expected an object with a shape attribute, but {type(value)} does not have shape. "
                     "Please specify the shape explicitly."
                 )
-            self._shape = Shape(getattr(value, "shape"), frozen=True)  # noqa: B009
+            self._shape = Shape(getattr(value, "shape"), frozen=True)  # ruff: ignore[get-attr-with-constant]
         else:
             self._shape = shape
             self._shape.freeze()
@@ -904,15 +915,70 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         return self.raw[offset : offset + length]
 
     def tofile(self, file) -> None:
+        """Write the external tensor bytes to a binary file-like object.
+
+        Regular files use ``copy_file_range`` when the platform and filesystem
+        support it. Other destinations use a bounded userspace buffer.
+
+        Args:
+            file: A file-like object with a ``write`` method. Objects that also
+                provide ``fileno``, ``flush``, ``tell``, and ``seek`` may use the
+                kernel-copy fast path.
+        """
         self._check_validity()
         self._check_path_containment()
         with open(self.path, "rb") as src:
-            if self._offset is not None:
-                src.seek(self._offset)
+            source_offset = self._offset or 0
             bytes_to_copy = self._length or self.nbytes
-            chunk_size = 1024 * 1024  # 1MB
+            copied = 0
+
+            # Linux can copy file ranges entirely inside the kernel, avoiding
+            # Python byte buffers and userspace round trips. The API is absent
+            # on macOS/Windows and can reject cross-filesystem copies, so keep
+            # the portable chunked path as a transparent fallback.
+            copy_file_range = getattr(os, "copy_file_range", None)
+            if (
+                copy_file_range is not None
+                and all(
+                    callable(getattr(file, method, None))
+                    for method in ("fileno", "flush", "tell", "seek")
+                )
+                and _is_regular_file(src)
+                and _is_regular_file(file)
+            ):
+                file.flush()
+                destination_offset = file.tell()
+                try:
+                    while copied < bytes_to_copy:
+                        copied_now = copy_file_range(
+                            src.fileno(),
+                            file.fileno(),
+                            min(1 << 30, bytes_to_copy - copied),
+                            offset_src=source_offset + copied,
+                            offset_dst=destination_offset + copied,
+                        )
+                        if copied_now == 0:
+                            break
+                        copied += copied_now
+                except OSError as error:
+                    if error.errno not in {
+                        errno.EINVAL,
+                        errno.ENOSYS,
+                        errno.EOPNOTSUPP,
+                        errno.EPERM,
+                        errno.EXDEV,
+                    }:
+                        raise
+                finally:
+                    # Explicit offsets leave the descriptor position unchanged.
+                    # Advance the Python file object so consecutive writes retain
+                    # the same semantics as write().
+                    file.seek(destination_offset + copied)
+
+            src.seek(source_offset + copied)
+            bytes_to_copy -= copied
             while bytes_to_copy > 0:
-                chunk = src.read(min(chunk_size, bytes_to_copy))
+                chunk = src.read(min(_EXTERNAL_TENSOR_COPY_CHUNK_SIZE, bytes_to_copy))
                 if not chunk:
                     failed_at_offset = (self._offset or 0) + (
                         (self._length or self.nbytes) - bytes_to_copy
@@ -986,7 +1052,7 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
                     f"Expected an object with a shape attribute, but {type(value)} does not have shape. "
                     "Please specify the shape explicitly."
                 )
-            self._shape = Shape(getattr(value, "shape"), frozen=True)  # noqa: B009
+            self._shape = Shape(getattr(value, "shape"), frozen=True)  # ruff: ignore[get-attr-with-constant]
         else:
             self._shape = shape
             self._shape.freeze()
@@ -1065,16 +1131,10 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
          [3]]
 
     Attributes:
-        func: The function that returns the actual tensor.
-        dtype: The data type of the tensor.
-        shape: The shape of the tensor.
         cache: Whether to cache the result of the function. If False,
             the function is called every time the tensor content is accessed.
             If True, the function is called only once and the result is cached in memory.
             Default is False.
-        name: The name of the tensor.
-        doc_string: The documentation string.
-        metadata_props: The metadata properties.
     """
 
     __slots__ = (
@@ -1138,6 +1198,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
     @property
     def raw(self) -> Callable[[], _protocols.TensorProtocol]:
+        """The thunk that materializes the backing tensor."""
         return self._func
 
     @property
@@ -1159,6 +1220,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
         return self._evaluate().tobytes()
 
     def tofile(self, file) -> None:
+        """Write tensor bytes to a binary file-like object."""
         tensor = self._evaluate()
         if hasattr(tensor, "tofile"):
             # Some existing implementation of TensorProtocol
@@ -1689,11 +1751,6 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         >>> shape.frozen
         True
 
-    Attributes:
-        dims: A tuple of dimensions representing the shape.
-            Each dimension can be an integer, None, or a :class:`SymbolicDim`.
-        frozen: Indicates whether the shape is immutable. When frozen, the shape
-            cannot be modified or unfrozen.
     """
 
     __slots__ = ("_dims", "_frozen")
@@ -1767,6 +1824,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return len(self._dims)
 
     def numpy(self) -> tuple[int, ...]:
+        """Return the shape as a tuple of ints.
+
+        Raises:
+            ValueError: If any dimension is symbolic and cannot be represented as int.
+        """
         if any(not isinstance(dim, int) for dim in self._dims):
             raise ValueError(f"Cannot convert the shape {self} to a tuple of ints")
         return tuple(dim for dim in self._dims)  # type: ignore
@@ -1847,11 +1909,11 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return not self.__eq__(other)
 
     @typing.overload
-    def is_static(self, dim: int) -> bool:  # noqa: D418
+    def is_static(self, dim: int) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if the dimension is static."""
 
     @typing.overload
-    def is_static(self) -> bool:  # noqa: D418
+    def is_static(self) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if all dimensions are static."""
 
     def is_static(self, dim=None) -> bool:
@@ -1861,14 +1923,19 @@ class Shape(_protocols.ShapeProtocol, _display.PrettyPrintable):
         return isinstance(self[dim], int)
 
     @typing.overload
-    def is_dynamic(self, dim: int) -> bool:  # noqa: D418
+    def is_dynamic(self, dim: int) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if the dimension is dynamic."""
 
     @typing.overload
-    def is_dynamic(self) -> bool:  # noqa: D418
+    def is_dynamic(self) -> bool:  # ruff: ignore[overload-with-docstring]
         """Return True if any dimension is dynamic."""
 
     def is_dynamic(self, dim=None) -> bool:
+        """Return whether dimensions are dynamic.
+
+        When ``dim`` is ``None``, returns True if any dimension is dynamic.
+        Otherwise returns True if the specified dimension is dynamic.
+        """
         if dim is None:
             return not self.is_static()
         return not self.is_static(dim)
@@ -2028,6 +2095,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         "_outputs",
         "_overload",
         "_version",
+        "device_configurations",
         "doc_string",
     )
 
@@ -2046,8 +2114,12 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         name: str | None = None,
         doc_string: str | None = None,
         metadata_props: dict[str, str] | None = None,
+        device_configurations: tuple[NodeDeviceConfiguration, ...] = (),
     ):
         """Initialize a node and add it as a user of the input values.
+
+        .. versionadded:: 1.0.0
+            ``device_configurations`` parameter.
 
         Args:
             domain: The domain of the operator. For onnx operators, this is an empty string.
@@ -2066,6 +2138,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                 set by a :class:`Graph` if ``graph`` is specified.
             doc_string: The documentation string.
             metadata_props: The metadata properties.
+            device_configurations: Multi-device configuration metadata for the node.
 
         Raises:
             TypeError: If the attributes are not :class:`Attr`.
@@ -2092,6 +2165,7 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         self._version: int | None = version
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
+        self.device_configurations: tuple[NodeDeviceConfiguration, ...] = device_configurations
         # _graph is set by graph.append
         self._graph: Graph | None = None
         # Add the node to the graph if graph is specified
@@ -2180,11 +2254,16 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         return f"{outputs_text} ⬅️ {node_type_text}{inputs_text}{attributes_text}"
 
     def __repr__(self) -> str:
+        device_configurations = (
+            f", device_configurations={self.device_configurations!r}"
+            if self.device_configurations
+            else ""
+        )
         return (
             f"{self.__class__.__name__}(name={self._name!r}, domain={self._domain!r}, "
             f"op_type={self._op_type!r}, inputs={self._inputs!r}, attributes={self._attributes!r}, "
             f"overload={self._overload!r}, outputs={self._outputs!r}, "
-            f"version={self._version!r}, doc_string={self.doc_string!r})"
+            f"version={self._version!r}, doc_string={self.doc_string!r}{device_configurations})"
         )
 
     @property
@@ -2315,6 +2394,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
             old_input._remove_usage(self, index)  # pylint: disable=protected-access
         if value is not None:
             value._add_usage(self, index)  # pylint: disable=protected-access
+        if old_input is not None and old_input is not value:
+            self._drop_sharding_for_value(old_input)
 
     def prepend(self, /, nodes: Node | Iterable[Node]) -> None:
         """Insert a node before this node in the list of nodes in the graph.
@@ -2397,11 +2478,14 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
                     raise ValueError(
                         f"Cannot remove output {output} because it has uses: {output.uses()}"
                     )
-            for output in self._outputs[new_size:]:
+            removed_outputs = self._outputs[new_size:]
+            for output in removed_outputs:
                 # Detach the output from this node
                 output._producer = None  # pylint: disable=protected-access
                 output._index = -1  # pylint: disable=protected-access
             self._outputs = self._outputs[:new_size]
+            for output in removed_outputs:
+                self._drop_sharding_for_value(output)
         else:
             # Create new outputs
             new_outputs = [Value(self, index=i) for i in range(current_size, new_size)]
@@ -2461,6 +2545,228 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         """
         return self._domain, self._op_type, self._overload
 
+    def shard(
+        self,
+        value: Value,
+        *,
+        configuration: ModelConfiguration,
+        axis: int,
+        num_shards: int,
+        device_indices: Sequence[int] = (),
+        pipeline_stage: int | None = None,
+    ) -> None:
+        """Record a sharding of ``value`` along ``axis`` for this node.
+
+        This is a convenience wrapper that builds and attaches the appropriate
+        multi-device configuration metadata in :attr:`device_configurations`.
+        The sharding is bound to ``value`` and ``configuration`` by object
+        identity, so it follows renames and survives as long as the objects do.
+
+        Calling this method repeatedly for the same ``value`` and
+        ``configuration`` but different axes builds a single
+        :class:`~onnx_ir.ShardingSpec` with one
+        :class:`~onnx_ir.ShardedDim` per axis (the canonical representation for
+        sharding a tensor across a multi-axis device mesh). ``device_indices``
+        are unioned across those calls.
+
+        .. versionadded:: 1.0.0
+
+        Args:
+            value: The input or output value to shard. Must be one of this node's
+                own inputs or outputs.
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the sharding
+                belongs to.
+            axis: The axis along which ``value`` is sharded. May be negative to
+                count from the back (in the range ``[-rank, rank)`` following the
+                ONNX convention), when the rank of ``value`` is known.
+            num_shards: The number of shards along ``axis``. Must be ``>= 1``.
+            device_indices: Optional indices (into ``configuration.device_names``) of
+                the devices the tensor is placed on. These are device *indices*,
+                not the device *names* passed to
+                :meth:`Model.add_device_configuration`.
+            pipeline_stage: Optional pipeline stage for the configuration. Must be
+                ``>= 0`` and must not conflict with a stage already set on the
+                configuration.
+
+        Raises:
+            ValueError: If ``value`` is not an input or output of the node, if
+                ``num_shards < 1``, if ``pipeline_stage`` is negative, if ``axis``
+                is out of range when the rank of ``value`` is known, if ``value``
+                is already sharded along ``axis`` for this ``configuration``, or
+                if ``pipeline_stage`` conflicts with the configuration's existing
+                stage.
+        """
+        from onnx_ir import _multi_device
+
+        if value is None:
+            raise ValueError("Cannot shard a None value.")
+        if value not in set(self._inputs) | set(self._outputs):
+            raise ValueError(
+                f"Value {value!r} is not an input or output of node {self.name!r}; "
+                "only a node's own inputs or outputs can be sharded."
+            )
+        if num_shards < 1:
+            raise ValueError(f"num_shards must be >= 1, got {num_shards}.")
+        if pipeline_stage is not None and pipeline_stage < 0:
+            raise ValueError(f"pipeline_stage must be >= 0, got {pipeline_stage}.")
+        shape = value.shape
+        rank = len(shape) if shape is not None else None
+        if rank is not None and not -rank <= axis < rank:
+            raise ValueError(
+                f"axis {axis} is out of range for value {value.name!r} (rank={rank})."
+            )
+        dim = shape[axis] if shape is not None else SymbolicDim(None)
+        new_dim = _multi_device.ShardedDim(
+            axis=axis,
+            simple_shardings=(_multi_device.SimpleShardedDim(dim=dim, num_shards=num_shards),),
+        )
+        device_indices = tuple(device_indices)
+        new_spec = _multi_device.ShardingSpec(
+            value=value, device=device_indices, sharded_dims=(new_dim,)
+        )
+
+        def _normalize_axis(a: int) -> int:
+            # Treat axis -1 and axis rank-1 as the same axis when the rank is known.
+            return a + rank if (rank is not None and a < 0) else a
+
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if existing.configuration is not configuration:
+                continue
+            if (
+                pipeline_stage is not None
+                and existing.pipeline_stage is not None
+                and pipeline_stage != existing.pipeline_stage
+            ):
+                raise ValueError(
+                    f"Conflicting pipeline_stage for configuration "
+                    f"{configuration.name!r} on node {self.name!r}: existing "
+                    f"{existing.pipeline_stage}, new {pipeline_stage}."
+                )
+            stage = pipeline_stage if pipeline_stage is not None else existing.pipeline_stage
+            specs = list(existing.sharding_specs)
+            for j, spec in enumerate(specs):
+                if spec.value is not value:
+                    continue
+                # Extend the existing spec for this value with another axis.
+                if any(
+                    _normalize_axis(sharded.axis) == _normalize_axis(axis)
+                    for sharded in spec.sharded_dims
+                ):
+                    raise ValueError(
+                        f"Value {value.name!r} is already sharded along axis {axis} "
+                        f"for configuration {configuration.name!r} on node {self.name!r}."
+                    )
+                merged_devices = (
+                    *spec.device,
+                    *(d for d in device_indices if d not in spec.device),
+                )
+                specs[j] = dataclasses.replace(
+                    spec,
+                    device=merged_devices,
+                    sharded_dims=(*spec.sharded_dims, new_dim),
+                )
+                break
+            else:
+                specs.append(new_spec)
+            configurations[i] = dataclasses.replace(
+                existing, sharding_specs=tuple(specs), pipeline_stage=stage
+            )
+            break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration,
+                    sharding_specs=(new_spec,),
+                    pipeline_stage=pipeline_stage,
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
+    def sharding_of(self, value: Value) -> tuple[ShardingSpec, ...]:
+        """Return all sharding specs on this node that target ``value``.
+
+        Matching is by object identity, so this returns the live specs that
+        reference exactly ``value``.
+
+        .. versionadded:: 1.0.0
+        """
+        result = []
+        for configuration in self.device_configurations:
+            for spec in configuration.sharding_specs:
+                if spec.value is value:
+                    result.append(spec)
+        return tuple(result)
+
+    def _drop_sharding_for_value(self, value: Value) -> None:
+        """Drop any ShardingSpec on this node that targets ``value``.
+
+        Called when ``value`` stops being an input or output of the node (e.g.
+        after :meth:`replace_input_with` or :meth:`resize_outputs`), so that
+        ``device_configurations`` does not keep specs pointing at a value that is
+        no longer part of the node. No-op if ``value`` is still in the node's
+        inputs or outputs (it may be referenced more than once).
+        """
+        if not self.device_configurations:
+            return
+        if value in set(self._inputs) | set(self._outputs):
+            return
+        new_configurations = []
+        changed = False
+        for config in self.device_configurations:
+            kept = tuple(spec for spec in config.sharding_specs if spec.value is not value)
+            if len(kept) != len(config.sharding_specs):
+                new_configurations.append(dataclasses.replace(config, sharding_specs=kept))
+                changed = True
+            else:
+                new_configurations.append(config)
+        if changed:
+            self.device_configurations = tuple(new_configurations)
+
+    def set_pipeline_stage(self, configuration: ModelConfiguration, stage: int) -> None:
+        """Assign this node to a pipeline ``stage`` for ``configuration``.
+
+        This expresses pure device placement / pipeline parallelism — for
+        example putting a contiguous block of decoder layers on one device.
+        Unlike :meth:`shard`, it attaches no sharding spec; the node is placed
+        as a whole.
+
+        If the node already has a
+        :class:`~onnx_ir.NodeDeviceConfiguration` for ``configuration`` (for
+        example one created by :meth:`shard`), its ``pipeline_stage`` is updated
+        in place; otherwise a new placement-only configuration is created.
+        Calling this method again replaces the stage.
+
+        How a stage maps to a physical device is by convention: a common choice
+        is ``stage == device index`` into ``configuration.device_names``.
+
+        .. versionadded:: 1.0.0
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` the stage
+                belongs to.
+            stage: The pipeline stage index. Must be ``>= 0``.
+
+        Raises:
+            ValueError: If ``stage`` is negative.
+        """
+        from onnx_ir import _multi_device
+
+        if stage < 0:
+            raise ValueError(f"pipeline stage must be >= 0, got {stage}.")
+        configurations = list(self.device_configurations)
+        for i, existing in enumerate(configurations):
+            if existing.configuration is configuration:
+                configurations[i] = dataclasses.replace(existing, pipeline_stage=stage)
+                break
+        else:
+            configurations.append(
+                _multi_device.NodeDeviceConfiguration(
+                    configuration=configuration, pipeline_stage=stage
+                )
+            )
+        self.device_configurations = tuple(configurations)
+
     def display(self, *, page: bool = False) -> None:
         """Pretty print the node.
 
@@ -2470,6 +2776,8 @@ class Node(_protocols.NodeProtocol, _display.PrettyPrintable):
         print(f"Node: {self.name!r}")
         if self.doc_string:
             print(f"Doc: {self.doc_string}")
+        if self.device_configurations:
+            print(f"Device configurations: {len(self.device_configurations)}")
         super().display(page=page)
 
 
@@ -2492,7 +2800,7 @@ class _TensorTypeBase(_protocols.TypeProtocol, _display.PrettyPrintable, Hashabl
 
     @property
     def elem_type(self) -> _enums.DataType:
-        """Return the element type of the tensor type."""
+        """The element type of the tensor type."""
         return self.dtype
 
     def __hash__(self) -> int:
@@ -2578,11 +2886,20 @@ class _OpHandlerProtocol(Protocol):
         For consistency, none of the other comparison operators are included.
     """
 
-    def Add(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Sub(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Mul(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Div(self, lhs, rhs) -> Value: ...  # noqa: N802
-    def Neg(self, operand) -> Value: ...  # noqa: N802
+    def Add(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs + rhs``."""
+
+    def Sub(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs - rhs``."""
+
+    def Mul(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs * rhs``."""
+
+    def Div(self, lhs, rhs) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``lhs / rhs``."""
+
+    def Neg(self, operand) -> Value:  # ruff: ignore[invalid-function-name]
+        """Compute ``-operand``."""
 
 
 def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerProtocol | None:
@@ -2592,6 +2909,7 @@ def set_value_magic_handler(handler: _OpHandlerProtocol | None) -> _OpHandlerPro
     the magic handler to enable arithmetic operations on Values.
 
     Example::
+
         class MyOpHandler:
             def Add(self, lhs, rhs):
                 # Implement addition logic here
@@ -2811,7 +3129,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @property
     def graph(self) -> Graph | None:
-        """Return the graph that defines this value.
+        """The graph that defines this value.
 
         When the value is an input/output/initializer of a graph, the owning graph
         is that graph. When the value is an output of a node, the owning graph is the
@@ -3121,7 +3439,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
             if dim1 == dim2:
                 return dim1
             if isinstance(dim1, int) and isinstance(dim2, int):
-                raise ValueError(  # noqa: TRY004
+                raise ValueError(  # ruff: ignore[type-check-without-type-error]
                     f"Conflicting dimensions {dim1} and {dim2} when merging shapes "
                     f"{self} and {other}."
                 )
@@ -3140,7 +3458,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
 
 @deprecated("Input is deprecated since 0.1.9. Use ir.val(...) instead.")
-def Input(  # noqa: N802
+def Input(  # ruff: ignore[invalid-function-name]
     name: str | None = None,
     shape: Shape | None = None,
     type: _protocols.TypeProtocol | None = None,
@@ -3215,13 +3533,6 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     Attributes:
         name: The name of the graph.
-        inputs: The input values of the graph.
-        outputs: The output values of the graph.
-        initializers: The initializers in the graph.
-        doc_string: Documentation string.
-        opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -3272,10 +3583,12 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """The graph input values."""
         return self._inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """The graph output values."""
         return self._outputs
 
     @property
@@ -3328,6 +3641,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def doc_string(self) -> str | None:
+        """The graph documentation string."""
         return self._doc_string
 
     @doc_string.setter
@@ -3336,6 +3650,7 @@ class Graph(_protocols.GraphProtocol, Sequence[Node], _display.PrettyPrintable):
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """The opset imports as ``{domain: version}``."""
         return self._opset_imports
 
     @typing.overload
@@ -3816,8 +4131,6 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
         initializers: The initializers in the graph.
         doc_string: Documentation string.
         opset_imports: Opsets imported by the graph.
-        metadata_props: Metadata that will be serialized to the ONNX file.
-        meta: Metadata store for graph transform passes.
     """
 
     __slots__ = (
@@ -3888,6 +4201,7 @@ class GraphView(Sequence[Node], _display.PrettyPrintable):
 
     @property
     def metadata_props(self) -> dict[str, str]:
+        """Metadata that is serialized to ONNX."""
         if self._metadata_props is None:
             self._metadata_props = {}
         return self._metadata_props
@@ -3931,6 +4245,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         "_functions",
         "_metadata",
         "_metadata_props",
+        "device_configurations",
         "doc_string",
         "domain",
         "graph",
@@ -3943,6 +4258,9 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
 
     A model is a container for a graph and metadata.
 
+    .. versionadded:: 1.0.0
+        ``device_configurations`` parameter.
+
     Attributes:
         graph: The graph of the model.
         ir_version: The version of the IR.
@@ -3953,6 +4271,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: Documentation string.
         functions: The functions defined in the model.
         metadata_props: Metadata.
+        device_configurations: Multi-device configuration metadata for the model.
     """
 
     def __init__(
@@ -3967,6 +4286,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         doc_string: str | None = None,
         functions: Sequence[Function] = (),
         metadata_props: dict[str, str] | None = None,
+        device_configurations: tuple[ModelConfiguration, ...] = (),
     ) -> None:
         self.graph: Graph = graph
         self.ir_version = ir_version
@@ -3978,6 +4298,7 @@ class Model(_protocols.ModelProtocol, _display.PrettyPrintable):
         self._functions = {func.identifier(): func for func in functions}
         self._metadata: _metadata.MetadataStore | None = None
         self._metadata_props: dict[str, str] | None = metadata_props
+        self.device_configurations: tuple[ModelConfiguration, ...] = device_configurations
 
     @property
     def functions(self) -> dict[_protocols.OperatorIdentifier, Function]:
@@ -4053,6 +4374,147 @@ Model(
         yield self.graph
         yield from self.graph.subgraphs()
 
+    def add_device_configuration(
+        self,
+        name: str,
+        *,
+        num_devices: int | None = None,
+        device_names: Sequence[str] = (),
+    ) -> ModelConfiguration:
+        """Create a :class:`~onnx_ir.ModelConfiguration` and register it on the model.
+
+        The returned object can be passed to :meth:`Node.shard` to bind node
+        shardings to this configuration.
+
+        .. versionadded:: 1.0.0
+
+        Args:
+            name: A unique name for the configuration.
+            num_devices: The number of devices. Defaults to ``len(device_names)``.
+                Must be ``>= 1``.
+            device_names: Optional device names (e.g. ``("CPU", "CUDA:0")``).
+                These are human-readable *names*; the device *indices* used by
+                :meth:`Node.shard` index into this sequence. When provided, the
+                number of names must equal ``num_devices``.
+
+        Returns:
+            The newly created configuration, already appended to
+            :attr:`device_configurations`.
+
+        Raises:
+            ValueError: If a configuration with ``name`` already exists, if
+                ``name`` is empty, if ``num_devices < 1``, or if
+                ``device_names`` is given and its length does not equal
+                ``num_devices``.
+        """
+        from onnx_ir import _multi_device
+
+        if not name:
+            raise ValueError("Configuration name must be a non-empty string.")
+        for existing in self.device_configurations:
+            if existing.name == name:
+                raise ValueError(
+                    f"A device configuration named {name!r} already exists on the model."
+                )
+        device_names = tuple(device_names)
+        if num_devices is None:
+            num_devices = len(device_names)
+        if num_devices < 1:
+            raise ValueError(
+                f"num_devices must be >= 1 for a registered configuration, got {num_devices}."
+            )
+        if device_names and len(device_names) != num_devices:
+            raise ValueError(
+                f"device_names has {len(device_names)} entries but num_devices is "
+                f"{num_devices}; they must match when names are provided."
+            )
+        configuration = _multi_device.ModelConfiguration(
+            name=name, num_devices=num_devices, device_names=device_names
+        )
+        self.device_configurations = (*self.device_configurations, configuration)
+        return configuration
+
+    def remove_device_configuration(
+        self,
+        configuration: ModelConfiguration | str,
+        *,
+        cascade: bool = False,
+    ) -> ModelConfiguration:
+        """Remove a device configuration from the model.
+
+        This is the counterpart of :meth:`add_device_configuration`.
+
+        .. versionadded:: 1.0.0
+
+        Args:
+            configuration: The :class:`~onnx_ir.ModelConfiguration` object to
+                remove, or the name of the configuration to remove.
+            cascade: When ``True``, also remove every
+                :class:`~onnx_ir.NodeDeviceConfiguration` that references this
+                configuration from all nodes in the model's graph and functions,
+                so that no dangling references remain. If removal was requested by
+                name, node configurations bound to any same-named configuration
+                object are dropped too; if requested by object, only that exact
+                object is matched. When ``False`` (default), node references are
+                left intact; they become dangling and can be detected by the
+                internal device-configuration checker.
+
+        Returns:
+            The removed configuration.
+
+        Raises:
+            ValueError: If no matching configuration is registered on the model.
+        """
+        if isinstance(configuration, str):
+            by_name = True
+            target: ModelConfiguration | None = None
+            for existing in self.device_configurations:
+                if existing.name == configuration:
+                    target = existing
+                    break
+            if target is None:
+                raise ValueError(
+                    f"No device configuration named {configuration!r} on the model."
+                )
+        else:
+            by_name = False
+            if not any(c is configuration for c in self.device_configurations):
+                raise ValueError(
+                    f"Configuration {configuration!r} is not registered on the model."
+                )
+            target = configuration
+
+        self.device_configurations = tuple(
+            c for c in self.device_configurations if c is not target
+        )
+
+        if cascade:
+            # When removal was requested by name, also drop node configurations
+            # bound to a same-named (but non-identical) configuration object, so
+            # no dangling same-named references are left behind. When requested by
+            # object, only that exact object is removed.
+            def _is_target(config: NodeDeviceConfiguration) -> bool:
+                if config.configuration is None:
+                    return False
+                if config.configuration is target:
+                    return True
+                return by_name and config.configuration.name == target.name
+
+            nodes: list[Node] = list(self.graph.all_nodes())
+            for func in self.functions.values():
+                nodes.extend(func.all_nodes())
+            for node in nodes:
+                device_configurations = node.device_configurations
+                if not device_configurations:
+                    continue
+                filtered = tuple(
+                    config for config in device_configurations if not _is_target(config)
+                )
+                if len(filtered) != len(device_configurations):
+                    node.device_configurations = filtered
+
+        return target
+
     def clone(self, deep_copy: bool = False) -> Model:
         """Create a deep copy of this model.
 
@@ -4082,6 +4544,7 @@ Model(
             doc_string=self.doc_string,
             functions=new_functions,
             metadata_props=dict(self.metadata_props),
+            device_configurations=self.device_configurations,
         )
 
         return new_model
@@ -4097,17 +4560,6 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
     seen as a Sequence of nodes and should be used as such. For example, to obtain
     all nodes as a list, call ``list(function)``.
 
-    Attributes:
-        name: The function name.
-        domain: The domain this function is defined in.
-        overload: The overload name when the function is overloaded.
-        inputs: The input values of the function.
-        attributes: The attributes this function defines.
-        outputs: The output values of the function.
-        opset_imports: Opsets imported by the function.
-        doc_string: Documentation string.
-        meta: Metadata store for graph transform passes.
-        metadata_props: Metadata that will be serialized to the ONNX file.
     """
 
     __slots__ = (
@@ -4138,10 +4590,12 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
         self._attributes = _graph_containers.Attributes(attributes, owner=self)
 
     def identifier(self) -> _protocols.OperatorIdentifier:
+        """Return ``(domain, name, overload)`` for this function."""
         return self.domain, self.name, self.overload
 
     @property
     def name(self) -> str:
+        """The function name."""
         return self._name
 
     @name.setter
@@ -4150,6 +4604,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def domain(self) -> str:
+        """The function domain."""
         return self._domain
 
     @domain.setter
@@ -4158,6 +4613,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def overload(self) -> str:
+        """The overload name for this function."""
         return self._overload
 
     @overload.setter
@@ -4166,14 +4622,17 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def inputs(self) -> MutableSequence[Value]:
+        """The function input values."""
         return self._graph.inputs
 
     @property
     def outputs(self) -> MutableSequence[Value]:
+        """The function output values."""
         return self._graph.outputs
 
     @property
     def attributes(self) -> _graph_containers.Attributes:
+        """The function attribute definitions."""
         return self._attributes
 
     @property
@@ -4210,6 +4669,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def doc_string(self) -> str | None:
+        """The function documentation string."""
         return self._graph.doc_string
 
     @doc_string.setter
@@ -4218,6 +4678,7 @@ class Function(_protocols.FunctionProtocol, Sequence[Node], _display.PrettyPrint
 
     @property
     def opset_imports(self) -> dict[str, int]:
+        """The opset imports as ``{domain: version}``."""
         return self._graph.opset_imports
 
     @property
@@ -4632,7 +5093,7 @@ class Attr(
 # NOTE: The following functions are just for convenience
 
 
-def RefAttr(  # noqa: N802
+def RefAttr(  # ruff: ignore[invalid-function-name]
     name: str,
     ref_attr_name: str,
     type: _enums.AttributeType,
@@ -4653,7 +5114,7 @@ def RefAttr(  # noqa: N802
     return Attr(name, type, None, ref_attr_name=ref_attr_name, doc_string=doc_string)
 
 
-def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a float attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4664,7 +5125,7 @@ def AttrFloat32(name: str, value: float | np.floating, doc_string: str | None = 
     )
 
 
-def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create an int attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4675,7 +5136,7 @@ def AttrInt64(name: str, value: int | np.integer, doc_string: str | None = None)
     )
 
 
-def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a str attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4686,7 +5147,7 @@ def AttrString(name: str, value: str, doc_string: str | None = None) -> Attr:  #
     )
 
 
-def AttrTensor(  # noqa: N802
+def AttrTensor(  # ruff: ignore[invalid-function-name]
     name: str, value: _protocols.TensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a tensor attribute."""
@@ -4699,7 +5160,7 @@ def AttrTensor(  # noqa: N802
     )
 
 
-def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a graph attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4710,7 +5171,7 @@ def AttrGraph(name: str, value: Graph, doc_string: str | None = None) -> Attr:  
     )
 
 
-def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a float sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4721,7 +5182,7 @@ def AttrFloat32s(name: str, value: Sequence[float], doc_string: str | None = Non
     )
 
 
-def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create an int sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4732,7 +5193,7 @@ def AttrInt64s(name: str, value: Sequence[int], doc_string: str | None = None) -
     )
 
 
-def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a string sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4743,7 +5204,7 @@ def AttrStrings(name: str, value: Sequence[str], doc_string: str | None = None) 
     )
 
 
-def AttrTensors(  # noqa: N802
+def AttrTensors(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[_protocols.TensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a tensor sequence attribute."""
@@ -4756,7 +5217,7 @@ def AttrTensors(  # noqa: N802
     )
 
 
-def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a graph sequence attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4768,7 +5229,7 @@ def AttrGraphs(name: str, value: Sequence[Graph], doc_string: str | None = None)
 
 
 # NOTE: SparseTensor should be a sparse tensor proto
-def AttrSparseTensor(  # noqa: N802
+def AttrSparseTensor(  # ruff: ignore[invalid-function-name]
     name: str, value: _protocols.SparseTensorProtocol, doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor attribute."""
@@ -4781,7 +5242,7 @@ def AttrSparseTensor(  # noqa: N802
     )
 
 
-def AttrSparseTensors(  # noqa: N802
+def AttrSparseTensors(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[_protocols.SparseTensorProtocol], doc_string: str | None = None
 ) -> Attr:
     """Create a sparse tensor sequence attribute."""
@@ -4805,7 +5266,7 @@ class TypeAndShape:
     shape: Shape | None
 
 
-def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # noqa: N802
+def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None) -> Attr:  # ruff: ignore[invalid-function-name]
     """Create a type attribute."""
     # NOTE: The function name is capitalized to maintain API backward compatibility.
     return Attr(
@@ -4816,7 +5277,7 @@ def AttrTypeProto(name: str, value: TypeAndShape, doc_string: str | None = None)
     )
 
 
-def AttrTypeProtos(  # noqa: N802
+def AttrTypeProtos(  # ruff: ignore[invalid-function-name]
     name: str, value: Sequence[TypeAndShape], doc_string: str | None = None
 ) -> Attr:
     """Create a type sequence attribute."""

@@ -9,7 +9,7 @@ __all__ = ["load", "save"]
 import os
 from typing import Callable
 
-import onnx  # noqa: TID251
+import onnx  # ruff: ignore[banned-api]
 
 from onnx_ir import _core, _protocols, serde
 from onnx_ir import external_data as _external_data
@@ -47,6 +47,10 @@ def save(
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
+    max_workers: int | None = None,
+    max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
+    alignment: int | None = None,
+    align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -55,6 +59,21 @@ def save(
     after the external data is overwritten. To obtain a valid model, use :func:`load`
     to load the newly saved model, or provide a different external data path that
     is not currently referenced by any tensors in the model.
+
+    .. versionadded:: 1.1.0
+        Added the ``max_workers``, ``max_in_flight_bytes``, ``alignment``, and
+        ``align_threshold`` parameters.
+
+    .. versionchanged:: 1.1.0
+        External tensors are packed densely by default instead of aligning tensors
+        larger than 1 MiB to 64 KiB offsets. Pass ``alignment=65536`` to retain the
+        previous layout.
+
+        Single-file external data writes now use a same-filesystem temporary file
+        and atomically replace the destination after a successful write. Failures
+        leave an existing destination unchanged. Replacement preserves symlinks and
+        file permissions, but creates a new inode, so other hardlinks keep the old
+        file contents.
 
     .. tip::
 
@@ -103,18 +122,37 @@ def save(
             shard file.
             Effective only when ``external_data`` is set.
         callback: A callback function that is called for each tensor that is saved to external data
-            for debugging or logging purposes.
+            for debugging or logging purposes. When ``max_workers`` enables concurrency the
+            callback is serialized with a lock but is no longer invoked in index order.
+        max_workers: Number of threads used to write external data. ``None`` (the default)
+            or ``1`` writes serially. Values above 1 overlap tensor materialization
+            (lazy tensor evaluation, dtype conversion) with disk writes and parallelize
+            both, which is significantly faster for large models. Peak memory stays
+            bounded regardless of the worker count.
+            Effective only when ``external_data`` is set.
+        max_in_flight_bytes: Upper bound, in bytes, on the total size of tensors held in
+            memory at once while writing. This caps peak memory use. A tensor larger
+            than this budget is still admitted on its own, so the effective peak is
+            roughly this value plus the size of the largest tensor.
+            Effective only when ``external_data`` and ``max_workers`` are set.
+        alignment: Alignment to apply to the offsets of large tensors, in bytes.
+            ``None`` (the default) packs tensors densely with no padding, producing
+            smaller files. When set, offsets are aligned to ``max(4096, alignment)``;
+            65536 matches the Windows allocation granularity used for memory mapping.
+            Effective only when ``external_data`` is set.
+        align_threshold: Only tensors strictly larger than this many bytes are aligned.
+            Ignored when ``alignment`` is ``None``.
 
     Raises:
-        ValueError: If the external data path is an absolute path.
-        ValueError: If ``max_shard_size_bytes`` is not greater than 0.
+        ValueError: If the external data path is absolute or a numeric write
+            option is outside its supported range.
         ValueError: If ``max_shard_size_bytes`` is set without ``external_data``.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
             destination shard file already exists on disk. The sharded write
             path never overwrites existing files; delete the conflicting
             files or choose a different external data path to re-save. The
-            single-file path (``max_shard_size_bytes is None``) instead
-            overwrites ``external_data`` unconditionally and never raises here.
+            single-file path (``max_shard_size_bytes is None``) atomically
+            replaces ``external_data`` only after the new file is complete.
     """
     if max_shard_size_bytes is not None and external_data is None:
         raise ValueError(
@@ -147,6 +185,10 @@ def save(
                 size_threshold_bytes=size_threshold_bytes,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
+                max_workers=max_workers,
+                max_in_flight_bytes=max_in_flight_bytes,
+                alignment=alignment,
+                align_threshold=align_threshold,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)

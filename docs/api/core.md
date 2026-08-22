@@ -1,5 +1,8 @@
 # onnx_ir
 
+See [Introduction to the IR](../ir.md) for the object model and
+[Constructing models](../model_construction.md) for end-to-end examples.
+
 ```{eval-rst}
 .. automodule::onnx_ir
 ```
@@ -8,7 +11,7 @@
 
 ```{eval-rst}
 .. autosummary::
-    :toctree: generated
+    :toctree: generated/functions
     :template: functiontemplate.rst
     :nosignatures:
 
@@ -55,27 +58,51 @@
     onnx_ir.PackedTensor
 ```
 
-## Enums
+## Multi-device configurations
+
+See [Multi-Device Configurations](../multi_device.md) for a guide.
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.DataType
-    onnx_ir.AttributeType
+    ModelConfiguration
+    NodeDeviceConfiguration
+    ShardingSpec
+    ShardedDim
+    SimpleShardedDim
+    IndexToDeviceGroupMapEntry
+```
+
+## Enums
+
+```{eval-rst}
+.. currentmodule:: onnx_ir
+
+.. autosummary::
+    :toctree: generated
+    :template: classtemplate.rst
+    :nosignatures:
+
+    DataType
+    AttributeType
 ```
 
 ### Internal Containers
 
 ```{eval-rst}
+.. currentmodule:: onnx_ir
+
 .. autosummary::
     :toctree: generated
     :template: classtemplate_inherited.rst
     :nosignatures:
 
-    onnx_ir._graph_containers.GraphInitializers
-    onnx_ir._graph_containers.Attributes
-    onnx_ir._metadata.MetadataStore
+    _graph_containers.GraphInitializers
+    _graph_containers.Attributes
+    _metadata.MetadataStore
 ```

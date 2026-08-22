@@ -11,7 +11,7 @@ import onnx
 import parameterized
 
 import onnx_ir as ir
-from onnx_ir import _version_utils, serde
+from onnx_ir import _multi_device, _version_utils, serde
 
 
 class ConvenienceFunctionsTest(unittest.TestCase):
@@ -1026,6 +1026,53 @@ class ModelWithMetadataPropsTest(unittest.TestCase):
         self.assertEqual(deserialized.metadata_props["key"], "value")
         self.assertEqual(deserialized.metadata_props["author"], "test")
 
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration"),
+        "ModelProto.configuration is not available",
+    )
+    def test_model_configuration_roundtrip(self):
+        model_proto = onnx.helper.make_model(
+            onnx.helper.make_graph([], "test", [], []), ir_version=11
+        )
+        model_proto.configuration.add(name="conf0", num_devices=2, device=["CPU", "CUDA:0"])
+        model = serde.deserialize_model(model_proto)
+        self.assertEqual(
+            model.device_configurations,
+            (
+                _multi_device.ModelConfiguration(
+                    name="conf0",
+                    num_devices=2,
+                    device_names=("CPU", "CUDA:0"),
+                ),
+            ),
+        )
+        serialized = serde.serialize_model(model)
+
+        self.assertEqual(len(serialized.configuration), 1)
+        self.assertEqual(serialized.configuration[0].name, "conf0")
+        self.assertEqual(serialized.configuration[0].num_devices, 2)
+        self.assertEqual(list(serialized.configuration[0].device), ["CPU", "CUDA:0"])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration"),
+        "ModelProto.configuration is not available",
+    )
+    def test_model_configuration_from_dataclass(self):
+        model = ir.Model(graph=ir.Graph([], [], nodes=[], name="g"), ir_version=11)
+        model.device_configurations = (
+            _multi_device.ModelConfiguration(
+                name="conf0",
+                num_devices=2,
+                device_names=("CPU", "CUDA:0"),
+            ),
+        )
+        serialized = serde.serialize_model(model)
+
+        self.assertEqual(len(serialized.configuration), 1)
+        self.assertEqual(serialized.configuration[0].name, "conf0")
+        self.assertEqual(serialized.configuration[0].num_devices, 2)
+        self.assertEqual(list(serialized.configuration[0].device), ["CPU", "CUDA:0"])
+
 
 class ShapeSerializationEdgeCaseTest(unittest.TestCase):
     def test_serialize_shape_with_denotation(self):
@@ -1084,6 +1131,277 @@ class NodeSerializationTest(unittest.TestCase):
         node = ir.Node("", "Op", [x, None, x])
         proto = serde.serialize_node(node)
         self.assertEqual(list(proto.input), ["x", "", "x"])
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_device_configurations_roundtrip(self):
+        node_proto = onnx.helper.make_node("Relu", ["x"], ["y"], name="node")
+        node_device_configuration = node_proto.device_configurations.add()
+        node_device_configuration.configuration_id = "conf0"
+        node_device_configuration.pipeline_stage = 1
+        sharding_spec = node_device_configuration.sharding_spec.add()
+        sharding_spec.tensor_name = "x"
+        sharding_spec.device.extend([0, 1])
+        sharded_dim = sharding_spec.sharded_dim.add()
+        sharded_dim.axis = 0
+        sharded_dim.simple_sharding.add(dim_value=4, num_shards=2)
+
+        node = serde.deserialize_node(node_proto)
+
+        # The sharding is bound to the node's actual input value (object identity).
+        self.assertEqual(len(node.device_configurations), 1)
+        config = node.device_configurations[0]
+        self.assertEqual(config.pipeline_stage, 1)
+        # Configuration is a placeholder carrying the id (no model post-pass here).
+        self.assertEqual(config.configuration.name, "conf0")
+        spec = config.sharding_specs[0]
+        self.assertIs(spec.value, node.inputs[0])
+        self.assertEqual(spec.value.name, "x")
+        self.assertEqual(spec.device, (0, 1))
+        self.assertEqual(spec.sharded_dims[0].axis, 0)
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].dim, 4)
+        self.assertEqual(spec.sharded_dims[0].simple_shardings[0].num_shards, 2)
+
+        # sharding_of returns the live spec for the value.
+        self.assertEqual(node.sharding_of(node.inputs[0]), (spec,))
+
+        serialized = serde.serialize_node(node)
+        self.assertEqual(len(serialized.device_configurations), 1)
+        result = serialized.device_configurations[0]
+        self.assertEqual(result.configuration_id, "conf0")
+        self.assertEqual(result.pipeline_stage, 1)
+        self.assertEqual(len(result.sharding_spec), 1)
+        self.assertEqual(result.sharding_spec[0].tensor_name, "x")
+        self.assertEqual(list(result.sharding_spec[0].device), [0, 1])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_model_roundtrip_resolves_objects(self):
+        # x -> Relu -> y with model-level configuration and node sharding.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf0 = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf0, axis=0, num_shards=2, device_indices=(0, 1))
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_node = deserialized.graph[0]
+        new_config = new_node.device_configurations[0]
+        # configuration_id resolved to the actual model configuration object.
+        self.assertIs(new_config.configuration, deserialized.device_configurations[0])
+        # tensor_name resolved to the actual node input value object.
+        self.assertIs(new_config.sharding_specs[0].value, new_node.inputs[0])
+        self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_dangling_id_roundtrips_as_placeholder(self):
+        # A node references a configuration that is not declared on the model.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        # Register conf0 on the model but point the node at an unrelated id.
+        model.add_device_configuration("conf0", device_names=("CPU",))
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("ghost", num_devices=1),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_config = deserialized.graph[0].device_configurations[0]
+        # The dangling id is preserved as a placeholder, not silently dropped.
+        self.assertEqual(new_config.configuration.name, "ghost")
+        self.assertNotIn(new_config.configuration, deserialized.device_configurations)
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_resolution_skips_unconfigured_nodes(self):
+        # A model that declares a configuration but also has a node without any
+        # device configuration: the resolution post-pass must skip that node.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        relu = ir.Node("", "Relu", [x], outputs=[ir.Value(name="h")], name="relu")
+        ident = ir.Node(
+            "", "Identity", [relu.outputs[0]], outputs=[ir.Value(name="y")], name="id"
+        )
+        graph = ir.Graph([x], [ident.outputs[0]], nodes=[relu, ident], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        # Only ``relu`` is sharded; ``ident`` has no device configuration.
+        relu.shard(x, configuration=conf, axis=0, num_shards=2)
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_relu, new_ident = deserialized.graph[0], deserialized.graph[1]
+        self.assertEqual(new_ident.device_configurations, ())
+        self.assertIs(
+            new_relu.device_configurations[0].configuration,
+            deserialized.device_configurations[0],
+        )
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_resolved_in_functions(self):
+        # A node inside a model-local function references a model configuration;
+        # the resolution post-pass must reach function nodes too.
+        fx = ir.Value(name="fx", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="frelu")
+        fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
+        func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
+
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        call = ir.Node("custom", "MyFunc", [x], outputs=[ir.Value(name="y")], name="call")
+        graph = ir.Graph(
+            [x], [call.outputs[0]], nodes=[call], opset_imports={"": 18, "custom": 1}
+        )
+        model = ir.Model(graph, ir_version=11, functions=[func])
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        new_func = next(iter(deserialized.functions.values()))
+        new_fnode = next(iter(new_func))
+        # The function node's configuration_id is resolved to the model's object.
+        self.assertIs(
+            new_fnode.device_configurations[0].configuration,
+            deserialized.device_configurations[0],
+        )
+        self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_negative_axis_roundtrip(self):
+        # ONNX allows negative axes; a model using one must round-trip and pass
+        # the checker (regression for the negative-axis false positive).
+        x = ir.Value(name="x", shape=ir.Shape([4, 8]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+        model = ir.Model(graph, ir_version=11)
+        conf = model.add_device_configuration("conf0", num_devices=2)
+        node.shard(x, configuration=conf, axis=-1, num_shards=2)
+
+        deserialized = serde.deserialize_model(serde.serialize_model(model))
+        spec = deserialized.graph[0].device_configurations[0].sharding_specs[0]
+        self.assertEqual(spec.sharded_dims[0].axis, -1)
+        self.assertEqual(_multi_device._check_device_configurations(deserialized), [])
+
+    @unittest.skipUnless(
+        hasattr(onnx.ModelProto(), "configuration")
+        and hasattr(onnx.NodeProto(), "device_configurations"),
+        "Multi-device protos are not available",
+    )
+    def test_device_configurations_not_serialized_for_ir10(self):
+        # Multi-device metadata requires IR v11 and is intentionally dropped for
+        # older model IR versions.
+        x = ir.Value(name="x", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")], name="node")
+        graph = ir.Graph([x], [node.outputs[0]], nodes=[node], opset_imports={"": 18})
+
+        fx = ir.Value(name="fx", shape=ir.Shape([4]), type=ir.TensorType(ir.DataType.FLOAT))
+        fnode = ir.Node("", "Relu", [fx], outputs=[ir.Value(name="fy")], name="fnode")
+        fgraph = ir.Graph([fx], [fnode.outputs[0]], nodes=[fnode], opset_imports={"": 18})
+        func = ir.Function(domain="custom", name="MyFunc", graph=fgraph, attributes=())
+
+        model = ir.Model(graph, ir_version=10, functions=[func])
+        conf = model.add_device_configuration("conf0", device_names=("CPU", "CUDA:0"))
+        node.shard(x, configuration=conf, axis=0, num_shards=2)
+        fnode.shard(fx, configuration=conf, axis=0, num_shards=2)
+
+        proto = serde.serialize_model(model)
+        self.assertEqual(len(proto.configuration), 0)
+        self.assertEqual(len(proto.graph.node[0].device_configurations), 0)
+        self.assertEqual(len(proto.functions[0].node[0].device_configurations), 0)
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_device_configurations_from_dataclass(self):
+        x = ir.Value(name="x")
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")])
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration(name="conf0", num_devices=2),
+                sharding_specs=(
+                    _multi_device.ShardingSpec(
+                        value=x,
+                        device=(0, 1),
+                        index_to_device_group_map=(
+                            _multi_device.IndexToDeviceGroupMapEntry(
+                                key=0,
+                                value=(0, 1),
+                            ),
+                        ),
+                        sharded_dims=(
+                            _multi_device.ShardedDim(
+                                axis=0,
+                                simple_shardings=(
+                                    _multi_device.SimpleShardedDim(
+                                        dim=ir.SymbolicDim("BATCH"),
+                                        num_shards=2,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                pipeline_stage=1,
+            ),
+        )
+        serialized = serde.serialize_node(node)
+
+        self.assertEqual(len(serialized.device_configurations), 1)
+        result = serialized.device_configurations[0]
+        self.assertEqual(result.configuration_id, "conf0")
+        self.assertEqual(result.pipeline_stage, 1)
+        self.assertEqual(len(result.sharding_spec), 1)
+        self.assertEqual(result.sharding_spec[0].tensor_name, "x")
+        self.assertEqual(list(result.sharding_spec[0].device), [0, 1])
+        self.assertEqual(len(result.sharding_spec[0].index_to_device_group_map), 1)
+        self.assertEqual(result.sharding_spec[0].index_to_device_group_map[0].key, 0)
+        self.assertEqual(
+            list(result.sharding_spec[0].index_to_device_group_map[0].value),
+            [0, 1],
+        )
+        self.assertEqual(result.sharding_spec[0].sharded_dim[0].axis, 0)
+        self.assertEqual(
+            result.sharding_spec[0].sharded_dim[0].simple_sharding[0].dim_param, "BATCH"
+        )
+
+    @unittest.skipUnless(
+        hasattr(onnx.NodeProto(), "device_configurations"),
+        "NodeProto.device_configurations is not available",
+    )
+    def test_serialize_sharding_with_unnamed_value_raises(self):
+        x = ir.Value(name="")  # no name
+        node = ir.Node("", "Relu", [x], outputs=[ir.Value(name="y")])
+        node.device_configurations = (
+            _multi_device.NodeDeviceConfiguration(
+                configuration=_multi_device.ModelConfiguration("conf0", num_devices=1),
+                sharding_specs=(_multi_device.ShardingSpec(value=x),),
+            ),
+        )
+        with self.assertRaises(serde.SerdeError):
+            serde.serialize_node(node)
 
 
 class StringTensorSerializationTest(unittest.TestCase):

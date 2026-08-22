@@ -53,6 +53,8 @@ if typing.TYPE_CHECKING:
     import numpy as np
     from typing_extensions import TypeAlias
 
+    from onnx_ir._multi_device import ModelConfiguration, NodeDeviceConfiguration
+
 # An identifier that will uniquely identify an operator. E.g (domain, op_type, overload)
 OperatorIdentifier: TypeAlias = tuple[str, str, str]
 
@@ -107,8 +109,6 @@ class TensorProtocol(ArrayCompatible, DLPackCompatible, Protocol):
         dtype: The data type of the elements of the tensor. It is an :class:`ir.DataType` enum.
         doc_string: Documentation string.
         raw: The raw data behind this tensor. It can be anything.
-        size: The number of elements in the tensor.
-        nbytes: The number of bytes in the tensor.
         metadata_props: Metadata that will be serialized to the ONNX file.
         meta: Metadata store for graph transform passes.
     """
@@ -122,10 +122,14 @@ class TensorProtocol(ArrayCompatible, DLPackCompatible, Protocol):
     meta: MutableMapping[str, Any]
 
     @property
-    def size(self) -> int: ...
+    def size(self) -> int:
+        """The number of elements in the tensor."""
+        ...
 
     @property
-    def nbytes(self) -> int: ...
+    def nbytes(self) -> int:
+        """The number of bytes required to store the tensor."""
+        ...
 
     def numpy(self) -> np.ndarray:
         """Return the tensor as a numpy array."""
@@ -267,6 +271,7 @@ class NodeProtocol(Protocol):
     doc_string: str | None
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
+    device_configurations: tuple[NodeDeviceConfiguration, ...]
 
     def replace_input_with(self, index: int, value: ValueProtocol | None) -> None:
         """Set the input at the given index to the given value, replacing the original value."""
@@ -417,6 +422,7 @@ class ModelProtocol(Protocol):
     opset_imports: MutableMapping[str, int]
     metadata_props: MutableMapping[str, str]
     meta: MutableMapping[str, Any]
+    device_configurations: tuple[ModelConfiguration, ...]
 
 
 @typing.runtime_checkable
