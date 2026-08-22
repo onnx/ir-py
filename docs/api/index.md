@@ -1,5 +1,9 @@
 # IR APIs
 
+Start with [Introduction to the IR](../ir.md) and the
+[documentation home](../index.md) for conceptual and task-oriented
+documentation.
+
 ```{toctree}
 :maxdepth: 1
 

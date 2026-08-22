@@ -1,5 +1,8 @@
 # onnx_ir.convenience
 
+See [Graph transformation patterns](../graph_transformations.md) for rewiring,
+renaming, extraction, and safe removal examples.
+
 ```{eval-rst}
 .. automodule::onnx_ir.convenience
 .. currentmodule:: onnx_ir.convenience

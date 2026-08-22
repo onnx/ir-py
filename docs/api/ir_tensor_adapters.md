@@ -1,5 +1,9 @@
 # onnx_ir.tensor_adapters
 
+See [Tensor Representation in the IR](../tensors.md) for tensor backends and
+[Performance and large-model workflows](../performance.md) for avoiding
+unnecessary materialization.
+
 ```{eval-rst}
 .. automodule:: onnx_ir.tensor_adapters
 ```
