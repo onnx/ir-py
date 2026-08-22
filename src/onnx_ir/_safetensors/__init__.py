@@ -18,6 +18,7 @@ from typing import Any
 import packaging.version
 
 import onnx_ir as ir
+from onnx_ir._shard_filename import get_shard_filename
 
 _HEADER_SIZE_NUMBER_SIZE = 8
 # https://github.com/huggingface/safetensors/blob/806426784adb43631e9a1102d4621126bb589347/safetensors/src/tensor.rs#L811
@@ -70,6 +71,12 @@ _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
 }
 
 
+def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
+    # ``.safetensors`` is the complete format suffix. Preserve dotted model
+    # variants such as ``model.fp16`` as part of the stem.
+    return get_shard_filename(base_name, shard_idx, total_shards, suffix_count=1)
+
+
 @functools.lru_cache(maxsize=1)
 def _import_safetensors():
     """Raise an error if safetensors is not installed."""
@@ -90,32 +97,6 @@ def _import_safetensors():
         )
 
     return safetensors
-
-
-def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
-    """Generate a filename for a shard.
-
-    Args:
-        base_name: The base filename (e.g., 'model.safetensors').
-        shard_idx: The index of this shard (1-indexed).
-        total_shards: The total number of shards.
-
-    Returns:
-        The shard filename (e.g., 'model-00001-of-00003.safetensors').
-    """
-    if total_shards == 1:
-        return base_name
-
-    # Extract extension
-    if "." in base_name:
-        name, ext = base_name.rsplit(".", 1)
-        ext = f".{ext}"
-    else:
-        name = base_name
-        ext = ""
-
-    # Always use 5 digits to follow transformers convention
-    return f"{name}-{shard_idx:05d}-of-{total_shards:05d}{ext}"
 
 
 def _shard_tensors(
@@ -247,7 +228,7 @@ def _save_file(
 
             # Build tensor_dict for this shard only
             shard_dict: dict[str, Any] = {}
-            for tensor in tensor_shard:
+            for shard_index, tensor in enumerate(tensor_shard):
                 if callback is not None:
                     callback(
                         tensor,
@@ -256,6 +237,8 @@ def _save_file(
                             index=current_index,
                             offset=current_offset,
                             filename=shard_filename,
+                            shard_total=len(tensor_shard),
+                            shard_index=shard_index,
                         ),
                     )
                 assert tensor.name is not None

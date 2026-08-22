@@ -15,11 +15,13 @@ from __future__ import annotations
 import abc
 import contextlib
 import dataclasses
+import errno
 import heapq
 import logging
 import math
 import mmap
 import os
+import stat
 import sys
 import textwrap
 import typing
@@ -388,6 +390,19 @@ def _supports_fileno(file: Any) -> bool:
     except Exception:  # pylint: disable=broad-except
         return False
     return True
+
+
+def _is_regular_file(file: Any) -> bool:
+    """Return whether a file-like object is backed by a regular file."""
+    if not _supports_fileno(file):
+        return False
+    try:
+        return stat.S_ISREG(os.fstat(file.fileno()).st_mode)
+    except OSError:
+        return False
+
+
+_EXTERNAL_TENSOR_COPY_CHUNK_SIZE = 1024 * 1024
 
 
 def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
@@ -900,15 +915,70 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         return self.raw[offset : offset + length]
 
     def tofile(self, file) -> None:
+        """Write the external tensor bytes to a binary file-like object.
+
+        Regular files use ``copy_file_range`` when the platform and filesystem
+        support it. Other destinations use a bounded userspace buffer.
+
+        Args:
+            file: A file-like object with a ``write`` method. Objects that also
+                provide ``fileno``, ``flush``, ``tell``, and ``seek`` may use the
+                kernel-copy fast path.
+        """
         self._check_validity()
         self._check_path_containment()
         with open(self.path, "rb") as src:
-            if self._offset is not None:
-                src.seek(self._offset)
+            source_offset = self._offset or 0
             bytes_to_copy = self._length or self.nbytes
-            chunk_size = 1024 * 1024  # 1MB
+            copied = 0
+
+            # Linux can copy file ranges entirely inside the kernel, avoiding
+            # Python byte buffers and userspace round trips. The API is absent
+            # on macOS/Windows and can reject cross-filesystem copies, so keep
+            # the portable chunked path as a transparent fallback.
+            copy_file_range = getattr(os, "copy_file_range", None)
+            if (
+                copy_file_range is not None
+                and all(
+                    callable(getattr(file, method, None))
+                    for method in ("fileno", "flush", "tell", "seek")
+                )
+                and _is_regular_file(src)
+                and _is_regular_file(file)
+            ):
+                file.flush()
+                destination_offset = file.tell()
+                try:
+                    while copied < bytes_to_copy:
+                        copied_now = copy_file_range(
+                            src.fileno(),
+                            file.fileno(),
+                            min(1 << 30, bytes_to_copy - copied),
+                            offset_src=source_offset + copied,
+                            offset_dst=destination_offset + copied,
+                        )
+                        if copied_now == 0:
+                            break
+                        copied += copied_now
+                except OSError as error:
+                    if error.errno not in {
+                        errno.EINVAL,
+                        errno.ENOSYS,
+                        errno.EOPNOTSUPP,
+                        errno.EPERM,
+                        errno.EXDEV,
+                    }:
+                        raise
+                finally:
+                    # Explicit offsets leave the descriptor position unchanged.
+                    # Advance the Python file object so consecutive writes retain
+                    # the same semantics as write().
+                    file.seek(destination_offset + copied)
+
+            src.seek(source_offset + copied)
+            bytes_to_copy -= copied
             while bytes_to_copy > 0:
-                chunk = src.read(min(chunk_size, bytes_to_copy))
+                chunk = src.read(min(_EXTERNAL_TENSOR_COPY_CHUNK_SIZE, bytes_to_copy))
                 if not chunk:
                     failed_at_offset = (self._offset or 0) + (
                         (self._length or self.nbytes) - bytes_to_copy

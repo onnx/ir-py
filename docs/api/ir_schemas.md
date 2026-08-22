@@ -1,5 +1,8 @@
 # onnx_ir.schemas
 
+See [Writing transformation passes](../writing_passes.md) for using schema and
+opset requirements in transformation pipelines.
+
 ```{eval-rst}
 .. automodule:: onnx_ir.schemas
 .. currentmodule:: onnx_ir.schemas

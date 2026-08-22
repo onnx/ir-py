@@ -28,7 +28,18 @@ operations (such as certain conversions or materializations) may copy data.
 ## Can I mutate a graph while iterating nodes?
 
 Yes. ONNX IR is designed for robust mutation workflows and supports safe
-iteration patterns during graph edits.
+iteration patterns during graph edits. Nodes inserted after the current node are
+visited; nodes inserted before it are not. If the current node is removed or
+moved, iteration continues from the node that followed its original location.
+
+See [Graph transformation patterns](graph_transformations.md).
+
+## How do I infer symbolic shapes?
+
+Use the built-in `ShapeInferencePass` for ONNX shape inference. For richer SymPy
+expressions, shape-data propagation, and custom operator inference, use the
+optional [`onnx-shape-inference`](https://pypi.org/project/onnx-shape-inference/)
+package.
 
 ## Where is the API reference?
 
