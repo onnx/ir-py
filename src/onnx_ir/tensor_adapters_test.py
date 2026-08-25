@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import tempfile
 import unittest
 
@@ -211,6 +212,70 @@ class TorchDtypeConversionTest(unittest.TestCase):
             data = tmp.read()
         self.assertEqual(data, expected_manual)
         self.assertEqual(tensor.tobytes(), expected_manual)
+
+
+def _accelerator_device() -> str | None:
+    """Return an available non-CPU device, or None."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return None
+
+
+class TorchTensorConcurrentSaveTest(unittest.TestCase):
+    """Saving torch-backed weights concurrently, including on an accelerator."""
+
+    def _save(self, tensors, tmp_dir, name, max_workers):
+        graph = ir.Graph(inputs=[], outputs=[], nodes=[], initializers=[], name="g")
+        for i, torch_tensor in enumerate(tensors):
+            tensor_name = f"w{i}"
+
+            def make(t=torch_tensor, n=tensor_name):
+                return tensor_adapters.TorchTensor(t.to(torch.float16), name=n)
+
+            lazy = ir.LazyTensor(
+                make,
+                dtype=ir.DataType.FLOAT16,
+                shape=ir.Shape(tuple(torch_tensor.shape)),
+                name=tensor_name,
+            )
+            graph.register_initializer(ir.Value(name=tensor_name, const_value=lazy))
+        model = ir.Model(graph, ir_version=10)
+        path = os.path.join(tmp_dir, name)
+        os.makedirs(path)
+        ir.save(
+            model,
+            os.path.join(path, "model.onnx"),
+            external_data="model.data",
+            **({} if max_workers is None else {"max_workers": max_workers}),
+        )
+        with open(os.path.join(path, "model.data"), "rb") as f:
+            return f.read()
+
+    def test_cpu_weights_survive_concurrent_writes(self):
+        # The device-to-host copy and dtype cast both happen inside tofile on
+        # a worker thread, so the result must not depend on the worker count.
+        tensors = [torch.full((512,), i, dtype=torch.bfloat16) for i in range(8)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            serial = self._save(tensors, tmp_dir, "serial", None)
+            parallel = self._save(tensors, tmp_dir, "parallel", 4)
+        self.assertEqual(serial, parallel)
+
+    def test_accelerator_weights_survive_concurrent_writes(self):
+        device = _accelerator_device()
+        if device is None:
+            self.skipTest("no accelerator available")
+        tensors = [
+            torch.full((512,), i, dtype=torch.bfloat16, device=device) for i in range(8)
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            serial = self._save(tensors, tmp_dir, "serial", None)
+            parallel = self._save(tensors, tmp_dir, "parallel", 8)
+        self.assertEqual(serial, parallel)
+        # Sanity check that the values actually round-tripped, not just matched.
+        expected = b"".join(t.to(torch.float16).cpu().numpy().tobytes() for t in tensors)
+        self.assertEqual(serial, expected)
 
 
 if __name__ == "__main__":

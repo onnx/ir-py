@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import io
 import os
 import pathlib
@@ -21,6 +22,32 @@ import torch
 
 import onnx_ir as ir
 from onnx_ir import _core, _type_casting
+
+
+def _copy_file_range_with_portable_os_calls(
+    src_fd: int,
+    dst_fd: int,
+    count: int,
+    *,
+    offset_src: int | None,
+    offset_dst: int | None,
+) -> int:
+    """Emulate explicit-offset copy_file_range without Unix-only pread/pwrite."""
+    assert offset_src is not None
+    assert offset_dst is not None
+    src_position = os.lseek(src_fd, 0, os.SEEK_CUR)
+    dst_position = os.lseek(dst_fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(src_fd, offset_src, os.SEEK_SET)
+        data = os.read(src_fd, count)
+        os.lseek(dst_fd, offset_dst, os.SEEK_SET)
+        written = 0
+        while written < len(data):
+            written += os.write(dst_fd, data[written:])
+        return written
+    finally:
+        os.lseek(src_fd, src_position, os.SEEK_SET)
+        os.lseek(dst_fd, dst_position, os.SEEK_SET)
 
 
 class TensorTest(unittest.TestCase):
@@ -1009,6 +1036,189 @@ class ExternalTensorTest(unittest.TestCase):
             # Verify the written data matches expected
             expected_data = self.data.tobytes()
             self.assertEqual(written_data, expected_data)
+
+    def test_tofile_uses_copy_file_range_when_available(self):
+        external_tensor = self.model.graph.initializer[1]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT16,
+            base_dir=self.base_path,
+            name="input2",
+            shape=_core.Shape(external_tensor.dims),
+        )
+        calls = []
+
+        def copy_file_range(src_fd, dst_fd, count, *, offset_src=None, offset_dst=None):
+            calls.append((count, offset_src, offset_dst))
+            return _copy_file_range_with_portable_os_calls(
+                src_fd,
+                dst_fd,
+                count,
+                offset_src=offset_src,
+                offset_dst=offset_dst,
+            )
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(os, "copy_file_range", copy_file_range, create=True),
+        ):
+            output.write(b"prefix")
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertTrue(calls)
+        self.assertEqual(calls[0][1], external_info.offset)
+        self.assertEqual(calls[0][2], len(b"prefix"))
+        self.assertEqual(written_data, b"prefix" + self.data_float16.tobytes())
+
+    def test_tofile_falls_back_when_copy_file_range_is_unsupported(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=OSError(errno.EXDEV, "cross-device link"),
+                create=True,
+            ),
+        ):
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(written_data, self.data.tobytes())
+
+    def test_tofile_falls_back_when_destination_has_no_tell(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        class FileWithoutTell:
+            def __init__(self, file):
+                self._file = file
+
+            def fileno(self):
+                return self._file.fileno()
+
+            def flush(self):
+                return self._file.flush()
+
+            def seek(self, offset, whence=os.SEEK_SET):
+                return self._file.seek(offset, whence)
+
+            def write(self, data):
+                return self._file.write(data)
+
+        with tempfile.NamedTemporaryFile() as output:
+            wrapped_output = FileWithoutTell(output)
+            with unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=AssertionError("kernel copy requires tell()"),
+                create=True,
+            ):
+                tensor.tofile(wrapped_output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(written_data, self.data.tobytes())
+
+    def test_tofile_continues_fallback_after_partial_kernel_copy(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+        call_count = 0
+
+        def copy_file_range(src_fd, dst_fd, count, *, offset_src=None, offset_dst=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                raise OSError(errno.EXDEV, "cross-device link")
+            return _copy_file_range_with_portable_os_calls(
+                src_fd,
+                dst_fd,
+                min(count, 3),
+                offset_src=offset_src,
+                offset_dst=offset_dst,
+            )
+
+        with (
+            tempfile.NamedTemporaryFile() as output,
+            unittest.mock.patch.object(os, "copy_file_range", copy_file_range, create=True),
+        ):
+            tensor.tofile(output)
+            output.seek(0)
+            written_data = output.read()
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(written_data, self.data.tobytes())
+
+    def test_tofile_does_not_use_copy_file_range_for_pipe(self):
+        external_tensor = self.model.graph.initializer[0]
+        external_info = onnx.external_data_helper.ExternalDataInfo(external_tensor)
+        tensor = _core.ExternalTensor(
+            external_info.location,
+            offset=external_info.offset,
+            length=external_info.length,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="input",
+            shape=_core.Shape(external_tensor.dims),
+        )
+
+        class PipeBackedBytesIO(io.BytesIO):
+            def __init__(self, file_descriptor):
+                super().__init__()
+                self._file_descriptor = file_descriptor
+
+            def fileno(self):
+                return self._file_descriptor
+
+        read_fd, write_fd = os.pipe()
+        try:
+            output = PipeBackedBytesIO(write_fd)
+            with unittest.mock.patch.object(
+                os,
+                "copy_file_range",
+                side_effect=AssertionError("must not use kernel copy for a pipe"),
+                create=True,
+            ):
+                tensor.tofile(output)
+            self.assertEqual(output.getvalue(), self.data.tobytes())
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
 
     def test_tofile_empty_tensor(self):
         """Test ExternalTensor.tofile() with empty tensor."""

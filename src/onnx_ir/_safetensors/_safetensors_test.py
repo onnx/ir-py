@@ -203,6 +203,20 @@ class SaveSafetensorsTest(unittest.TestCase):
         # All initializers should be in the weight map
         self.assertEqual(len(index_data["weight_map"]), 5)
 
+    def test_sharding_preserves_dotted_model_stem(self):
+        model = _create_large_model_for_sharding()
+        path = os.path.join(self.tmpdir, "model.fp16.onnx")
+
+        ir.save_safetensors(model, path, size_threshold_bytes=0, max_shard_size_bytes=10000)
+
+        shard_files = [
+            filename
+            for filename in os.listdir(self.tmpdir)
+            if filename.endswith(".safetensors")
+        ]
+        self.assertGreater(len(shard_files), 1)
+        self.assertTrue(all(filename.startswith("model.fp16-") for filename in shard_files))
+
     def test_save_safetensors_no_sharding_when_below_threshold(self):
         """Test that no sharding occurs when total size is below threshold."""
         model = _create_simple_model_with_initializers()
