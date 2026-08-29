@@ -267,6 +267,11 @@ class TensorTest(unittest.TestCase):
         tensor = _core.Tensor(array, dtype=dtype)
         self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
 
+    def test_initialize_rejects_mismatched_float6_dtype(self):
+        array = np.array([1.0], dtype=ml_dtypes.float6_e3m2fn)
+        with self.assertRaisesRegex(TypeError, "ml_dtypes.float6"):
+            _core.Tensor(array, dtype=ir.DataType.FLOAT6E2M3)
+
     def test_metadata(self):
         array = np.random.rand(1, 2).astype(np.float32)
         tensor = _core.Tensor(array)
