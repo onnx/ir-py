@@ -97,6 +97,8 @@ _NON_NUMPY_NATIVE_TYPES = frozenset(
         _enums.DataType.FLOAT4E2M1,
         _enums.DataType.INT2,
         _enums.DataType.UINT2,
+        _enums.DataType.FLOAT6E2M3,
+        _enums.DataType.FLOAT6E3M2,
     )
 )
 
@@ -302,6 +304,14 @@ def _check_numpy_representation_type(array: np.ndarray, dtype: _enums.DataType) 
             raise TypeError(
                 f"The numpy array dtype must be uint8 or ml_dtypes.float8* (not {array.dtype}) for IR data type {dtype}."
             )
+        if dtype.bitwidth == 6 and array.dtype not in (
+            np.uint8,
+            ml_dtypes.float6_e2m3fn,
+            ml_dtypes.float6_e3m2fn,
+        ):
+            raise TypeError(
+                f"The numpy array dtype must be uint8 or ml_dtypes.float6* (not {array.dtype}) for IR data type {dtype}."
+            )
         if dtype == _enums.DataType.INT4:
             if array.dtype not in (np.int8, np.uint8, ml_dtypes.int4):
                 raise TypeError(
@@ -378,6 +388,10 @@ def _maybe_view_np_array_with_ml_dtypes(
         return array.view(ml_dtypes.int2)
     if dtype == _enums.DataType.UINT2:
         return array.view(ml_dtypes.uint2)
+    if dtype == _enums.DataType.FLOAT6E2M3:
+        return array.view(ml_dtypes.float6_e2m3fn)
+    if dtype == _enums.DataType.FLOAT6E3M2:
+        return array.view(ml_dtypes.float6_e3m2fn)
     return array
 
 
@@ -425,6 +439,11 @@ def _create_np_array_for_byte_representation(tensor: Tensor) -> np.ndarray:
     }:
         # Pack the array into int2
         array = _type_casting.pack_2bitx4(array)
+    elif tensor.dtype in {
+        _enums.DataType.FLOAT6E2M3,
+        _enums.DataType.FLOAT6E3M2,
+    }:
+        array = _type_casting.pack_6bit(array)
     else:
         assert tensor.dtype.itemsize == array.itemsize, "Bug: The itemsize should match"
     if not _IS_LITTLE_ENDIAN:
@@ -836,11 +855,13 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
             _enums.DataType.FLOAT4E2M1,
             _enums.DataType.INT2,
             _enums.DataType.UINT2,
+            _enums.DataType.FLOAT6E2M3,
+            _enums.DataType.FLOAT6E3M2,
         }:
             # Use uint8 to read in the full byte. Otherwise ml_dtypes.int4 will clip the values
             # No need to set endianness for uint8
             dt = np.dtype(np.uint8)
-            count = self.size // 2 + self.size % 2
+            count = self.nbytes
         else:
             # Handle the byte order correctly by always using little endian
             dt = np.dtype(self.dtype.numpy()).newbyteorder("<")
@@ -857,6 +878,10 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         elif self.dtype.bitwidth == 2:
             # Unpack the 2bit arrays
             self._array = _type_casting.unpack_2bitx4(self._array, shape).view(
+                self.dtype.numpy()
+            )
+        elif self.dtype.bitwidth == 6:
+            self._array = _type_casting.unpack_6bit(self._array, shape).view(
                 self.dtype.numpy()
             )
         else:
@@ -1231,7 +1256,7 @@ class LazyTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-
 
 
 class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]):  # pylint: disable=too-many-ancestors
-    """A tensor that stores 2bit and 4bit datatypes in packed format.
+    """A tensor that stores sub-byte datatypes in packed format.
 
     .. versionadded:: 0.1.2
     """
@@ -1257,7 +1282,7 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         Args:
             value: The backing data of the tensor. It can be a numpy array compatible object or a DLPack compatible object.
                 The value MUST be packed in an integer dtype.
-            dtype: The data type of the tensor. Must be one of INT2, UINT2, INT4, UINT4, FLOAT4E2M1.
+            dtype: The data type of the tensor. Must be a supported sub-byte data type.
             shape: The shape of the tensor.
             name: The name of the tensor.
             doc_string: The documentation string.
@@ -1272,10 +1297,8 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             raise TypeError(f"Expected an array compatible object, got {type(value)}")
         self._shape = Shape(shape)
         self._shape.freeze()
-        if dtype.bitwidth not in (2, 4):
-            raise TypeError(
-                f"PackedTensor only supports INT2, UINT2, INT4, UINT4, FLOAT4E2M1, but got {dtype}"
-            )
+        if dtype.bitwidth not in (2, 4, 6):
+            raise TypeError(f"PackedTensor only supports sub-byte data types, but got {dtype}")
         self._dtype = dtype
         self._raw = value
 
@@ -1286,6 +1309,8 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
                 or value.dtype == ml_dtypes.int4
                 or value.dtype == ml_dtypes.uint2
                 or value.dtype == ml_dtypes.int2
+                or value.dtype == ml_dtypes.float6_e2m3fn
+                or value.dtype == ml_dtypes.float6_e3m2fn
             ):
                 raise TypeError(
                     f"PackedTensor expects the value to be packed, but got {value.dtype} which is not packed. "
@@ -1337,6 +1362,14 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
         """
         array = self.numpy_packed()
         # ONNX IR returns the unpacked arrays
+        if self.dtype.bitwidth == 6:
+            return _type_casting.unpack_6bit(array, self.shape.numpy()).view(
+                self.dtype.numpy()
+            )
+        if self.dtype.bitwidth == 2:
+            return _type_casting.unpack_2bitx4(array, self.shape.numpy()).view(
+                self.dtype.numpy()
+            )
         return _type_casting.unpack_4bitx2(array, self.shape.numpy()).view(self.dtype.numpy())
 
     def numpy_packed(self) -> npt.NDArray[np.uint8]:

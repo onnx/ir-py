@@ -91,6 +91,8 @@ class TensorTest(unittest.TestCase):
             ("uint2", np.uint8, ir.DataType.UINT2),
             ("uint4", np.uint8, ir.DataType.UINT4),
             ("float4e2m1", np.uint8, ir.DataType.FLOAT4E2M1),
+            ("float6e2m3", np.uint8, ir.DataType.FLOAT6E2M3),
+            ("float6e3m2", np.uint8, ir.DataType.FLOAT6E3M2),
         ]
     )
     def test_init_with_non_native_numpy_dtype(self, _: str, np_dtype, dtype: ir.DataType):
@@ -251,6 +253,19 @@ class TensorTest(unittest.TestCase):
         assert len(array) % 2 == 1
         tensor = _core.Tensor(array, dtype=ir.DataType.FLOAT4E2M1)
         self.assertEqual(tensor.tobytes(), b"\x10r\x0f")
+
+    @parameterized.parameterized.expand(
+        [
+            ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3, ml_dtypes.float6_e2m3fn),
+            ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2, ml_dtypes.float6_e3m2fn),
+        ]
+    )
+    def test_tobytes_returns_packed_data_for_float6(
+        self, _: str, dtype: ir.DataType, np_dtype
+    ):
+        array = np.array([1, 2, 3, 4], dtype=np.uint8).view(np_dtype)
+        tensor = _core.Tensor(array, dtype=dtype)
+        self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
 
     def test_metadata(self):
         array = np.random.rand(1, 2).astype(np.float32)
@@ -941,11 +956,16 @@ class ExternalTensorTest(unittest.TestCase):
             # about permission errors
             del tensor
 
-    def test_external_tensor_float4e2m1(self):
-        expected_array = np.array([0, 1, 2, 7, 15]).view(ml_dtypes.float4_e2m1fn)
-        tensor_proto = ir.serde.serialize_tensor(
-            ir.Tensor(expected_array, dtype=ir.DataType.FLOAT4E2M1)
-        )
+    @parameterized.parameterized.expand(
+        [
+            ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1, ml_dtypes.float4_e2m1fn),
+            ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3, ml_dtypes.float6_e2m3fn),
+            ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2, ml_dtypes.float6_e3m2fn),
+        ]
+    )
+    def test_external_tensor_sub_byte_float(self, _: str, dtype: ir.DataType, np_dtype):
+        expected_array = np.array([0, 1, 2, 7, 15]).view(np_dtype)
+        tensor_proto = ir.serde.serialize_tensor(ir.Tensor(expected_array, dtype=dtype))
         with tempfile.TemporaryDirectory() as temp_dir:
             _to_external_tensor(tensor_proto, temp_dir, "tensor.bin")
             tensor = ir.serde.deserialize_tensor(tensor_proto, temp_dir)
@@ -3874,7 +3894,20 @@ class LazyTensorTest(unittest.TestCase):
 
 
 class PackedTensorTest(unittest.TestCase):
-    """Test the PackedTensor class for 4-bit data types."""
+    """Test the PackedTensor class for sub-byte data types."""
+
+    @parameterized.parameterized.expand(
+        [
+            ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3, ml_dtypes.float6_e2m3fn),
+            ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2, ml_dtypes.float6_e3m2fn),
+        ]
+    )
+    def test_float6_round_trip(self, _: str, dtype: ir.DataType, np_dtype):
+        expected = np.array([1, 2, 3, 4, 5], dtype=np.uint8).view(np_dtype)
+        packed = _type_casting.pack_6bit(expected)
+        tensor = _core.PackedTensor(packed, dtype=dtype, shape=expected.shape)
+        self.assertEqual(tensor.nbytes, 4)
+        np.testing.assert_array_equal(tensor.numpy().view(np.uint8), expected.view(np.uint8))
 
     @parameterized.parameterized.expand(
         [
@@ -3968,7 +4001,7 @@ class PackedTensorTest(unittest.TestCase):
             _core.PackedTensor(array, dtype=ir.DataType.FLOAT, shape=shape)
 
         self.assertIn(
-            "PackedTensor only supports INT2, UINT2, INT4, UINT4, FLOAT4E2M1",
+            "PackedTensor only supports sub-byte data types",
             str(cm.exception),
         )
 

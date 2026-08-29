@@ -51,6 +51,8 @@ _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
     ir.DataType.FLOAT8E8M0: "float8_e8m0",
     ir.DataType.FLOAT8E4M3FNUZ: "uint8",
     ir.DataType.FLOAT8E5M2FNUZ: "uint8",
+    ir.DataType.FLOAT6E2M3: "uint8",
+    ir.DataType.FLOAT6E3M2: "uint8",
     ir.DataType.BFLOAT16: "bfloat16",
     ir.DataType.FLOAT16: "float16",
     ir.DataType.FLOAT: "float32",
@@ -502,6 +504,8 @@ def _migrate_tensor_shape_dtype(
         ir.DataType.INT2,
         ir.DataType.UINT4,
         ir.DataType.UINT2,
+        ir.DataType.FLOAT6E2M3,
+        ir.DataType.FLOAT6E3M2,
     }:
         return ir.ExternalTensor(
             location=safe_tensor.location,

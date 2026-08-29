@@ -403,6 +403,10 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return _type_casting.unpack_2bitx4(
                     np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
                 ).view(dtype.numpy())
+            if dtype.bitwidth == 6:
+                return _type_casting.unpack_6bit(
+                    np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
+                ).view(dtype.numpy())
             return np.frombuffer(
                 self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
             ).reshape(shape)
@@ -428,6 +432,8 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 _enums.DataType.UINT2,
                 _enums.DataType.UINT4,
                 _enums.DataType.UINT8,
+                _enums.DataType.FLOAT6E2M3,
+                _enums.DataType.FLOAT6E3M2,
             }, f"Unsupported dtype {dtype} for int32_data"
             array = np.array(self._proto.int32_data, dtype=_little_endian_dtype(np.int32))
             if dtype.bitwidth == 32:
@@ -441,6 +447,8 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return _type_casting.unpack_4bitx2(array.astype(np.uint8), shape).view(
                     dtype.numpy()
                 )
+            if dtype.bitwidth == 6:
+                return (array.astype(np.uint8) & 0x3F).view(dtype.numpy()).reshape(shape)
             if dtype.bitwidth == 2:
                 return _type_casting.unpack_2bitx4(array.astype(np.uint8), shape).view(
                     dtype.numpy()
@@ -535,6 +543,11 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 # uint2, uint4, int2 and int4 values are already packed, even when stored as int32
                 # so we don't need to pack them again
                 return array.astype(_little_endian_dtype(np.uint8)).tobytes()
+            if self.dtype in {
+                _enums.DataType.FLOAT6E2M3,
+                _enums.DataType.FLOAT6E3M2,
+            }:
+                return _type_casting.pack_6bit(array.astype(np.uint8)).tobytes()
             assert self.dtype == _enums.DataType.INT32
             return array.tobytes()
         if self._proto.int64_data:
