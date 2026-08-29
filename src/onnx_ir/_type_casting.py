@@ -91,7 +91,10 @@ def unpack_2bitx4(data: npt.NDArray[np.uint8], dims: Sequence[int]) -> npt.NDArr
 
 def pack_6bit(array: np.ndarray) -> npt.NDArray[np.uint8]:
     """Convert a numpy array to a flattened, packed 6-bit array."""
-    array_flat = array.ravel().view(np.uint8).copy()
+    if array.dtype.itemsize == 1:
+        array_flat = array.ravel().view(np.uint8).copy()
+    else:
+        array_flat = array.astype(np.uint8).ravel()
     size = array.size
     padding = (4 - (size % 4)) % 4
     if padding:

@@ -46,9 +46,11 @@ class TypeCastingTest(unittest.TestCase):
         np.testing.assert_array_equal(actual, expected)
 
     def test_pack_6bit_uses_lsb_first_bit_order(self):
-        array = np.array([1, 2, 3, 4], dtype=np.uint8)
         expected = np.array([0x81, 0x30, 0x10], dtype=np.uint8)
-        np.testing.assert_array_equal(_type_casting.pack_6bit(array), expected)
+        for dtype in (np.uint8, np.uint16):
+            with self.subTest(dtype=dtype):
+                array = np.array([1, 2, 3, 4], dtype=dtype)
+                np.testing.assert_array_equal(_type_casting.pack_6bit(array), expected)
 
     def test_pack_unpack_6bit_round_trip_with_padding(self):
         for size in range(8):
