@@ -94,7 +94,7 @@ def pack_6bit(array: np.ndarray) -> npt.NDArray[np.uint8]:
     if array.dtype.itemsize == 1:
         array_flat = array.ravel().view(np.uint8).copy()
     else:
-        array_flat = array.astype(np.uint8).ravel()
+        array_flat = array.astype(np.uint8).ravel().copy()
     size = array.size
     padding = (4 - (size % 4)) % 4
     if padding:

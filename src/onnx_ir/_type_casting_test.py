@@ -53,12 +53,15 @@ class TypeCastingTest(unittest.TestCase):
                 np.testing.assert_array_equal(_type_casting.pack_6bit(array), expected)
 
     def test_pack_unpack_6bit_round_trip_with_padding(self):
-        for size in range(8):
-            with self.subTest(size=size):
-                array = np.arange(size, dtype=np.uint8)
-                packed = _type_casting.pack_6bit(array)
-                self.assertEqual(packed.size, (size * 6 + 7) // 8)
-                np.testing.assert_array_equal(_type_casting.unpack_6bit(packed, [size]), array)
+        for dtype in (np.uint8, np.uint16):
+            for size in range(8):
+                with self.subTest(dtype=dtype, size=size):
+                    array = np.arange(size, dtype=dtype)
+                    packed = _type_casting.pack_6bit(array)
+                    self.assertEqual(packed.size, (size * 6 + 7) // 8)
+                    np.testing.assert_array_equal(
+                        _type_casting.unpack_6bit(packed, [size]), array
+                    )
 
     def test_unpack_6bit_raises_for_truncated_data(self):
         with self.assertRaisesRegex(ValueError, "too small"):
