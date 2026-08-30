@@ -446,6 +446,49 @@ class TensorProtoTensorTest(unittest.TestCase):
         self.assertEqual(tensor.numpy().dtype, np.dtype(np_dtype))
         self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
 
+    @parameterized.parameterized.expand(
+        [
+            ("negative", -1),
+            ("high_bits", 64),
+            ("truncated_high_bits", 256),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_int32_data(
+        self, _: str, value: int
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=[1], int32_data=[value]
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            serde.serialize_tensor(tensor)
+
+    @parameterized.parameterized.expand(
+        [
+            ("trailing_byte", [1], b"\x00\x00", "too large"),
+            ("padding_bits_size_1", [1], b"\x40", "nonzero padding bits"),
+            ("padding_bits_size_2", [2], b"\x00\x10", "nonzero padding bits"),
+            ("padding_bits_size_3", [3], b"\x00\x00\x04", "nonzero padding bits"),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_raw_data(
+        self, _: str, dims: list[int], raw_data: bytes, error: str
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=dims, raw_data=raw_data
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, error):
+            serde.serialize_tensor(tensor)
+
 
 class DeserializeGraphTest(unittest.TestCase):
     def test_deserialize_graph_handles_unsorted_graph(self):

@@ -545,6 +545,9 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             # when value is not a numpy array
             self._dtype = dtype
 
+        if isinstance(value, np.ndarray) and self._dtype.bitwidth == 6:
+            _type_casting._validate_6bit_values(value)  # pylint: disable=protected-access
+
         # View the bfloat16, float8 and int2, int4 types using ml_dtypes
         if isinstance(value, np.ndarray):
             value = _maybe_view_np_array_with_ml_dtypes(value, self._dtype)  # type: ignore[assignment]
@@ -1381,7 +1384,12 @@ class PackedTensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatib
             raise ValueError(
                 f"Expected the packed array to be {self.nbytes} bytes (from shape {self.shape}), but got {array.nbytes} bytes"
             )
-        return array.view(np.uint8)
+        array = array.view(np.uint8)
+        if self.dtype.bitwidth == 6:
+            _type_casting._validate_packed_6bit(  # pylint: disable=protected-access
+                array.ravel(), self.shape.numpy()
+            )
+        return array
 
     def tobytes(self) -> bytes:
         """Returns the value as bytes encoded in little endian.

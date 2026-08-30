@@ -67,6 +67,24 @@ class TypeCastingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too small"):
             _type_casting.unpack_6bit(np.array([0, 0], dtype=np.uint8), [4])
 
+    def test_pack_6bit_rejects_noncanonical_values(self):
+        for dtype in (np.uint8, np.uint16):
+            with self.subTest(dtype=dtype):
+                with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+                    _type_casting.pack_6bit(np.array([64], dtype=dtype))
+
+    def test_unpack_6bit_rejects_trailing_bytes(self):
+        with self.assertRaisesRegex(ValueError, "too large"):
+            _type_casting.unpack_6bit(np.array([0, 0], dtype=np.uint8), [1])
+
+    def test_unpack_6bit_rejects_nonzero_padding_bits(self):
+        for size, invalid_last_byte in [(1, 0x40), (2, 0x10), (3, 0x04)]:
+            with self.subTest(size=size):
+                packed = np.zeros((size * 6 + 7) // 8, dtype=np.uint8)
+                packed[-1] = invalid_last_byte
+                with self.assertRaisesRegex(ValueError, "nonzero padding bits"):
+                    _type_casting.unpack_6bit(packed, [size])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

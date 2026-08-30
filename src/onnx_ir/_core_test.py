@@ -272,6 +272,22 @@ class TensorTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "ml_dtypes.float6"):
             _core.Tensor(array, dtype=ir.DataType.FLOAT6E2M3)
 
+    @parameterized.parameterized.expand(
+        [
+            ("uint8", np.uint8, ir.DataType.FLOAT6E2M3),
+            ("FLOAT6E2M3", ml_dtypes.float6_e2m3fn, ir.DataType.FLOAT6E2M3),
+            ("FLOAT6E3M2", ml_dtypes.float6_e3m2fn, ir.DataType.FLOAT6E3M2),
+        ]
+    )
+    def test_initialize_rejects_noncanonical_float6_bits(
+        self, _: str, np_dtype, dtype: ir.DataType
+    ):
+        array = np.array([64], dtype=np.uint8)
+        if np_dtype != np.uint8:
+            array = array.view(np_dtype)
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            _core.Tensor(array, dtype=dtype)
+
     def test_metadata(self):
         array = np.random.rand(1, 2).astype(np.float32)
         tensor = _core.Tensor(array)
@@ -3913,6 +3929,20 @@ class PackedTensorTest(unittest.TestCase):
         tensor = _core.PackedTensor(packed, dtype=dtype, shape=expected.shape)
         self.assertEqual(tensor.nbytes, 4)
         np.testing.assert_array_equal(tensor.numpy().view(np.uint8), expected.view(np.uint8))
+
+    def test_float6_rejects_nonzero_padding_bits_for_all_byte_outputs(self):
+        tensor = _core.PackedTensor(
+            np.array([0x40], dtype=np.uint8),
+            dtype=ir.DataType.FLOAT6E2M3,
+            shape=[1],
+        )
+        with self.assertRaisesRegex(ValueError, "nonzero padding bits"):
+            tensor.tobytes()
+        with self.assertRaises(ir.serde.SerdeError):
+            ir.serde.serialize_tensor(tensor)
+        with tempfile.TemporaryFile() as file:
+            with self.assertRaisesRegex(ValueError, "nonzero padding bits"):
+                tensor.tofile(file)
 
     @parameterized.parameterized.expand(
         [
