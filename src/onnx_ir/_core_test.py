@@ -3940,9 +3940,11 @@ class PackedTensorTest(unittest.TestCase):
             tensor.tobytes()
         with self.assertRaises(ir.serde.SerdeError):
             ir.serde.serialize_tensor(tensor)
-        with tempfile.TemporaryFile() as file:
-            with self.assertRaisesRegex(ValueError, "nonzero padding bits"):
-                tensor.tofile(file)
+        with (
+            tempfile.TemporaryFile() as file,
+            self.assertRaisesRegex(ValueError, "nonzero padding bits"),
+        ):
+            tensor.tofile(file)
 
     @parameterized.parameterized.expand(
         [

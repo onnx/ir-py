@@ -69,9 +69,11 @@ class TypeCastingTest(unittest.TestCase):
 
     def test_pack_6bit_rejects_noncanonical_values(self):
         for dtype in (np.uint8, np.uint16):
-            with self.subTest(dtype=dtype):
-                with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
-                    _type_casting.pack_6bit(np.array([64], dtype=dtype))
+            with (
+                self.subTest(dtype=dtype),
+                self.assertRaisesRegex(ValueError, r"range \[0, 63\]"),
+            ):
+                _type_casting.pack_6bit(np.array([64], dtype=dtype))
 
     def test_unpack_6bit_rejects_trailing_bytes(self):
         with self.assertRaisesRegex(ValueError, "too large"):
