@@ -272,6 +272,12 @@ class TensorTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "ml_dtypes.float6"):
             _core.Tensor(array, dtype=ir.DataType.FLOAT6E2M3)
 
+    def test_initialize_string_tensor(self):
+        array = np.array(["value"])
+        tensor = _core.Tensor(array)
+        self.assertEqual(tensor.dtype, ir.DataType.STRING)
+        np.testing.assert_array_equal(tensor.numpy(), array)
+
     @parameterized.parameterized.expand(
         [
             ("uint8", np.uint8, ir.DataType.FLOAT6E2M3),

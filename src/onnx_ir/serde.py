@@ -357,7 +357,10 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
 
     def _validate_float6_data(self) -> None:
         """Validate that FLOAT6 data uses a canonical ONNX representation."""
-        if self.dtype.bitwidth != 6:
+        if self.dtype not in {
+            _enums.DataType.FLOAT6E2M3,
+            _enums.DataType.FLOAT6E3M2,
+        }:
             return
         if self._proto.HasField("raw_data"):
             _type_casting._validate_packed_6bit(  # pylint: disable=protected-access
@@ -2146,9 +2149,8 @@ def serialize_tensor_into(
     tensor_proto: onnx.TensorProto, from_: _protocols.TensorProtocol
 ) -> None:
     if isinstance(from_, TensorProtoTensor):
-        if from_.dtype.bitwidth == 6:
-            # Validate before preserving the original representation verbatim.
-            from_._validate_float6_data()  # pylint: disable=protected-access
+        # Validate before preserving the original representation verbatim.
+        from_._validate_float6_data()  # pylint: disable=protected-access
         # Directly copy from the tensor proto if it is available
         tensor_proto.CopyFrom(from_.raw)
         if from_.metadata_props:

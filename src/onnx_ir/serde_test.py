@@ -446,6 +446,15 @@ class TensorProtoTensorTest(unittest.TestCase):
         self.assertEqual(tensor.numpy().dtype, np.dtype(np_dtype))
         self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
 
+    def test_tensor_proto_tensor_string_reserialization(self):
+        proto = onnx.TensorProto(
+            data_type=onnx.TensorProto.STRING,
+            dims=[1],
+            string_data=[b"value"],
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        self.assertEqual(serde.serialize_tensor(tensor), proto)
+
     @parameterized.parameterized.expand(
         [
             ("negative", -1),

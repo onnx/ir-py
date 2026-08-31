@@ -545,7 +545,10 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             # when value is not a numpy array
             self._dtype = dtype
 
-        if isinstance(value, np.ndarray) and self._dtype.bitwidth == 6:
+        if isinstance(value, np.ndarray) and self._dtype in {
+            _enums.DataType.FLOAT6E2M3,
+            _enums.DataType.FLOAT6E3M2,
+        }:
             _type_casting._validate_6bit_values(value)  # pylint: disable=protected-access
 
         # View the bfloat16, float8 and int2, int4 types using ml_dtypes
