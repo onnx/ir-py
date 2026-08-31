@@ -380,6 +380,8 @@ class TensorProtoTensorTest(unittest.TestCase):
                     ("UINT2", ir.DataType.UINT2),
                     ("INT2", ir.DataType.INT2),
                     ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
+                    ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3),
+                    ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2),
                 ],
                 [
                     np.array(
@@ -418,6 +420,8 @@ class TensorProtoTensorTest(unittest.TestCase):
             ir.DataType.FLOAT4E2M1,
             ir.DataType.BFLOAT16,
             ir.DataType.FLOAT8E8M0,
+            ir.DataType.FLOAT6E2M3,
+            ir.DataType.FLOAT6E3M2,
         }:
             # There is a bug in ml_dtypes that causes equality checks to fail for these dtypes
             # See https://github.com/jax-ml/ml_dtypes/issues/301
@@ -426,6 +430,73 @@ class TensorProtoTensorTest(unittest.TestCase):
             self.assertEqual(roundtrip_array.tobytes(), original_array.tobytes())
         else:
             np.testing.assert_equal(roundtrip_array, original_array, strict=True)
+
+    @parameterized.parameterized.expand(
+        [
+            ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3, ml_dtypes.float6_e2m3fn),
+            ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2, ml_dtypes.float6_e3m2fn),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_int32_data(self, _: str, dtype: ir.DataType, np_dtype):
+        proto = onnx.TensorProto(data_type=int(dtype), dims=[4], int32_data=[1, 2, 3, 4])
+        tensor = serde.TensorProtoTensor(proto)
+        np.testing.assert_array_equal(
+            tensor.numpy().view(np.uint8), np.array([1, 2, 3, 4], dtype=np.uint8)
+        )
+        self.assertEqual(tensor.numpy().dtype, np.dtype(np_dtype))
+        self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
+
+    def test_tensor_proto_tensor_string_reserialization(self):
+        proto = onnx.TensorProto(
+            data_type=onnx.TensorProto.STRING,
+            dims=[1],
+            string_data=[b"value"],
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        self.assertEqual(serde.serialize_tensor(tensor), proto)
+
+    @parameterized.parameterized.expand(
+        [
+            ("negative", -1),
+            ("high_bits", 64),
+            ("truncated_high_bits", 256),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_int32_data(
+        self, _: str, value: int
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=[1], int32_data=[value]
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            serde.serialize_tensor(tensor)
+
+    @parameterized.parameterized.expand(
+        [
+            ("trailing_byte", [1], b"\x00\x00", "too large"),
+            ("padding_bits_size_1", [1], b"\x40", "nonzero padding bits"),
+            ("padding_bits_size_2", [2], b"\x00\x10", "nonzero padding bits"),
+            ("padding_bits_size_3", [3], b"\x00\x00\x04", "nonzero padding bits"),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_raw_data(
+        self, _: str, dims: list[int], raw_data: bytes, error: str
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=dims, raw_data=raw_data
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, error):
+            serde.serialize_tensor(tensor)
 
 
 class DeserializeGraphTest(unittest.TestCase):

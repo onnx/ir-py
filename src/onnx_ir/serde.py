@@ -355,6 +355,22 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
         """Return the tensor as a numpy array, compatible with np.array."""
         return self.numpy().__array__(dtype)
 
+    def _validate_float6_data(self) -> None:
+        """Validate that FLOAT6 data uses a canonical ONNX representation."""
+        if self.dtype not in {
+            _enums.DataType.FLOAT6E2M3,
+            _enums.DataType.FLOAT6E3M2,
+        }:
+            return
+        if self._proto.HasField("raw_data"):
+            _type_casting._validate_packed_6bit(  # pylint: disable=protected-access
+                np.frombuffer(self._proto.raw_data, dtype=np.uint8), self._proto.dims
+            )
+        elif self._proto.int32_data:
+            _type_casting._validate_6bit_values(  # pylint: disable=protected-access
+                np.asarray(self._proto.int32_data, dtype=np.int32)
+            )
+
     def __dlpack__(self, *, stream: Any = None) -> Any:
         return self.numpy().__dlpack__(stream=stream)
 
@@ -403,6 +419,10 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return _type_casting.unpack_2bitx4(
                     np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
                 ).view(dtype.numpy())
+            if dtype.bitwidth == 6:
+                return _type_casting.unpack_6bit(
+                    np.frombuffer(self._proto.raw_data, dtype=np.uint8), shape
+                ).view(dtype.numpy())
             return np.frombuffer(
                 self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
             ).reshape(shape)
@@ -428,6 +448,8 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 _enums.DataType.UINT2,
                 _enums.DataType.UINT4,
                 _enums.DataType.UINT8,
+                _enums.DataType.FLOAT6E2M3,
+                _enums.DataType.FLOAT6E3M2,
             }, f"Unsupported dtype {dtype} for int32_data"
             array = np.array(self._proto.int32_data, dtype=_little_endian_dtype(np.int32))
             if dtype.bitwidth == 32:
@@ -441,6 +463,11 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 return _type_casting.unpack_4bitx2(array.astype(np.uint8), shape).view(
                     dtype.numpy()
                 )
+            if dtype.bitwidth == 6:
+                _type_casting._validate_6bit_values(  # pylint: disable=protected-access
+                    array
+                )
+                return array.astype(np.uint8).view(dtype.numpy()).reshape(shape)
             if dtype.bitwidth == 2:
                 return _type_casting.unpack_2bitx4(array.astype(np.uint8), shape).view(
                     dtype.numpy()
@@ -503,6 +530,7 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
             raise ValueError("Cannot convert UNDEFINED tensor to bytes.")
 
         if self._proto.HasField("raw_data"):
+            self._validate_float6_data()
             return self._proto.raw_data
         if self._proto.float_data:
             return np.array(
@@ -535,6 +563,14 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 # uint2, uint4, int2 and int4 values are already packed, even when stored as int32
                 # so we don't need to pack them again
                 return array.astype(_little_endian_dtype(np.uint8)).tobytes()
+            if self.dtype in {
+                _enums.DataType.FLOAT6E2M3,
+                _enums.DataType.FLOAT6E3M2,
+            }:
+                _type_casting._validate_6bit_values(  # pylint: disable=protected-access
+                    array
+                )
+                return _type_casting.pack_6bit(array.astype(np.uint8)).tobytes()
             assert self.dtype == _enums.DataType.INT32
             return array.tobytes()
         if self._proto.int64_data:
@@ -2113,6 +2149,8 @@ def serialize_tensor_into(
     tensor_proto: onnx.TensorProto, from_: _protocols.TensorProtocol
 ) -> None:
     if isinstance(from_, TensorProtoTensor):
+        # Validate before preserving the original representation verbatim.
+        from_._validate_float6_data()  # pylint: disable=protected-access
         # Directly copy from the tensor proto if it is available
         tensor_proto.CopyFrom(from_.raw)
         if from_.metadata_props:

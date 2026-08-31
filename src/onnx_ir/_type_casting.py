@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import typing
 from collections.abc import Sequence
 
@@ -87,3 +88,70 @@ def unpack_2bitx4(data: npt.NDArray[np.uint8], dims: Sequence[int]) -> npt.NDArr
         result = result[:total_elements]
     result.resize(dims, refcheck=False)
     return result
+
+
+def _validate_6bit_values(array: np.ndarray) -> None:
+    """Validate that every element is a canonical unpacked 6-bit value."""
+    if array.dtype.itemsize == 1:
+        invalid = array.ravel().view(np.uint8) > 0x3F
+    else:
+        invalid = (array < 0) | (array > 0x3F)
+    if np.any(invalid):
+        raise ValueError("Unpacked 6-bit values must be in the range [0, 63].")
+
+
+def _validate_packed_6bit(data: npt.NDArray[np.uint8], dims: Sequence[int]) -> None:
+    """Validate the size and padding bits of a packed 6-bit array."""
+    if data.dtype != np.uint8:
+        raise TypeError(f"Packed 6-bit data must have dtype uint8, not {data.dtype}.")
+    size = math.prod(dims)
+    expected_nbytes = (size * 6 + 7) // 8
+    if data.size < expected_nbytes:
+        raise ValueError(
+            f"Packed 6-bit data ({data.size} bytes) is too small for the declared "
+            f"shape {list(dims)} ({expected_nbytes} bytes required)."
+        )
+    if data.size > expected_nbytes:
+        raise ValueError(
+            f"Packed 6-bit data ({data.size} bytes) is too large for the declared "
+            f"shape {list(dims)} ({expected_nbytes} bytes required)."
+        )
+    padding_masks = {1: 0xC0, 2: 0xF0, 3: 0xFC}
+    remainder = size % 4
+    if remainder and data.size and data[-1] & padding_masks[remainder]:
+        raise ValueError("Packed 6-bit data has nonzero padding bits.")
+
+
+def pack_6bit(array: np.ndarray) -> npt.NDArray[np.uint8]:
+    """Convert canonical unpacked 6-bit values to a flattened, packed array."""
+    _validate_6bit_values(array)
+    if array.dtype.itemsize == 1:
+        array_flat = array.ravel().view(np.uint8).copy()
+    else:
+        array_flat = array.astype(np.uint8).ravel().copy()
+    size = array.size
+    padding = (4 - (size % 4)) % 4
+    if padding:
+        array_flat.resize([size + padding], refcheck=False)
+    values = array_flat.reshape(-1, 4)
+    packed = np.empty((values.shape[0], 3), dtype=np.uint8)
+    packed[:, 0] = values[:, 0] | ((values[:, 1] & 0x03) << 6)
+    packed[:, 1] = (values[:, 1] >> 2) | ((values[:, 2] & 0x0F) << 4)
+    packed[:, 2] = (values[:, 2] >> 4) | (values[:, 3] << 2)
+    return packed.ravel()[: (size * 6 + 7) // 8]
+
+
+def unpack_6bit(data: npt.NDArray[np.uint8], dims: Sequence[int]) -> npt.NDArray[np.uint8]:
+    """Convert a packed 6-bit array to an unpacked uint8 array."""
+    _validate_packed_6bit(data, dims)
+    size = math.prod(dims)
+    expected_nbytes = (size * 6 + 7) // 8
+    padded = np.zeros(((size + 3) // 4) * 3, dtype=np.uint8)
+    padded[:expected_nbytes] = data
+    packed = padded.reshape(-1, 3)
+    result = np.empty((packed.shape[0], 4), dtype=np.uint8)
+    result[:, 0] = packed[:, 0] & 0x3F
+    result[:, 1] = ((packed[:, 0] >> 6) & 0x03) | ((packed[:, 1] & 0x0F) << 2)
+    result[:, 2] = ((packed[:, 1] >> 4) & 0x0F) | ((packed[:, 2] & 0x03) << 4)
+    result[:, 3] = (packed[:, 2] >> 2) & 0x3F
+    return result.ravel()[:size].reshape(dims)
