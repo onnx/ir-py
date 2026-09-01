@@ -4,6 +4,7 @@ import unittest
 
 import numpy as np
 import onnx
+import onnxruntime as ort
 from onnx.reference import ReferenceEvaluator
 
 import onnx_ir as ir
@@ -16,6 +17,15 @@ class RemoveUnusedTest(unittest.TestCase):
         onnx_ir.passes.common.RemoveUnusedNodesPass()(model_ir)
         model = ir.serde.serialize_model(model_ir)
         return model
+
+    def batchnorm_feeds(self):
+        return {
+            "x": np.array([[1.0, 2.0], [3.0, 6.0]], dtype=np.float32),
+            "scale": np.ones(2, dtype=np.float32),
+            "bias": np.zeros(2, dtype=np.float32),
+            "mean": np.array([100.0, -100.0], dtype=np.float32),
+            "var": np.array([4.0, 9.0], dtype=np.float32),
+        }
 
     def batchnorm_model(self, training_mode=None, *, include_running_outputs=False):
         training_attribute = (
@@ -39,6 +49,23 @@ class RemoveUnusedTest(unittest.TestCase):
                 y, running_mean, running_var =
                     BatchNormalization {training_attribute} (x, scale, bias, mean, var)
             }}
+        """
+        )
+
+    def legacy_batchnorm_model(self):
+        return onnx.parser.parse_model(
+            """
+            <ir_version: 10, opset_import: [ "" : 9]>
+            agraph (
+                float[2, 2] x,
+                float[2] scale,
+                float[2] bias,
+                float[2] mean,
+                float[2] var
+            ) => (float[2, 2] y) {
+                y, running_mean, running_var, saved_mean, saved_var =
+                    BatchNormalization (x, scale, bias, mean, var)
+            }
         """
         )
 
@@ -240,13 +267,7 @@ class RemoveUnusedTest(unittest.TestCase):
 
     def test_preserve_unused_optional_outputs_batchnorm_in_training_mode(self):
         model = self.batchnorm_model(training_mode=1)
-        feeds = {
-            "x": np.array([[1.0, 2.0], [3.0, 6.0]], dtype=np.float32),
-            "scale": np.ones(2, dtype=np.float32),
-            "bias": np.zeros(2, dtype=np.float32),
-            "mean": np.array([100.0, -100.0], dtype=np.float32),
-            "var": np.array([4.0, 9.0], dtype=np.float32),
-        }
+        feeds = self.batchnorm_feeds()
         original_output = ReferenceEvaluator(model).run(None, feeds)[0]
         expected_output = (feeds["x"] - feeds["x"].mean(axis=0)) / np.sqrt(
             feeds["x"].var(axis=0) + 1e-5
@@ -259,6 +280,25 @@ class RemoveUnusedTest(unittest.TestCase):
         self.assertEqual({attr.name: attr.i for attr in node.attribute}, {"training_mode": 1})
         onnx.checker.check_model(model)
         optimized_output = ReferenceEvaluator(model).run(None, feeds)[0]
+        np.testing.assert_allclose(optimized_output, original_output, rtol=1e-5, atol=1e-5)
+
+    def test_preserve_unused_outputs_batchnorm_opset9(self):
+        model = self.legacy_batchnorm_model()
+        onnx.checker.check_model(model)
+        feeds = self.batchnorm_feeds()
+        original_output = ort.InferenceSession(model.SerializeToString()).run(None, feeds)[0]
+        expected_output = (feeds["x"] - feeds["x"].mean(axis=0)) / np.sqrt(
+            feeds["x"].var(axis=0) + 1e-5
+        )
+        np.testing.assert_allclose(original_output, expected_output, rtol=1e-5, atol=1e-5)
+
+        model = self.remove_unused_nodes(model)
+        self.assertEqual(
+            list(model.graph.node[0].output),
+            ["y", "running_mean", "running_var", "saved_mean", "saved_var"],
+        )
+        onnx.checker.check_model(model)
+        optimized_output = ort.InferenceSession(model.SerializeToString()).run(None, feeds)[0]
         np.testing.assert_allclose(optimized_output, original_output, rtol=1e-5, atol=1e-5)
 
     def test_remove_unused_optional_outputs_batchnorm_in_inference_mode(self):

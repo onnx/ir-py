@@ -33,6 +33,9 @@ def _remove_unused_optional_outputs(
         return
 
     if node.op_type == "BatchNormalization":
+        # Before opset 14, output arity selects training or inference behavior.
+        if "training_mode" not in op_schema.attributes:
+            return
         training_mode = node.attributes.get("training_mode")
         # Changing training mode to inference changes Y because training uses batch statistics.
         # Only remove training outputs when inference mode is statically known.
