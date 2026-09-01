@@ -33,22 +33,16 @@ def _remove_unused_optional_outputs(
         return
 
     if node.op_type == "BatchNormalization":
-        # BatchNormalization op has 3 outputs: Y, running_mean, running_var
-        # If running_mean and running_var are not used, remove them, and the training_mode attribute
-        def is_used_output(i: int) -> bool:
-            if i < len(node.outputs):
-                val = node.outputs[i]
-                return val in graph_outputs or bool(val.uses())
-            return False
-
-        if is_used_output(1) or is_used_output(2):
+        training_mode = node.attributes.get("training_mode")
+        # Changing training mode to inference changes Y because training uses batch statistics.
+        # Only remove training outputs when inference mode is statically known.
+        if training_mode is not None and (
+            training_mode.is_ref()
+            or training_mode.type != ir.AttributeType.INT
+            or training_mode.as_int() != 0
+        ):
             return
-        if len(node.outputs) > 1:
-            node.outputs[1].name = ""
-        if len(node.outputs) > 2:
-            node.outputs[2].name = ""
         node.attributes.pop("training_mode", None)
-        return
 
     optional_info = []
     for o in op_schema.outputs:
