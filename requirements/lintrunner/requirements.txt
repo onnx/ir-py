@@ -3,7 +3,7 @@ lintrunner-adapters>=0.14.1
 # RUFF, RUFF-FIX
 ruff==0.16.6
 # MYPY
-mypy==2.3.0
+mypy==2.3.1
 types-PyYAML==6.0.12.20260724
 # EDITORCONFIG-CHECKER
 editorconfig-checker==3.11.1
