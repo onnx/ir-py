@@ -7,9 +7,10 @@ ownership, capture, and invocation semantics.
 ## Nested subgraphs
 
 Operators such as `If`, `Loop`, and `Scan` store graphs in their attributes.
-Subgraphs declare their own inputs, outputs, initializers, and opset imports, and
-may also reference values from an enclosing graph. These references are implicit
-captures rather than declared subgraph inputs.
+Subgraphs declare their own inputs, outputs, and initializers, and may also
+reference values from an enclosing graph. These references are implicit captures
+rather than declared subgraph inputs. Subgraph `opset_imports` are ignored;
+control-flow subgraphs use the main graph's opset imports.
 
 Use {py:class}`onnx_ir.traversal.RecursiveGraphIterator` to visit a graph and all
 graphs nested in node attributes:
@@ -99,5 +100,6 @@ Before implementing a transformation, decide whether it applies to:
 - model-local functions and their subgraphs;
 - every scope in the model.
 
-Also account for implicit captures, graph outputs, per-scope opset imports, and
-names inherited from enclosing scopes.
+Also account for implicit captures, graph outputs, and names inherited from
+enclosing scopes. Opset imports are per main graph/function scope; subgraph
+`opset_imports` are ignored.
