@@ -6,6 +6,8 @@ from __future__ import annotations
 
 __all__ = [
     "assert_onnx_proto_equal",
+    "assert_topologically_equal",
+    "topologically_equal",
 ]
 
 import difflib
@@ -15,6 +17,11 @@ from typing import Any
 
 import google.protobuf.message
 import onnx
+
+from onnx_ir._graph_comparison import assert_topologically_equal, topologically_equal
+
+assert_topologically_equal.__module__ = "onnx_ir.testing"
+topologically_equal.__module__ = "onnx_ir.testing"
 
 
 def _opset_import_key(opset_import: onnx.OperatorSetIdProto) -> tuple[str, int]:
