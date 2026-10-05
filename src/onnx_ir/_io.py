@@ -110,7 +110,7 @@ def save(
             That is, if a tensor in the model is already external, it will be saved
             with the same external information; if the tensor is not external,
             it will be serialized in the ONNX Proto message.
-        size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
             When ``None`` (the default) all external tensors are written to the single file

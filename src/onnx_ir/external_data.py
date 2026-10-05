@@ -270,7 +270,13 @@ def _external_tensor_to_memory_tensor(
     # Copy the data as the .numpy() call references data from a file whose data is eventually modified
     tensor_data = tensor.numpy().copy()
     tensor.release()
-    return _core.Tensor(tensor_data, name=tensor.name, dtype=tensor.dtype)
+    return _core.Tensor(
+        tensor_data,
+        name=tensor.name,
+        dtype=tensor.dtype,
+        doc_string=tensor.doc_string,
+        metadata_props=dict(tensor.metadata_props),
+    )
 
 
 def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike) -> bool:
@@ -674,6 +680,8 @@ def _create_external_tensor(
         tensor.dtype,  # type: ignore[arg-type]
         shape=tensor.shape,  # type: ignore[arg-type]
         name=tensor.name,  # type: ignore[arg-type]
+        doc_string=getattr(tensor, "doc_string", None),
+        metadata_props=dict(getattr(tensor, "metadata_props", {})),
         base_dir=os.path.normpath(base_dir),
     )
 
@@ -912,14 +920,13 @@ def _write_external_tensors(
 
 
 def load_to_model(model: _core.Model) -> _core.Model:
-    """Convert all external model initializers to memory tensors in-place.
+    """Convert all external model tensors to memory tensors in-place.
 
-    All initializers in the main graph and subgraphs are handled.
+    All initializers and tensor attributes in the main graph and subgraphs are handled.
 
     Args:
         model: Model to process.
     """
-    # TODO(justinchuby): Load tensor attributes in subgraphs
     values_to_convert = []
     for graph in model.graphs():
         for value in graph.initializers.values():
@@ -933,6 +940,41 @@ def load_to_model(model: _core.Model) -> _core.Model:
     )
     for value, tensor in zip(values_to_convert, loaded_tensors, strict=True):
         value.const_value = tensor
+
+    attribute_tensors_to_convert = []
+    attribute_references: list[tuple[_core.Node, str, int | None]] = []
+    for node in _traversal.RecursiveGraphIterator(model.graph):
+        for name, attr in node.attributes.items():
+            if attr.is_ref() or attr.value is None:
+                continue
+            if attr.type == _enums.AttributeType.TENSOR:
+                if isinstance(attr.value, _core.ExternalTensor):
+                    attribute_tensors_to_convert.append(attr.value)
+                    attribute_references.append((node, name, None))
+            elif attr.type == _enums.AttributeType.TENSORS:
+                for index, tensor in enumerate(attr.value):
+                    if isinstance(tensor, _core.ExternalTensor):
+                        attribute_tensors_to_convert.append(tensor)
+                        attribute_references.append((node, name, index))
+
+    loaded_attribute_tensors = convert_tensors_from_external(attribute_tensors_to_convert)
+    for (node, name, index), tensor in zip(
+        attribute_references, loaded_attribute_tensors, strict=True
+    ):
+        attr = node.attributes[name]
+        if index is None:
+            value = tensor
+        else:
+            value = list(attr.value)
+            value[index] = tensor
+        replacement = _core.Attr(
+            attr.name,
+            attr.type,
+            value,
+            doc_string=attr.doc_string,
+        )
+        replacement.meta.update(attr.meta)
+        node.attributes[name] = replacement
 
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged
@@ -985,7 +1027,7 @@ def unload_from_model(
         relative_path: Path to which external data is to be stored, relative to the ONNX file.
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
-        size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
             ``relative_path``.  When set, tensors are written to multiple numbered shard
@@ -1047,7 +1089,7 @@ def unload_from_model(
             if value.const_value is None:
                 # Filter out the uninitialized initializer values
                 continue
-            if value.const_value.nbytes > size_threshold_bytes:
+            if value.const_value.nbytes >= size_threshold_bytes:
                 initializers_to_become_external.append(value)
             elif isinstance(value.const_value, _core.ExternalTensor):
                 initializers_to_load_to_memory.append(value)
