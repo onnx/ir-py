@@ -188,19 +188,17 @@ def save(
             # Collect from all subgraphs as well
             initialized_values.extend(graph.initializers.values())
         tensors = [v.const_value for v in initialized_values]
-        tensor_attributes = (
-            [
-                (node, name, attr)
-                for node in _traversal.RecursiveGraphIterator(model.graph)
-                for name, attr in node.attributes.items()
-                if not attr.is_ref()
-                and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
-            ]
-            if convert_attribute
-            else []
-        )
+        tensor_attributes = [
+            (node, name, attr)
+            for node in _traversal.RecursiveGraphIterator(model.graph)
+            for name, attr in node.attributes.items()
+            if not attr.is_ref()
+            and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
+        ]
 
         try:
+            if not convert_attribute:
+                _external_data._load_external_attribute_tensors(model)
             model = _external_data.unload_from_model(
                 model,
                 base_dir,

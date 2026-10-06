@@ -992,6 +992,19 @@ def _replace_attribute_tensor(
     node.attributes[name] = replacement
 
 
+def _load_external_attribute_tensors(model: _core.Model) -> None:
+    attribute_references = [
+        reference
+        for reference in _attribute_tensor_references(model)
+        if isinstance(reference[3], _core.ExternalTensor)
+    ]
+    loaded_attribute_tensors = convert_tensors_from_external(
+        [reference[3] for reference in attribute_references]
+    )
+    for reference, tensor in zip(attribute_references, loaded_attribute_tensors, strict=True):
+        _replace_attribute_tensor(reference, tensor)
+
+
 def load_to_model(model: _core.Model) -> _core.Model:
     """Convert all external model tensors to memory tensors in-place.
 
@@ -1014,17 +1027,7 @@ def load_to_model(model: _core.Model) -> _core.Model:
     for value, tensor in zip(values_to_convert, loaded_tensors, strict=True):
         value.const_value = tensor
 
-    attribute_references = [
-        reference
-        for reference in _attribute_tensor_references(model)
-        if isinstance(reference[3], _core.ExternalTensor)
-    ]
-
-    loaded_attribute_tensors = convert_tensors_from_external(
-        [reference[3] for reference in attribute_references]
-    )
-    for reference, tensor in zip(attribute_references, loaded_attribute_tensors, strict=True):
-        _replace_attribute_tensor(reference, tensor)
+    _load_external_attribute_tensors(model)
 
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged
