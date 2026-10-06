@@ -45,8 +45,6 @@ def save(
     format: str | None = None,
     external_data: str | os.PathLike | None = None,
     size_threshold_bytes: int = 256,
-    all_tensors_to_one_file: bool = True,
-    convert_attribute: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
@@ -54,6 +52,9 @@ def save(
     max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
+    *,
+    all_tensors_to_one_file: bool = True,
+    convert_attribute: bool = False,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -195,6 +196,12 @@ def save(
             if not attr.is_ref()
             and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
         ]
+        external_attribute_tensors = [
+            reference[3]
+            for reference in _external_data._attribute_tensor_references(model)
+            if isinstance(reference[3], _core.ExternalTensor)
+        ]
+        replaced_external_data_paths: set[str] = set()
 
         try:
             if not convert_attribute:
@@ -212,6 +219,8 @@ def save(
                 max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
+                _reserved_filenames=(os.path.basename(os.fsdecode(path)),),
+                _replaced_paths=replaced_external_data_paths,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)
@@ -222,6 +231,10 @@ def save(
                 initializer.const_value = tensor
             for node, name, attr in tensor_attributes:
                 node.attributes[name] = attr
+            _external_data._invalidate_external_tensors_referencing_paths(
+                external_attribute_tensors,
+                replaced_external_data_paths,
+            )
 
     else:
         proto = serde.serialize_model(model)

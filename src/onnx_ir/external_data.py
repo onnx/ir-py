@@ -23,7 +23,7 @@ import os
 import shutil
 import tempfile
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 from onnx_ir import _core, _enums, _protocols
 from onnx_ir import traversal as _traversal
@@ -292,6 +292,33 @@ def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike
         return False
 
 
+def _invalidate_external_tensors(
+    tensors: Sequence[_core.ExternalTensor],
+) -> None:
+    for tensor in tensors:
+        if not tensor.valid():
+            continue
+        tensor.invalidate()
+        logger.warning(
+            "External tensor %s referred to an overwritten destination and has "
+            "been invalidated. Load the newly saved model to obtain a valid tensor.",
+            tensor,
+        )
+
+
+def _invalidate_external_tensors_referencing_paths(
+    tensors: Sequence[_core.ExternalTensor],
+    paths: Iterable[str | os.PathLike],
+) -> None:
+    _invalidate_external_tensors(
+        [
+            tensor
+            for tensor in tensors
+            if any(_paths_refer_to_same_file(tensor.path, path) for path in paths)
+        ]
+    )
+
+
 def _check_no_existing_shard_files(
     destination_paths: Sequence[str | os.PathLike],
 ) -> None:
@@ -319,6 +346,35 @@ def _check_no_existing_shard_files(
             "files. Delete the conflicting files or save into a different "
             "directory or under a different external data path."
         )
+
+
+def _replace_external_data_file(
+    staged_path: str | os.PathLike,
+    requested_path: str | os.PathLike,
+    tensors: Sequence[_protocols.TensorProtocol],
+    replaced_paths: set[str] | None = None,
+) -> None:
+    requested_path = os.fspath(requested_path)
+    destination_path = (
+        os.path.realpath(requested_path) if os.path.islink(requested_path) else requested_path
+    )
+    overwritten_tensors = [
+        tensor
+        for tensor in tensors
+        if isinstance(tensor, _core.ExternalTensor)
+        and _paths_refer_to_same_file(tensor.path, destination_path)
+    ]
+
+    # Windows cannot atomically replace a file while one of its mmap handles
+    # is open. Other ExternalTensors are left untouched.
+    for tensor in overwritten_tensors:
+        tensor.release()
+    if os.path.exists(destination_path):
+        shutil.copymode(destination_path, staged_path)
+    os.replace(staged_path, destination_path)
+    if replaced_paths is not None:
+        replaced_paths.add(os.path.abspath(destination_path))
+    _invalidate_external_tensors(overwritten_tensors)
 
 
 def _compute_external_data_info(
@@ -438,6 +494,7 @@ def _write_external_data(
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     budget: _ByteBudget | None = None,
     tensor_write_locks: dict[int, threading.Lock] | None = None,
+    replaced_paths: set[str] | None = None,
 ) -> None:
     """Write tensor data to an external file according to information stored in ExternalDataInfo objects.
 
@@ -455,6 +512,7 @@ def _write_external_data(
             peak memory does not scale with the number of shards.
         tensor_write_locks: Locks shared by shard writers to prevent concurrent
             evaluation of the same tensor object.
+        replaced_paths: Set updated with destinations after successful replacement.
     """
     requested_path = os.fspath(file_path)
     destination_path = (
@@ -467,12 +525,6 @@ def _write_external_data(
     )
     temporary_path = os.path.join(temporary_dir, os.path.basename(destination_path))
 
-    overwritten_tensors = [
-        tensor
-        for tensor in tensors
-        if isinstance(tensor, _core.ExternalTensor)
-        and _paths_refer_to_same_file(tensor.path, destination_path)
-    ]
     try:
         writer = _ExternalDataWriter(
             tensors,
@@ -490,26 +542,17 @@ def _write_external_data(
             ),
         )
         writer.write()
-        # Windows cannot atomically replace a file while one of its mmap handles
-        # is open. Other ExternalTensors are left untouched.
-        for tensor in overwritten_tensors:
-            tensor.release()
-        if os.path.exists(destination_path):
-            shutil.copymode(destination_path, temporary_path)
-        os.replace(temporary_path, destination_path)
+        _replace_external_data_file(
+            temporary_path,
+            requested_path,
+            tensors,
+            replaced_paths,
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.remove(temporary_path)
         with contextlib.suppress(FileNotFoundError):
             os.rmdir(temporary_dir)
-
-    for tensor in overwritten_tensors:
-        tensor.invalidate()
-        logger.warning(
-            "External tensor %s referred to the overwritten destination and has "
-            "been invalidated. Load the newly saved model to obtain a valid tensor.",
-            tensor,
-        )
 
 
 class _ExternalDataWriter:
@@ -711,6 +754,7 @@ def convert_tensors_to_external(
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
     _budget: _ByteBudget | None = None,
     _tensor_write_locks: dict[int, threading.Lock] | None = None,
+    _replaced_paths: set[str] | None = None,
 ) -> list[_core.ExternalTensor]:
     """Convert a sequence of any TensorProtocol tensors to external tensors.
 
@@ -781,6 +825,7 @@ def convert_tensors_to_external(
         max_in_flight_bytes=max_in_flight_bytes,
         budget=_budget,
         tensor_write_locks=_tensor_write_locks,
+        replaced_paths=_replaced_paths,
     )
 
     # Create external tensor objects
@@ -788,6 +833,25 @@ def convert_tensors_to_external(
         _create_external_tensor(tensor, external_info, base_dir, relative_path)
         for tensor, external_info in zip(tensors, external_data_infos, strict=True)
     ]
+
+
+def _per_tensor_filenames(
+    tensors: Sequence[_protocols.TensorProtocol],
+    reserved_filenames: Sequence[str | os.PathLike],
+) -> list[str]:
+    used_filenames = {os.fsdecode(filename).casefold() for filename in reserved_filenames}
+    filenames = []
+    for index, tensor in enumerate(tensors):
+        filename = tensor.name
+        if not filename or any(character in filename for character in '<>:;,?"*|/\\'):
+            filename = f"tensor_{index}"
+        suffix = 0
+        while filename.casefold() in used_filenames:
+            suffix += 1
+            filename = f"tensor_{index}_{suffix}"
+        used_filenames.add(filename.casefold())
+        filenames.append(filename)
+    return filenames
 
 
 def _write_external_tensors(
@@ -802,38 +866,55 @@ def _write_external_tensors(
     max_in_flight_bytes: int,
     alignment: int | None,
     align_threshold: int,
+    reserved_filenames: Sequence[str | os.PathLike],
+    replaced_paths: set[str] | None,
 ) -> list[_core.ExternalTensor]:
     """Write tensors to one file or coordinate writes across shard files."""
     if not all_tensors_to_one_file:
-        used_filenames: set[str] = set()
-        external_tensors: list[_core.ExternalTensor] = []
-        for index, tensor in enumerate(tensors):
-            filename = tensor.name
-            if not filename or any(character in filename for character in '<>:;,?"*|/\\'):
-                filename = f"tensor_{index}"
-            suffix = 0
-            while filename in used_filenames:
-                suffix += 1
-                filename = f"tensor_{index}_{suffix}"
-            used_filenames.add(filename)
-            tensor_callback = (
-                _make_shard_callback(callback, len(tensors), index)
-                if callback is not None
-                else None
-            )
-            external_tensors.extend(
-                convert_tensors_to_external(
+        filenames = _per_tensor_filenames(tensors, reserved_filenames)
+        per_tensor_external_tensors: list[_core.ExternalTensor] = []
+        staging_parent = os.fspath(base_dir) or "."
+        with tempfile.TemporaryDirectory(
+            dir=staging_parent,
+            prefix=".onnx-ir-per-tensor-",
+        ) as staging_dir:
+            for index, (tensor, filename) in enumerate(zip(tensors, filenames, strict=True)):
+                external_data_info = _compute_external_data_info(
+                    tensor,
+                    0,
+                    alignment,
+                    align_threshold,
+                )
+                tensor_callback = (
+                    _make_shard_callback(callback, len(tensors), index)
+                    if callback is not None
+                    else None
+                )
+                _write_external_data(
                     [tensor],
-                    base_dir=base_dir,
-                    relative_path=filename,
+                    [external_data_info],
+                    os.path.join(staging_dir, filename),
                     callback=tensor_callback,
                     max_workers=max_workers,
                     max_in_flight_bytes=max_in_flight_bytes,
-                    alignment=alignment,
-                    align_threshold=align_threshold,
                 )
-            )
-        return external_tensors
+                per_tensor_external_tensors.append(
+                    _create_external_tensor(
+                        tensor,
+                        external_data_info,
+                        base_dir,
+                        filename,
+                    )
+                )
+
+            for filename in filenames:
+                _replace_external_data_file(
+                    os.path.join(staging_dir, filename),
+                    os.path.join(base_dir, filename),
+                    tensors,
+                    replaced_paths,
+                )
+        return per_tensor_external_tensors
 
     # Write strategy:
     #
@@ -858,6 +939,7 @@ def _write_external_tensors(
             alignment=alignment,
             align_threshold=align_threshold,
             _tensor_write_locks=tensor_write_locks,
+            _replaced_paths=replaced_paths,
         )
 
     tensor_shards = _shard_tensors(tensors, max_shard_size_bytes, alignment, align_threshold)
@@ -927,6 +1009,7 @@ def _write_external_tensors(
                     align_threshold=align_threshold,
                     _budget=shared_budget,
                     _tensor_write_locks=tensor_write_locks,
+                    _replaced_paths=replaced_paths,
                 )
                 for job_tensors, job_path, job_callback in shard_jobs
             ]
@@ -946,6 +1029,7 @@ def _write_external_tensors(
                 alignment=alignment,
                 align_threshold=align_threshold,
                 _tensor_write_locks=tensor_write_locks,
+                _replaced_paths=replaced_paths,
             )
         )
     return external_tensors
@@ -977,17 +1061,23 @@ def _replace_attribute_tensor(
 ) -> None:
     node, name, index, _ = reference
     attr = node.attributes[name]
+    replacement: _core.Attr
     if index is None:
-        value = tensor
+        replacement = _core.Attr(
+            attr.name,
+            attr.type,
+            tensor,
+            doc_string=attr.doc_string,
+        )
     else:
-        value = list(attr.value)
-        value[index] = tensor
-    replacement = _core.Attr(
-        attr.name,
-        attr.type,
-        value,
-        doc_string=attr.doc_string,
-    )
+        updated_tensors = list(attr.as_tensors())
+        updated_tensors[index] = tensor
+        replacement = _core.Attr(
+            attr.name,
+            attr.type,
+            updated_tensors,
+            doc_string=attr.doc_string,
+        )
     replacement.meta.update(attr.meta)
     node.attributes[name] = replacement
 
@@ -1048,6 +1138,8 @@ def unload_from_model(
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
+    _reserved_filenames: Sequence[str | os.PathLike] = (),
+    _replaced_paths: set[str] | None = None,
 ) -> _core.Model:
     """Convert model tensors equal or above size_threshold_bytes to external tensors in-place and save their data.
 
@@ -1152,6 +1244,8 @@ def unload_from_model(
             if value.const_value is None:
                 # Filter out the uninitialized initializer values
                 continue
+            if value.const_value.dtype == _enums.DataType.STRING:
+                continue
             if value.const_value.nbytes >= size_threshold_bytes:
                 initializers_to_become_external.append(value)
             elif isinstance(value.const_value, _core.ExternalTensor):
@@ -1162,6 +1256,8 @@ def unload_from_model(
     if convert_attribute:
         for reference in _attribute_tensor_references(model):
             tensor = reference[3]
+            if tensor.dtype == _enums.DataType.STRING:
+                continue
             if tensor.nbytes >= size_threshold_bytes:
                 attributes_to_become_external.append(reference)
             elif isinstance(tensor, _core.ExternalTensor):
@@ -1192,6 +1288,8 @@ def unload_from_model(
         max_in_flight_bytes=max_in_flight_bytes,
         alignment=alignment,
         align_threshold=align_threshold,
+        reserved_filenames=_reserved_filenames,
+        replaced_paths=_replaced_paths,
     )
 
     # Replace the initializer values with external tensors and save the model

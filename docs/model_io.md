@@ -100,7 +100,8 @@ Notes:
 - `external_data` must be a **relative** path.
 - `max_shard_size_bytes` requires `external_data`.
 - Set `all_tensors_to_one_file=False` to write each tensor to a file named after
-  the tensor. This mode cannot be combined with `max_shard_size_bytes`.
+  the tensor. Generated names avoid the model filename and case-insensitive
+  collisions. This mode cannot be combined with `max_shard_size_bytes`.
 - Set `convert_attribute=True` to externalize tensor attributes as well as
   initializers.
 - Single-file mode writes in the destination directory and atomically replaces
