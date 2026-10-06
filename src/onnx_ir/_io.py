@@ -11,8 +11,9 @@ from typing import Callable
 
 import onnx  # ruff: ignore[banned-api]
 
-from onnx_ir import _core, _protocols, serde
+from onnx_ir import _core, _enums, _protocols, serde
 from onnx_ir import external_data as _external_data
+from onnx_ir import traversal as _traversal
 from onnx_ir._polyfill import zip
 
 
@@ -44,6 +45,8 @@ def save(
     format: str | None = None,
     external_data: str | os.PathLike | None = None,
     size_threshold_bytes: int = 256,
+    all_tensors_to_one_file: bool = True,
+    convert_attribute: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, _external_data.CallbackInfo], None]
     | None = None,
@@ -112,6 +115,11 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
+        all_tensors_to_one_file: If true, save tensors in ``external_data``. If false,
+            save each tensor in a file named after the tensor and ignore ``external_data``.
+            Effective only when ``external_data`` is set.
+        convert_attribute: Whether to convert tensor attributes in addition to initializers.
+            Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
             When ``None`` (the default) all external tensors are written to the single file
             given by ``external_data``. When set, tensors are distributed across numbered shard
@@ -159,6 +167,10 @@ def save(
             "max_shard_size_bytes can only be used together with external_data; "
             "set external_data to the relative path where shards should be written."
         )
+    if max_shard_size_bytes is not None and not all_tensors_to_one_file:
+        raise ValueError(
+            "max_shard_size_bytes cannot be used when all_tensors_to_one_file is false."
+        )
     if external_data is not None:
         if os.path.isabs(external_data):
             raise ValueError(
@@ -176,6 +188,17 @@ def save(
             # Collect from all subgraphs as well
             initialized_values.extend(graph.initializers.values())
         tensors = [v.const_value for v in initialized_values]
+        tensor_attributes = (
+            [
+                (node, name, attr)
+                for node in _traversal.RecursiveGraphIterator(model.graph)
+                for name, attr in node.attributes.items()
+                if not attr.is_ref()
+                and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
+            ]
+            if convert_attribute
+            else []
+        )
 
         try:
             model = _external_data.unload_from_model(
@@ -183,6 +206,8 @@ def save(
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
+                all_tensors_to_one_file=all_tensors_to_one_file,
+                convert_attribute=convert_attribute,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
                 max_workers=max_workers,
@@ -197,6 +222,8 @@ def save(
             # Restore the original initializer values so the model is unchanged
             for initializer, tensor in zip(initialized_values, tensors, strict=True):
                 initializer.const_value = tensor
+            for node, name, attr in tensor_attributes:
+                node.attributes[name] = attr
 
     else:
         proto = serde.serialize_model(model)

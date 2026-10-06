@@ -795,6 +795,7 @@ def _write_external_tensors(
     base_dir: str | os.PathLike,
     relative_path: str | os.PathLike,
     *,
+    all_tensors_to_one_file: bool,
     max_shard_size_bytes: int | None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
     max_workers: int | None,
@@ -803,6 +804,37 @@ def _write_external_tensors(
     align_threshold: int,
 ) -> list[_core.ExternalTensor]:
     """Write tensors to one file or coordinate writes across shard files."""
+    if not all_tensors_to_one_file:
+        used_filenames: set[str] = set()
+        external_tensors: list[_core.ExternalTensor] = []
+        for index, tensor in enumerate(tensors):
+            filename = tensor.name
+            if not filename or any(character in filename for character in '<>:;,?"*|/\\'):
+                filename = f"tensor_{index}"
+            suffix = 0
+            while filename in used_filenames:
+                suffix += 1
+                filename = f"tensor_{index}_{suffix}"
+            used_filenames.add(filename)
+            tensor_callback = (
+                _make_shard_callback(callback, len(tensors), index)
+                if callback is not None
+                else None
+            )
+            external_tensors.extend(
+                convert_tensors_to_external(
+                    [tensor],
+                    base_dir=base_dir,
+                    relative_path=filename,
+                    callback=tensor_callback,
+                    max_workers=max_workers,
+                    max_in_flight_bytes=max_in_flight_bytes,
+                    alignment=alignment,
+                    align_threshold=align_threshold,
+                )
+            )
+        return external_tensors
+
     # Write strategy:
     #
     # tensors
@@ -919,6 +951,47 @@ def _write_external_tensors(
     return external_tensors
 
 
+_AttributeTensorReference = tuple[
+    _core.Node,
+    str,
+    int | None,
+    _protocols.TensorProtocol,
+]
+
+
+def _attribute_tensor_references(model: _core.Model) -> Iterator[_AttributeTensorReference]:
+    for node in _traversal.RecursiveGraphIterator(model.graph):
+        for name, attr in node.attributes.items():
+            if attr.is_ref() or attr.value is None:
+                continue
+            if attr.type == _enums.AttributeType.TENSOR:
+                yield node, name, None, attr.value
+            elif attr.type == _enums.AttributeType.TENSORS:
+                for index, tensor in enumerate(attr.value):
+                    yield node, name, index, tensor
+
+
+def _replace_attribute_tensor(
+    reference: _AttributeTensorReference,
+    tensor: _protocols.TensorProtocol,
+) -> None:
+    node, name, index, _ = reference
+    attr = node.attributes[name]
+    if index is None:
+        value = tensor
+    else:
+        value = list(attr.value)
+        value[index] = tensor
+    replacement = _core.Attr(
+        attr.name,
+        attr.type,
+        value,
+        doc_string=attr.doc_string,
+    )
+    replacement.meta.update(attr.meta)
+    node.attributes[name] = replacement
+
+
 def load_to_model(model: _core.Model) -> _core.Model:
     """Convert all external model tensors to memory tensors in-place.
 
@@ -941,40 +1014,17 @@ def load_to_model(model: _core.Model) -> _core.Model:
     for value, tensor in zip(values_to_convert, loaded_tensors, strict=True):
         value.const_value = tensor
 
-    attribute_tensors_to_convert = []
-    attribute_references: list[tuple[_core.Node, str, int | None]] = []
-    for node in _traversal.RecursiveGraphIterator(model.graph):
-        for name, attr in node.attributes.items():
-            if attr.is_ref() or attr.value is None:
-                continue
-            if attr.type == _enums.AttributeType.TENSOR:
-                if isinstance(attr.value, _core.ExternalTensor):
-                    attribute_tensors_to_convert.append(attr.value)
-                    attribute_references.append((node, name, None))
-            elif attr.type == _enums.AttributeType.TENSORS:
-                for index, tensor in enumerate(attr.value):
-                    if isinstance(tensor, _core.ExternalTensor):
-                        attribute_tensors_to_convert.append(tensor)
-                        attribute_references.append((node, name, index))
+    attribute_references = [
+        reference
+        for reference in _attribute_tensor_references(model)
+        if isinstance(reference[3], _core.ExternalTensor)
+    ]
 
-    loaded_attribute_tensors = convert_tensors_from_external(attribute_tensors_to_convert)
-    for (node, name, index), tensor in zip(
-        attribute_references, loaded_attribute_tensors, strict=True
-    ):
-        attr = node.attributes[name]
-        if index is None:
-            value = tensor
-        else:
-            value = list(attr.value)
-            value[index] = tensor
-        replacement = _core.Attr(
-            attr.name,
-            attr.type,
-            value,
-            doc_string=attr.doc_string,
-        )
-        replacement.meta.update(attr.meta)
-        node.attributes[name] = replacement
+    loaded_attribute_tensors = convert_tensors_from_external(
+        [reference[3] for reference in attribute_references]
+    )
+    for reference, tensor in zip(attribute_references, loaded_attribute_tensors, strict=True):
+        _replace_attribute_tensor(reference, tensor)
 
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged
@@ -987,6 +1037,8 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
+    all_tensors_to_one_file: bool = True,
+    convert_attribute: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
     max_workers: int | None = None,
@@ -994,7 +1046,7 @@ def unload_from_model(
     alignment: int | None = None,
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> _core.Model:
-    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
+    """Convert model tensors equal or above size_threshold_bytes to external tensors in-place and save their data.
 
     .. versionadded:: 1.1.0
         Added ``max_shard_size_bytes``, ``max_workers``,
@@ -1005,8 +1057,8 @@ def unload_from_model(
         Single-file writes now replace the destination atomically. Added
         concurrent writing, sharding, and optional alignment controls.
 
-    It should only replace the initializers in the model with external tensors
-    and not make any other modifications to the model.
+    It should only replace initializers and requested tensor attributes in the model
+    with external tensors and not make any other modifications to the model.
 
     If any existing external tensor
     references the provided ``external_data`` path, it will be invalidated
@@ -1014,7 +1066,8 @@ def unload_from_model(
     to load the newly saved model, or provide a different external data path that
     is not currently referenced by any tensors in the model.
 
-    All initializers in the main graph and subgraphs are handled.
+    All initializers in the main graph and subgraphs are handled. Tensor attributes
+    are also handled when ``convert_attribute`` is true.
 
     When ``max_shard_size_bytes`` is set, tensors are distributed across multiple
     shard files named like ``model-00001-of-00003.data``. Because each ONNX tensor
@@ -1028,6 +1081,9 @@ def unload_from_model(
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
+        all_tensors_to_one_file: If true, save tensors in ``relative_path``. If false,
+            save each tensor in a file named after the tensor and ignore ``relative_path``.
+        convert_attribute: Whether to convert tensor attributes in addition to initializers.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
             ``relative_path``.  When set, tensors are written to multiple numbered shard
@@ -1079,6 +1135,10 @@ def unload_from_model(
         raise ValueError(
             f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
         )
+    if max_shard_size_bytes is not None and not all_tensors_to_one_file:
+        raise ValueError(
+            "max_shard_size_bytes cannot be used when all_tensors_to_one_file is false."
+        )
 
     # In-memory or external tensors, if equal to or above the threshold, should be converted to or re-saved as external tensors
     initializers_to_become_external = []
@@ -1094,20 +1154,35 @@ def unload_from_model(
             elif isinstance(value.const_value, _core.ExternalTensor):
                 initializers_to_load_to_memory.append(value)
 
+    attributes_to_become_external = []
+    attributes_to_load_to_memory = []
+    if convert_attribute:
+        for reference in _attribute_tensor_references(model):
+            tensor = reference[3]
+            if tensor.nbytes >= size_threshold_bytes:
+                attributes_to_become_external.append(reference)
+            elif isinstance(tensor, _core.ExternalTensor):
+                attributes_to_load_to_memory.append(reference)
+
     # Load to memory first, then convert to external tensors, because
     # the existing external tensors may be overwritten by the new external data
     memory_tensors = convert_tensors_from_external(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
+    )
+    memory_attribute_tensors = convert_tensors_from_external(
+        [reference[3] for reference in attributes_to_load_to_memory]
     )
 
     tensors_to_externalize: list[_protocols.TensorProtocol] = [
         v.const_value  # type: ignore[misc]
         for v in initializers_to_become_external
     ]
+    tensors_to_externalize.extend(reference[3] for reference in attributes_to_become_external)
     external_tensors = _write_external_tensors(
         tensors_to_externalize,
         base_dir,
         relative_path,
+        all_tensors_to_one_file=all_tensors_to_one_file,
         max_shard_size_bytes=max_shard_size_bytes,
         callback=callback,
         max_workers=max_workers,
@@ -1117,14 +1192,27 @@ def unload_from_model(
     )
 
     # Replace the initializer values with external tensors and save the model
+    attribute_tensor_offset = len(initializers_to_become_external)
     for value, external_tensor in zip(
-        initializers_to_become_external, external_tensors, strict=True
+        initializers_to_become_external,
+        external_tensors[:attribute_tensor_offset],
+        strict=True,
     ):
         value.const_value = external_tensor
     for value, memory_tensor in zip(
         initializers_to_load_to_memory, memory_tensors, strict=True
     ):
         value.const_value = memory_tensor
+    for reference, external_tensor in zip(
+        attributes_to_become_external,
+        external_tensors[attribute_tensor_offset:],
+        strict=True,
+    ):
+        _replace_attribute_tensor(reference, external_tensor)
+    for reference, memory_tensor in zip(
+        attributes_to_load_to_memory, memory_attribute_tensors, strict=True
+    ):
+        _replace_attribute_tensor(reference, memory_tensor)
 
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged
