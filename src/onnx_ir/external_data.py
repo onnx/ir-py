@@ -835,87 +835,20 @@ def convert_tensors_to_external(
     ]
 
 
-def _per_tensor_filenames(
-    tensors: Sequence[_protocols.TensorProtocol],
-    reserved_filenames: Sequence[str | os.PathLike],
-) -> list[str]:
-    used_filenames = {os.fsdecode(filename).casefold() for filename in reserved_filenames}
-    filenames = []
-    for index, tensor in enumerate(tensors):
-        filename = tensor.name
-        if not filename or any(character in filename for character in '<>:;,?"*|/\\'):
-            filename = f"tensor_{index}"
-        suffix = 0
-        while filename.casefold() in used_filenames:
-            suffix += 1
-            filename = f"tensor_{index}_{suffix}"
-        used_filenames.add(filename.casefold())
-        filenames.append(filename)
-    return filenames
-
-
 def _write_external_tensors(
     tensors: Sequence[_protocols.TensorProtocol],
     base_dir: str | os.PathLike,
     relative_path: str | os.PathLike,
     *,
-    all_tensors_to_one_file: bool,
     max_shard_size_bytes: int | None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None,
     max_workers: int | None,
     max_in_flight_bytes: int,
     alignment: int | None,
     align_threshold: int,
-    reserved_filenames: Sequence[str | os.PathLike],
     replaced_paths: set[str] | None,
 ) -> list[_core.ExternalTensor]:
     """Write tensors to one file or coordinate writes across shard files."""
-    if not all_tensors_to_one_file:
-        filenames = _per_tensor_filenames(tensors, reserved_filenames)
-        per_tensor_external_tensors: list[_core.ExternalTensor] = []
-        staging_parent = os.fspath(base_dir) or "."
-        with tempfile.TemporaryDirectory(
-            dir=staging_parent,
-            prefix=".onnx-ir-per-tensor-",
-        ) as staging_dir:
-            for index, (tensor, filename) in enumerate(zip(tensors, filenames, strict=True)):
-                external_data_info = _compute_external_data_info(
-                    tensor,
-                    0,
-                    alignment,
-                    align_threshold,
-                )
-                tensor_callback = (
-                    _make_shard_callback(callback, len(tensors), index)
-                    if callback is not None
-                    else None
-                )
-                _write_external_data(
-                    [tensor],
-                    [external_data_info],
-                    os.path.join(staging_dir, filename),
-                    callback=tensor_callback,
-                    max_workers=max_workers,
-                    max_in_flight_bytes=max_in_flight_bytes,
-                )
-                per_tensor_external_tensors.append(
-                    _create_external_tensor(
-                        tensor,
-                        external_data_info,
-                        base_dir,
-                        filename,
-                    )
-                )
-
-            for filename in filenames:
-                _replace_external_data_file(
-                    os.path.join(staging_dir, filename),
-                    os.path.join(base_dir, filename),
-                    tensors,
-                    replaced_paths,
-                )
-        return per_tensor_external_tensors
-
     # Write strategy:
     #
     # tensors
@@ -1130,7 +1063,6 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
-    all_tensors_to_one_file: bool = True,
     convert_attribute: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
@@ -1138,7 +1070,6 @@ def unload_from_model(
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
-    _reserved_filenames: Sequence[str | os.PathLike] = (),
     _replaced_paths: set[str] | None = None,
 ) -> _core.Model:
     """Convert model tensors equal or above size_threshold_bytes to external tensors in-place and save their data.
@@ -1176,8 +1107,6 @@ def unload_from_model(
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
-        all_tensors_to_one_file: If true, save tensors in ``relative_path``. If false,
-            save each tensor in a file named after the tensor and ignore ``relative_path``.
         convert_attribute: Whether to convert tensor attributes in addition to initializers.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
@@ -1230,10 +1159,6 @@ def unload_from_model(
         raise ValueError(
             f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
         )
-    if max_shard_size_bytes is not None and not all_tensors_to_one_file:
-        raise ValueError(
-            "max_shard_size_bytes cannot be used when all_tensors_to_one_file is false."
-        )
 
     # In-memory or external tensors, if equal to or above the threshold, should be converted to or re-saved as external tensors
     initializers_to_become_external = []
@@ -1281,14 +1206,12 @@ def unload_from_model(
         tensors_to_externalize,
         base_dir,
         relative_path,
-        all_tensors_to_one_file=all_tensors_to_one_file,
         max_shard_size_bytes=max_shard_size_bytes,
         callback=callback,
         max_workers=max_workers,
         max_in_flight_bytes=max_in_flight_bytes,
         alignment=alignment,
         align_threshold=align_threshold,
-        reserved_filenames=_reserved_filenames,
         replaced_paths=_replaced_paths,
     )
 

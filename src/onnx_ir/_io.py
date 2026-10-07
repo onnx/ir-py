@@ -53,7 +53,6 @@ def save(
     alignment: int | None = None,
     align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
     *,
-    all_tensors_to_one_file: bool = True,
     convert_attribute: bool = False,
 ) -> None:
     """Save an ONNX model to a file.
@@ -116,9 +115,6 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
-        all_tensors_to_one_file: If true, save tensors in ``external_data``. If false,
-            save each tensor in a file named after the tensor and ignore ``external_data``.
-            Effective only when ``external_data`` is set.
         convert_attribute: Whether to convert tensor attributes in addition to initializers.
             Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
@@ -168,10 +164,6 @@ def save(
             "max_shard_size_bytes can only be used together with external_data; "
             "set external_data to the relative path where shards should be written."
         )
-    if max_shard_size_bytes is not None and not all_tensors_to_one_file:
-        raise ValueError(
-            "max_shard_size_bytes cannot be used when all_tensors_to_one_file is false."
-        )
     if external_data is not None:
         if os.path.isabs(external_data):
             raise ValueError(
@@ -211,7 +203,6 @@ def save(
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
-                all_tensors_to_one_file=all_tensors_to_one_file,
                 convert_attribute=convert_attribute,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
@@ -219,7 +210,6 @@ def save(
                 max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
-                _reserved_filenames=(os.path.basename(os.fsdecode(path)),),
                 _replaced_paths=replaced_external_data_paths,
             )
             proto = serde.serialize_model(model)
