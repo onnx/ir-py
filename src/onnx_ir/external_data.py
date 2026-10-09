@@ -1085,6 +1085,8 @@ def unload_from_model(
 
     It should only replace initializers and requested tensor attributes in the model
     with external tensors and not make any other modifications to the model.
+    When attribute conversion is disabled, external tensor attributes backed by an
+    overwritten destination are loaded into memory so they remain valid.
 
     If any existing external tensor
     references the provided ``external_data`` path, it will be invalidated
@@ -1178,6 +1180,7 @@ def unload_from_model(
 
     attributes_to_become_external = []
     attributes_to_load_to_memory = []
+    attribute_tensors_to_invalidate = []
     if convert_attribute:
         for reference in _attribute_tensor_references(model):
             tensor = reference[3]
@@ -1187,6 +1190,19 @@ def unload_from_model(
                 attributes_to_become_external.append(reference)
             elif isinstance(tensor, _core.ExternalTensor):
                 attributes_to_load_to_memory.append(reference)
+                if max_shard_size_bytes is None and _paths_refer_to_same_file(
+                    tensor.path, os.path.join(base_dir, relative_path)
+                ):
+                    attribute_tensors_to_invalidate.append(tensor)
+    elif max_shard_size_bytes is None:
+        destination_path = os.path.join(base_dir, relative_path)
+        for reference in _attribute_tensor_references(model):
+            tensor = reference[3]
+            if isinstance(tensor, _core.ExternalTensor) and _paths_refer_to_same_file(
+                tensor.path, destination_path
+            ):
+                attributes_to_load_to_memory.append(reference)
+                attribute_tensors_to_invalidate.append(tensor)
 
     # Load to memory first, then convert to external tensors, because
     # the existing external tensors may be overwritten by the new external data
@@ -1214,6 +1230,7 @@ def unload_from_model(
         align_threshold=align_threshold,
         replaced_paths=_replaced_paths,
     )
+    _invalidate_external_tensors(attribute_tensors_to_invalidate)
 
     # Replace the initializer values with external tensors and save the model
     attribute_tensor_offset = len(initializers_to_become_external)
