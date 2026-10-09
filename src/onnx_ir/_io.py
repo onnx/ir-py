@@ -11,8 +11,9 @@ from typing import Callable
 
 import onnx  # ruff: ignore[banned-api]
 
-from onnx_ir import _core, _protocols, serde
+from onnx_ir import _core, _enums, _protocols, serde
 from onnx_ir import external_data as _external_data
+from onnx_ir import traversal as _traversal
 from onnx_ir._polyfill import zip
 
 
@@ -51,6 +52,8 @@ def save(
     max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
+    *,
+    convert_attribute: bool = False,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -110,7 +113,9 @@ def save(
             That is, if a tensor in the model is already external, it will be saved
             with the same external information; if the tensor is not external,
             it will be serialized in the ONNX Proto message.
-        size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
+            Effective only when ``external_data`` is set.
+        convert_attribute: Whether to convert tensor attributes in addition to initializers.
             Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
             When ``None`` (the default) all external tensors are written to the single file
@@ -176,19 +181,36 @@ def save(
             # Collect from all subgraphs as well
             initialized_values.extend(graph.initializers.values())
         tensors = [v.const_value for v in initialized_values]
+        tensor_attributes = [
+            (node, name, attr)
+            for node in _traversal.RecursiveGraphIterator(model.graph)
+            for name, attr in node.attributes.items()
+            if not attr.is_ref()
+            and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
+        ]
+        external_attribute_tensors = [
+            reference[3]
+            for reference in _external_data._attribute_tensor_references(model)
+            if isinstance(reference[3], _core.ExternalTensor)
+        ]
+        replaced_external_data_paths: set[str] = set()
 
         try:
+            if not convert_attribute:
+                _external_data._load_external_attribute_tensors(model)
             model = _external_data.unload_from_model(
                 model,
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
+                convert_attribute=convert_attribute,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
                 max_workers=max_workers,
                 max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
+                _replaced_paths=replaced_external_data_paths,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)
@@ -197,6 +219,12 @@ def save(
             # Restore the original initializer values so the model is unchanged
             for initializer, tensor in zip(initialized_values, tensors, strict=True):
                 initializer.const_value = tensor
+            for node, name, attr in tensor_attributes:
+                node.attributes[name] = attr
+            _external_data._invalidate_external_tensors_referencing_paths(
+                external_attribute_tensors,
+                replaced_external_data_paths,
+            )
 
     else:
         proto = serde.serialize_model(model)
