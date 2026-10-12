@@ -70,6 +70,152 @@ class ExternalDataTest(unittest.TestCase):
         self.assertEqual(attr_tensor.base_dir, expected_dir)
 
 
+class AttributeExternalDataTest(unittest.TestCase):
+    def test_unload_from_model_externalizes_attributes_in_subgraphs(self):
+        single_data = np.array([1.0, 2.0], dtype=np.float32)
+        sequence_data = [
+            np.array([3.0], dtype=np.float32),
+            np.array([4.0, 5.0], dtype=np.float32),
+        ]
+        single_tensor = ir.tensor(single_data, name="single")
+        sequence_tensors = [
+            ir.tensor(data, name=f"sequence_{index}")
+            for index, data in enumerate(sequence_data)
+        ]
+        main_node = ir.Node(
+            "",
+            "MainOp",
+            [],
+            attributes=[ir.AttrTensor("single", single_tensor)],
+        )
+        subgraph_node = ir.Node(
+            "",
+            "SubgraphOp",
+            [],
+            attributes=[ir.AttrTensors("sequence", sequence_tensors)],
+        )
+        subgraph = ir.Graph([], [], nodes=[subgraph_node], name="subgraph")
+        graph_node = ir.Node(
+            "",
+            "GraphOp",
+            [],
+            attributes=[ir.AttrGraph("body", subgraph)],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[main_node, graph_node], name="main"),
+            ir_version=10,
+        )
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_data.unload_from_model(
+                model,
+                tmpdir,
+                "attributes.data",
+                size_threshold_bytes=0,
+                convert_attribute=True,
+            )
+
+            external_single = main_node.attributes["single"].as_tensor()
+            external_sequence = subgraph_node.attributes["sequence"].as_tensors()
+            self.assertIsInstance(external_single, ir.ExternalTensor)
+            self.assertTrue(
+                all(isinstance(tensor, ir.ExternalTensor) for tensor in external_sequence)
+            )
+            np.testing.assert_array_equal(external_single.numpy(), single_data)
+            for tensor, expected in zip(external_sequence, sequence_data, strict=True):
+                np.testing.assert_array_equal(tensor.numpy(), expected)
+
+    def test_unload_from_model_attribute_threshold_is_inclusive(self):
+        below_threshold = ir.tensor(
+            np.array([1.0], dtype=np.float32),
+            name="below_threshold",
+        )
+        at_threshold = ir.tensor(
+            np.array([2.0, 3.0], dtype=np.float32),
+            name="at_threshold",
+        )
+        node = ir.Node(
+            "",
+            "Op",
+            [],
+            attributes=[
+                ir.AttrTensors("values", [below_threshold, at_threshold]),
+            ],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[node], name="graph"),
+            ir_version=10,
+        )
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_data.unload_from_model(
+                model,
+                tmpdir,
+                "attributes.data",
+                size_threshold_bytes=at_threshold.nbytes,
+                convert_attribute=True,
+            )
+
+            values = node.attributes["values"].as_tensors()
+            self.assertIs(values[0], below_threshold)
+            self.assertIsInstance(values[1], ir.ExternalTensor)
+            np.testing.assert_array_equal(values[1].numpy(), at_threshold.numpy())
+
+    def test_unload_from_model_materializes_attribute_backed_by_destination(self):
+        attribute_data = np.array([1.0, 2.0], dtype=np.float32)
+        initializer_data = np.array([3.0, 4.0], dtype=np.float32)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            data_filename = "model.data"
+            with open(os.path.join(tmpdir, data_filename), "wb") as data_file:
+                data_file.write(attribute_data.tobytes())
+            attribute_tensor = ir.ExternalTensor(
+                data_filename,
+                0,
+                attribute_data.nbytes,
+                ir.DataType.FLOAT,
+                shape=ir.Shape(attribute_data.shape),
+                name="attribute",
+                base_dir=tmpdir,
+            )
+            initializer_tensor = ir.tensor(initializer_data, name="initializer")
+            initializer = ir.Value(
+                name="initializer",
+                shape=initializer_tensor.shape,
+                type=ir.TensorType(initializer_tensor.dtype),
+                const_value=initializer_tensor,
+            )
+            node = ir.Node(
+                "",
+                "Op",
+                [],
+                attributes=[ir.AttrTensor("value", attribute_tensor)],
+            )
+            model = ir.Model(
+                ir.Graph(
+                    [],
+                    [],
+                    nodes=[node],
+                    initializers=[initializer],
+                    name="graph",
+                ),
+                ir_version=10,
+            )
+
+            external_data.unload_from_model(
+                model,
+                tmpdir,
+                data_filename,
+                size_threshold_bytes=0,
+            )
+
+            materialized_attribute = node.attributes["value"].as_tensor()
+            self.assertNotIsInstance(materialized_attribute, ir.ExternalTensor)
+            self.assertFalse(attribute_tensor.valid())
+            np.testing.assert_array_equal(materialized_attribute.numpy(), attribute_data)
+            np.testing.assert_array_equal(initializer.const_value.numpy(), initializer_data)
+
+
 class AlignmentTest(unittest.TestCase):
     """Test the external data offset alignment policy."""
 

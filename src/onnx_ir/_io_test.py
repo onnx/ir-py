@@ -101,6 +101,60 @@ class IOFunctionsTest(unittest.TestCase):
         np.testing.assert_array_equal(initializer_tensor.numpy(), np.array([0.0]))
         np.testing.assert_array_equal(const_attr_tensor.numpy(), np.array([1.0]))
 
+    def test_save_with_externalized_attributes_restores_model(self):
+        single_data = np.array([1.0, 2.0], dtype=np.float32)
+        sequence_data = [
+            np.array([3.0], dtype=np.float32),
+            np.array([4.0, 5.0], dtype=np.float32),
+        ]
+        single_tensor = ir.tensor(single_data, name="single")
+        sequence_tensors = [
+            ir.tensor(data, name=f"sequence_{index}")
+            for index, data in enumerate(sequence_data)
+        ]
+        node = ir.Node(
+            "",
+            "Op",
+            [],
+            attributes=[
+                ir.AttrTensor("single", single_tensor),
+                ir.AttrTensors("sequence", sequence_tensors),
+            ],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[node], name="graph"),
+            ir_version=10,
+        )
+        original_single_attribute = node.attributes["single"]
+        original_sequence_attribute = node.attributes["sequence"]
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                convert_attribute=True,
+            )
+
+            self.assertIs(node.attributes["single"], original_single_attribute)
+            self.assertIs(node.attributes["sequence"], original_sequence_attribute)
+            self.assertIs(node.attributes["single"].as_tensor(), single_tensor)
+            self.assertEqual(node.attributes["sequence"].as_tensors(), tuple(sequence_tensors))
+
+            loaded_model = _io.load(path)
+            loaded_node = loaded_model.graph.node(0)
+            loaded_single = loaded_node.attributes["single"].as_tensor()
+            loaded_sequence = loaded_node.attributes["sequence"].as_tensors()
+            self.assertIsInstance(loaded_single, ir.ExternalTensor)
+            self.assertTrue(
+                all(isinstance(tensor, ir.ExternalTensor) for tensor in loaded_sequence)
+            )
+            np.testing.assert_array_equal(loaded_single.numpy(), single_data)
+            for tensor, expected in zip(loaded_sequence, sequence_data, strict=True):
+                np.testing.assert_array_equal(tensor.numpy(), expected)
+
     def test_save_with_sharding_creates_multiple_shard_files(self):
         """Test that max_shard_size_bytes creates multiple numbered shard files."""
 
