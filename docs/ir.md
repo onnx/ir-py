@@ -171,7 +171,8 @@ tensors, graphs, types, and ONNX function attribute references.
 
 Control-flow operators store subgraphs in node attributes. A subgraph can
 implicitly capture values from an enclosing graph in addition to declaring its own
-inputs, initializers, and outputs. Each graph also carries its own opset imports.
+inputs, initializers, and outputs. Subgraph `opset_imports` are ignored; use the
+main graph's opset imports for control-flow subgraphs.
 Use {py:class}`onnx_ir.traversal.RecursiveGraphIterator` or `graph.all_nodes()` to
 visit nodes in nested subgraphs.
 
