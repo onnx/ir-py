@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
 
+import numpy as np
 import onnx
+import onnxruntime as ort
+from onnx.reference import ReferenceEvaluator
 
 import onnx_ir as ir
 import onnx_ir.passes.common
@@ -14,6 +17,57 @@ class RemoveUnusedTest(unittest.TestCase):
         onnx_ir.passes.common.RemoveUnusedNodesPass()(model_ir)
         model = ir.serde.serialize_model(model_ir)
         return model
+
+    def batchnorm_feeds(self):
+        return {
+            "x": np.array([[1.0, 2.0], [3.0, 6.0]], dtype=np.float32),
+            "scale": np.ones(2, dtype=np.float32),
+            "bias": np.zeros(2, dtype=np.float32),
+            "mean": np.array([100.0, -100.0], dtype=np.float32),
+            "var": np.array([4.0, 9.0], dtype=np.float32),
+        }
+
+    def batchnorm_model(self, training_mode=None, *, include_running_outputs=False):
+        training_attribute = (
+            "" if training_mode is None else f"<training_mode={training_mode}>"
+        )
+        graph_outputs = (
+            "float[2, 2] y, float[2] running_mean, float[2] running_var"
+            if include_running_outputs
+            else "float[2, 2] y"
+        )
+        return onnx.parser.parse_model(
+            f"""
+            <ir_version: 10, opset_import: [ "" : 17]>
+            agraph (
+                float[2, 2] x,
+                float[2] scale,
+                float[2] bias,
+                float[2] mean,
+                float[2] var
+            ) => ({graph_outputs}) {{
+                y, running_mean, running_var =
+                    BatchNormalization {training_attribute} (x, scale, bias, mean, var)
+            }}
+        """
+        )
+
+    def legacy_batchnorm_model(self):
+        return onnx.parser.parse_model(
+            """
+            <ir_version: 10, opset_import: [ "" : 9]>
+            agraph (
+                float[2, 2] x,
+                float[2] scale,
+                float[2] bias,
+                float[2] mean,
+                float[2] var
+            ) => (float[2, 2] y) {
+                y, running_mean, running_var, saved_mean, saved_var =
+                    BatchNormalization (x, scale, bias, mean, var)
+            }
+        """
+        )
 
     def test_remove_unused_nodes(self):
         model = onnx.parser.parse_model(
@@ -211,39 +265,100 @@ class RemoveUnusedTest(unittest.TestCase):
         self.assertEqual(model.graph.node[2].op_type, "LayerNormalization")
         self.assertEqual(list(model.graph.node[2].output), ["z", "", "InvStdDev"])
 
-    def test_remove_trailing_unused_optional_outputs_batchnorm(self):
-        model = onnx.parser.parse_model(
-            """
-            <ir_version: 10, opset_import: [ "" : 17]>
-            agraph (float[1, 3, 5, 5] x, float[3] scale, float[3] B) => (float[1, 3, 5, 5] z) {
-                z, mean_out, var_out = BatchNormalization <training_mode=1> (x, scale, B, mean, var)
-            }
-        """
+    def test_preserve_unused_optional_outputs_batchnorm_in_training_mode(self):
+        model = self.batchnorm_model(training_mode=1)
+        feeds = self.batchnorm_feeds()
+        original_output = ReferenceEvaluator(model).run(None, feeds)[0]
+        expected_output = (feeds["x"] - feeds["x"].mean(axis=0)) / np.sqrt(
+            feeds["x"].var(axis=0) + 1e-5
         )
-        self.assertEqual(len(model.graph.node[0].attribute), 1)
-        model = self.remove_unused_nodes(model)
-        self.assertEqual(len(model.graph.node), 1)
-        self.assertEqual(model.graph.node[0].op_type, "BatchNormalization")
-        # Check that both the mean/var outputs are removed, and training_mode attribute is removed.
-        self.assertEqual(list(model.graph.node[0].output), ["z"])
-        self.assertEqual(len(model.graph.node[0].attribute), 0)
+        np.testing.assert_allclose(original_output, expected_output, rtol=1e-5, atol=1e-5)
 
-    def test_avoid_remove_used_optional_outputs_batchnorm(self):
-        model = onnx.parser.parse_model(
-            """
-            <ir_version: 10, opset_import: [ "" : 17]>
-            agraph (float[1, 3, 5, 5] x, float[3] scale, float[3] B) => (float[1, 3, 5, 5] z, float[3] mean_out, float[3] var_out) {
-                z, mean_out, var_out = BatchNormalization <training_mode=1> (x, scale, B, mean, var)
-            }
-        """
-        )
-        self.assertEqual(len(model.graph.node[0].attribute), 1)
         model = self.remove_unused_nodes(model)
-        self.assertEqual(len(model.graph.node), 1)
-        self.assertEqual(model.graph.node[0].op_type, "BatchNormalization")
-        # Check that the mean/var outputs are NOT removed, and training_mode attribute is NOT removed.
-        self.assertEqual(list(model.graph.node[0].output), ["z", "mean_out", "var_out"])
-        self.assertEqual(len(model.graph.node[0].attribute), 1)
+        node = model.graph.node[0]
+        self.assertEqual(list(node.output), ["y", "running_mean", "running_var"])
+        self.assertEqual({attr.name: attr.i for attr in node.attribute}, {"training_mode": 1})
+        onnx.checker.check_model(model)
+        optimized_output = ReferenceEvaluator(model).run(None, feeds)[0]
+        np.testing.assert_allclose(optimized_output, original_output, rtol=1e-5, atol=1e-5)
+
+    def test_preserve_unused_outputs_batchnorm_opset9(self):
+        model = self.legacy_batchnorm_model()
+        onnx.checker.check_model(model)
+        feeds = self.batchnorm_feeds()
+        original_output = ort.InferenceSession(model.SerializeToString()).run(None, feeds)[0]
+        expected_output = (feeds["x"] - feeds["x"].mean(axis=0)) / np.sqrt(
+            feeds["x"].var(axis=0) + 1e-5
+        )
+        np.testing.assert_allclose(original_output, expected_output, rtol=1e-5, atol=1e-5)
+
+        model = self.remove_unused_nodes(model)
+        self.assertEqual(
+            list(model.graph.node[0].output),
+            ["y", "running_mean", "running_var", "saved_mean", "saved_var"],
+        )
+        onnx.checker.check_model(model)
+        optimized_output = ort.InferenceSession(model.SerializeToString()).run(None, feeds)[0]
+        np.testing.assert_allclose(optimized_output, original_output, rtol=1e-5, atol=1e-5)
+
+    def test_remove_unused_optional_outputs_batchnorm_in_inference_mode(self):
+        for training_mode in (None, 0):
+            with self.subTest(training_mode=training_mode):
+                model = self.remove_unused_nodes(self.batchnorm_model(training_mode))
+                node = model.graph.node[0]
+                self.assertEqual(list(node.output), ["y"])
+                self.assertNotIn("training_mode", {attr.name for attr in node.attribute})
+                onnx.checker.check_model(model)
+
+    def test_preserve_batchnorm_graph_outputs(self):
+        model = self.batchnorm_model(training_mode=0, include_running_outputs=True)
+        model = self.remove_unused_nodes(model)
+        node = model.graph.node[0]
+        self.assertEqual(list(node.output), ["y", "running_mean", "running_var"])
+        onnx.checker.check_model(model)
+
+    def test_preserve_batchnorm_with_referenced_training_mode(self):
+        inputs = [ir.Value(name=name) for name in ("x", "scale", "bias", "mean", "var")]
+        batch_norm = ir.node(
+            "BatchNormalization",
+            inputs=inputs,
+            attributes={
+                "training_mode": ir.RefAttr(
+                    "training_mode", "training_mode", ir.AttributeType.INT
+                )
+            },
+            num_outputs=3,
+        )
+        for output, name in zip(batch_norm.outputs, ("y", "running_mean", "running_var")):
+            output.name = name
+        function = ir.Function(
+            domain="test",
+            name="BatchNorm",
+            graph=ir.Graph(
+                inputs,
+                [batch_norm.outputs[0]],
+                nodes=[batch_norm],
+                opset_imports={"": 17},
+                name="function",
+            ),
+            attributes=[ir.Attr("training_mode", ir.AttributeType.UNDEFINED, None)],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[], opset_imports={"": 17}, name="main"),
+            ir_version=10,
+            functions=[function],
+        )
+
+        onnx_ir.passes.common.RemoveUnusedNodesPass()(model)
+
+        self.assertEqual(
+            [output.name for output in batch_norm.outputs],
+            ["y", "running_mean", "running_var"],
+        )
+        training_mode = batch_norm.attributes["training_mode"]
+        self.assertTrue(training_mode.is_ref())
+        self.assertEqual(training_mode.ref_attr_name, "training_mode")
+        onnx.checker.check_model(ir.serde.serialize_model(model))
 
 
 class RemoveUnusedFunctionsTest(unittest.TestCase):

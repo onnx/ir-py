@@ -331,12 +331,27 @@ class SaveSafetensorsTest(unittest.TestCase):
         uint2_data = np.array([0, 1, 2, 3, 3, 2, 1, 0], dtype=ml_dtypes.uint2)
         tensor_uint2 = ir.tensor(uint2_data, dtype=ir.DataType.UINT2, name="uint2_tensor")
 
+        float6e2m3_data = np.array([0.0, 0.5, 1.0, 2.0, -1.0], dtype=ml_dtypes.float6_e2m3fn)
+        tensor_float6e2m3 = ir.tensor(
+            float6e2m3_data,
+            dtype=ir.DataType.FLOAT6E2M3,
+            name="float6e2m3_tensor",
+        )
+        float6e3m2_data = np.array([0.0, 0.5, 1.0, 2.0, -1.0], dtype=ml_dtypes.float6_e3m2fn)
+        tensor_float6e3m2 = ir.tensor(
+            float6e3m2_data,
+            dtype=ir.DataType.FLOAT6E3M2,
+            name="float6e3m2_tensor",
+        )
+
         initializers = [
             _create_initializer(tensor_int4),
             _create_initializer(tensor_uint4),
             _create_initializer(tensor_float4),
             _create_initializer(tensor_int2),
             _create_initializer(tensor_uint2),
+            _create_initializer(tensor_float6e2m3),
+            _create_initializer(tensor_float6e3m2),
         ]
 
         identity_node = ir.Node("", "Identity", inputs=(initializers[0],))
@@ -366,6 +381,8 @@ class SaveSafetensorsTest(unittest.TestCase):
             "float4_tensor",
             "int2_tensor",
             "uint2_tensor",
+            "float6e2m3_tensor",
+            "float6e3m2_tensor",
         ]:
             self.assertIsInstance(
                 loaded_model.graph.initializers[tensor_name].const_value, ir.ExternalTensor
@@ -392,6 +409,14 @@ class SaveSafetensorsTest(unittest.TestCase):
             loaded_model.graph.initializers["uint2_tensor"].const_value.numpy(),
             uint2_data,
         )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["float6e2m3_tensor"].const_value.numpy(),
+            float6e2m3_data,
+        )
+        np.testing.assert_array_equal(
+            loaded_model.graph.initializers["float6e3m2_tensor"].const_value.numpy(),
+            float6e3m2_data,
+        )
 
         # Check that the dtype is preserved
         self.assertEqual(
@@ -413,6 +438,14 @@ class SaveSafetensorsTest(unittest.TestCase):
         self.assertEqual(
             loaded_model.graph.initializers["uint2_tensor"].const_value.dtype,
             ir.DataType.UINT2,
+        )
+        self.assertEqual(
+            loaded_model.graph.initializers["float6e2m3_tensor"].const_value.dtype,
+            ir.DataType.FLOAT6E2M3,
+        )
+        self.assertEqual(
+            loaded_model.graph.initializers["float6e3m2_tensor"].const_value.dtype,
+            ir.DataType.FLOAT6E3M2,
         )
 
     def test_save_safetensors_float8_types(self):
