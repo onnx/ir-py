@@ -137,10 +137,11 @@ class AttributeParameter:
 
 def _get_type_from_str(
     type_str: str,
-) -> _core.TensorType | _core.SequenceType | _core.OptionalType:
+) -> _protocols.TypeProtocol:
     """Convert a type_str from ONNX OpSchema to _protocols.TypeProtocol.
 
-    A type str has the form of "tensor(float)" or composite type like "seq(tensor(float))".
+    A type str has the form of "tensor(float)", "opaque(domain,name)", or a
+    composite type like "seq(tensor(float))".
     """
     # Split the type_str into sequence types and dtypes
     # 1. Remove the ending ")"
@@ -148,15 +149,22 @@ def _get_type_from_str(
     # 2. Split the type_str by "("
     type_parts = stripped.split("(")
 
-    # Convert the dtype to _enums.DataType
-    dtype = _enums.DataType[type_parts[-1].upper()]
-
-    # Create a place holder type first
-    type_: _protocols.TypeProtocol = _core.TensorType(_enums.DataType.UNDEFINED)
+    type_: _protocols.TypeProtocol
+    dtype = None
+    if len(type_parts) >= 2 and type_parts[-2] == "opaque":
+        domain, separator, name = type_parts[-1].partition(",")
+        if not separator:
+            domain, name = "", domain
+        type_ = _core.OpaqueType(domain=domain or None, name=name or None)
+        wrappers = type_parts[:-2]
+    else:
+        dtype = _enums.DataType[type_parts[-1].upper()]
+        type_ = _core.TensorType(_enums.DataType.UNDEFINED)
+        wrappers = type_parts[:-1]
 
     # Construct the type
-    for type_part in reversed(type_parts[:-1]):
-        if type_part == "tensor":
+    for type_part in reversed(wrappers):
+        if type_part == "tensor" and dtype is not None:
             type_ = _core.TensorType(dtype)
         elif type_part == "seq":
             type_ = _core.SequenceType(type_)
@@ -164,7 +172,7 @@ def _get_type_from_str(
             type_ = _core.OptionalType(type_)
         else:
             raise ValueError(f"Unknown type part: '{type_part}' in type '{type_str}'")
-    return type_  # type: ignore[return-value]
+    return type_
 
 
 def _convert_formal_parameter(
