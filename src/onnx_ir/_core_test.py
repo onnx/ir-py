@@ -4415,6 +4415,16 @@ class StringTensorTest(unittest.TestCase):
         tensor = _core.StringTensor(data)
         self.assertEqual(tensor.nbytes, 3)
 
+    def test_numpy_keeps_trailing_nul_bytes(self):
+        tensor = _core.StringTensor([b"a\x00", b"\x00", b"b"], shape=_core.Shape([3]))
+        self.assertEqual(tensor.numpy().tolist(), [b"a\x00", b"\x00", b"b"])
+
+    def test_numpy_empty(self):
+        tensor = _core.StringTensor([], shape=_core.Shape([0, 2]))
+        array = tensor.numpy()
+        self.assertEqual(array.shape, (0, 2))
+        self.assertEqual(array.dtype, object)
+
 
 class GraphCloneTest(unittest.TestCase):
     """Test the Graph.clone() method."""

@@ -1091,6 +1091,10 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
         assert isinstance(self._raw, Sequence), (
             f"Bug: Expected a sequence, got {type(self._raw)}"
         )
+        if dtype is None:
+            # A fixed-width bytes array would drop trailing NUL bytes, and an empty
+            # list would become float64. Keep the strings as they are.
+            dtype = object
         return np.array(self._raw, dtype=dtype).reshape(self.shape.numpy())
 
     def __dlpack__(self, *, stream: Any = None) -> Any:
