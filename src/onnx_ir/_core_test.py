@@ -3760,6 +3760,62 @@ class TypeTest(unittest.TestCase):
         self.assertEqual(type_, copy.deepcopy(type_))
 
 
+class OpaqueTypeTest(unittest.TestCase):
+    def test_init(self):
+        type_ = ir.OpaqueType()
+        self.assertIsNone(type_.domain)
+        self.assertIsNone(type_.name)
+        self.assertIsNone(type_.denotation)
+        self.assertIsNone(type_.dtype)
+        self.assertIsNone(type_.elem_type)
+        self.assertIsInstance(type_, ir.TypeProtocol)
+
+    def test_repr(self):
+        type_ = ir.OpaqueType("com.example", "Handle", denotation="handle")
+        self.assertEqual(repr(type_), "Opaque(domain='com.example', name='Handle')")
+        self.assertEqual(type_.denotation, "handle")
+
+    def test_equality_and_hash(self):
+        type_ = ir.OpaqueType("com.example", "Handle")
+        equal = ir.OpaqueType("com.example", "Handle", denotation="handle")
+        self.assertEqual(type_, equal)
+        self.assertEqual(hash(type_), hash(equal))
+        self.assertIn(copy.deepcopy(type_), {type_})
+        for other in (
+            ir.OpaqueType("other", "Handle"),
+            ir.OpaqueType("com.example", "Other"),
+            ir.OpaqueType(),
+            ir.TensorType(ir.DataType.UNDEFINED),
+            object(),
+        ):
+            with self.subTest(other=other):
+                self.assertNotEqual(type_, other)
+        self.assertNotEqual(ir.OpaqueType(), ir.OpaqueType("", ""))
+
+    def test_mutation(self):
+        type_ = ir.OpaqueType()
+        type_.domain = "com.example"
+        type_.name = "Handle"
+        type_.denotation = "handle"
+        self.assertEqual(type_, ir.OpaqueType("com.example", "Handle"))
+        self.assertEqual(type_.denotation, "handle")
+
+    def test_value_dtype(self):
+        for type_ in (
+            ir.OpaqueType(),
+            ir.SequenceType(ir.OpaqueType()),
+            ir.OptionalType(ir.SequenceType(ir.OpaqueType())),
+        ):
+            with self.subTest(type_=type_):
+                value = ir.Value(name="handle", type=type_)
+                self.assertIsNone(value.dtype)
+                self.assertIn("Opaque", str(value))
+                with self.assertRaisesRegex(TypeError, "do not have a tensor data type"):
+                    value.dtype = ir.DataType.FLOAT
+                self.assertIs(value.type, type_)
+                self.assertIsNone(value.dtype)
+
+
 class AttrTest(unittest.TestCase):
     """Test the Attr class."""
 
