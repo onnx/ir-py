@@ -112,7 +112,7 @@ class AttributeExternalDataTest(unittest.TestCase):
                 tmpdir,
                 "attributes.data",
                 size_threshold_bytes=0,
-                convert_attribute=True,
+                convert_attributes=True,
             )
 
             external_single = main_node.attributes["single"].as_tensor()
@@ -153,7 +153,7 @@ class AttributeExternalDataTest(unittest.TestCase):
                 tmpdir,
                 "attributes.data",
                 size_threshold_bytes=at_threshold.nbytes,
-                convert_attribute=True,
+                convert_attributes=True,
             )
 
             values = node.attributes["values"].as_tensors()
@@ -243,7 +243,7 @@ class AttributeExternalDataTest(unittest.TestCase):
                     model,
                     tmpdir,
                     "destination.data",
-                    convert_attribute=True,
+                    convert_attributes=True,
                     size_threshold_bytes=200,
                 )
             self.assertEqual(attr_constructor.call_count, 1)

@@ -1080,7 +1080,7 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
-    convert_attribute: bool = False,
+    convert_attributes: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
     max_workers: int | None = None,
@@ -1100,13 +1100,13 @@ def unload_from_model(
         concurrent writing, sharding, and optional alignment controls.
 
     .. versionadded:: 1.2.0
-        Added ``convert_attribute`` to optionally store tensors in node attributes
+        Added ``convert_attributes`` to optionally store tensors in node attributes
         as external data.
 
     .. versionchanged:: 1.2.0
         Tensors exactly at ``size_threshold_bytes`` are now externalized; string
         tensors remain embedded. Tensor docstrings and metadata properties are
-        preserved during conversion. With ``convert_attribute=False``, existing
+        preserved during conversion. With ``convert_attributes=False``, existing
         external attribute tensors stay external and are streamed when relocation
         or an overwrite requires it.
 
@@ -1123,7 +1123,7 @@ def unload_from_model(
     is not currently referenced by any tensors in the model.
 
     All initializers in the main graph and subgraphs are handled. Tensor attributes
-    are also handled when ``convert_attribute`` is true.
+    are also handled when ``convert_attributes`` is true.
 
     When ``max_shard_size_bytes`` is set, tensors are distributed across multiple
     shard files named like ``model-00001-of-00003.data``. Because each ONNX tensor
@@ -1137,7 +1137,7 @@ def unload_from_model(
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
-        convert_attribute: Whether to store tensors in node attributes as external data
+        convert_attributes: Whether to store tensors in node attributes as external data
             according to ``size_threshold_bytes``, in addition to initializers.
             When true, non-string attribute tensors at or above the threshold are
             stored as external tensors; smaller tensors are embedded in the model.
@@ -1224,7 +1224,7 @@ def unload_from_model(
         tensor = reference[3]
         if tensor.dtype == _enums.DataType.STRING:
             continue
-        if convert_attribute:
+        if convert_attributes:
             if tensor.nbytes >= size_threshold_bytes:
                 attributes_to_become_external.append(reference)
             elif isinstance(tensor, _core.ExternalTensor):

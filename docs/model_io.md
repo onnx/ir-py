@@ -99,10 +99,10 @@ Notes:
 
 - `external_data` must be a **relative** path.
 - `max_shard_size_bytes` requires `external_data`.
-- Set `convert_attribute=True` to store non-string tensors in node attributes as
+- Set `convert_attributes=True` to store non-string tensors in node attributes as
   external data when their size is at or above `size_threshold_bytes`, in addition
   to initializers. Smaller attribute tensors are embedded in the model.
-- With the default `convert_attribute=False`, in-memory attributes stay embedded
+- With the default `convert_attributes=False`, in-memory attributes stay embedded
   and existing external attributes stay external. References that remain valid
   in the destination directory are preserved unless their file will be overwritten.
   Otherwise, attribute data is streamed into the requested external data file
@@ -203,7 +203,7 @@ ir.save_safetensors(
     "model.onnx",
     size_threshold_bytes=0,
     max_shard_size_bytes=5 * 1000**3,
-    convert_attribute=True,  # optionally externalize tensors in node attributes
+    convert_attributes=True,  # optionally externalize tensors in node attributes
 )
 ```
 
@@ -213,12 +213,12 @@ keeping the ONNX graph in `model.onnx`.
 ## Important safetensors constraints
 
 - All initializer names across graphs/subgraphs must be unique.
-- Set `convert_attribute=True` to store non-string attribute tensors at or above
+- Set `convert_attributes=True` to store non-string attribute tensors at or above
   `size_threshold_bytes` as safetensors external data. Smaller tensors stay embedded.
 - Attribute tensors may have duplicate or missing names. Safetensors uses generated
   unique storage keys that cannot collide with initializer names; the original
   attribute tensor names, docstrings, and metadata remain in the ONNX model.
-- With the default `convert_attribute=False`, existing external attribute references
+- With the default `convert_attributes=False`, existing external attribute references
   are preserved when valid in the destination directory. Attributes requiring
   relocation or backed by an overwritten file are streamed into safetensors,
   regardless of their size, without materializing them in RAM.

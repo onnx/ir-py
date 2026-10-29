@@ -160,7 +160,7 @@ class SaveSafetensorsTest(unittest.TestCase):
                 ir.save_safetensors(
                     model,
                     path,
-                    convert_attribute=True,
+                    convert_attributes=True,
                     size_threshold_bytes=0,
                     max_shard_size_bytes=shard_size,
                 )
@@ -196,16 +196,16 @@ class SaveSafetensorsTest(unittest.TestCase):
     def test_attribute_threshold_is_inclusive_and_strings_stay_embedded(self):
         tensors = _named_attribute_tensors()
         tensors.append(ir.StringTensor([b"", b"text"], shape=ir.Shape([2]), name="strings"))
-        for convert_attribute in (False, True):
-            path = os.path.join(self.tmpdir, f"{convert_attribute}.onnx")
+        for convert_attributes in (False, True):
+            path = os.path.join(self.tmpdir, f"{convert_attributes}.onnx")
             model = _model_with_attributes(tensors)
             ir.save_safetensors(
-                model, path, convert_attribute=convert_attribute, size_threshold_bytes=8
+                model, path, convert_attributes=convert_attributes, size_threshold_bytes=8
             )
             loaded = ir.load(path)
             for actual, expected in zip(_attribute_tensors(loaded), tensors, strict=True):
                 should_externalize = (
-                    convert_attribute
+                    convert_attributes
                     and expected.dtype != ir.DataType.STRING
                     and expected.nbytes >= 8
                 )
@@ -352,7 +352,7 @@ class SaveSafetensorsTest(unittest.TestCase):
             )
         )
         path = os.path.join(self.tmpdir, "model.onnx")
-        ir.save_safetensors(model, path, convert_attribute=True, size_threshold_bytes=0)
+        ir.save_safetensors(model, path, convert_attributes=True, size_threshold_bytes=0)
         with safetensors.safe_open(
             os.path.join(self.tmpdir, "model.safetensors"), framework="numpy"
         ) as file:
@@ -365,7 +365,7 @@ class SaveSafetensorsTest(unittest.TestCase):
         ir.save_safetensors(
             model,
             os.path.join(self.tmpdir, "model.onnx"),
-            convert_attribute=True,
+            convert_attributes=True,
             size_threshold_bytes=0,
             max_shard_size_bytes=8,
             callback=lambda tensor, info: calls.append((tensor, info)),
@@ -378,10 +378,10 @@ class SaveSafetensorsTest(unittest.TestCase):
                 self.assertEqual(file.read(tensor.nbytes), tensor.tobytes())
 
     def test_failure_restores_attributes_and_tracks_actual_overwrites(self):
-        for convert_attribute in (False, True):
+        for convert_attributes in (False, True):
             for failure in ("write", "replace", "read_references", "serialize"):
-                with self.subTest(convert_attribute=convert_attribute, failure=failure):
-                    directory = os.path.join(self.tmpdir, f"{convert_attribute}_{failure}")
+                with self.subTest(convert_attributes=convert_attributes, failure=failure):
+                    directory = os.path.join(self.tmpdir, f"{convert_attributes}_{failure}")
                     os.mkdir(directory)
                     tensors = _named_attribute_tensors()
                     external_tensors = ir.external_data.convert_tensors_to_external(
@@ -407,7 +407,7 @@ class SaveSafetensorsTest(unittest.TestCase):
                         ir.save_safetensors(
                             model,
                             os.path.join(directory, "model.onnx"),
-                            convert_attribute=convert_attribute,
+                            convert_attributes=convert_attributes,
                             size_threshold_bytes=8,
                         )
                     for (node, name), attr in original_attrs.items():
@@ -422,7 +422,11 @@ class SaveSafetensorsTest(unittest.TestCase):
         model = _model_with_attributes(_named_attribute_tensors())
         path = os.path.join(self.tmpdir, "model.onnx")
         ir.save_safetensors(
-            model, path, convert_attribute=True, size_threshold_bytes=0, max_shard_size_bytes=8
+            model,
+            path,
+            convert_attributes=True,
+            size_threshold_bytes=0,
+            max_shard_size_bytes=8,
         )
         before = {}
         for filename in os.listdir(self.tmpdir):
@@ -438,7 +442,7 @@ class SaveSafetensorsTest(unittest.TestCase):
             ir.save_safetensors(
                 loaded,
                 path,
-                convert_attribute=True,
+                convert_attributes=True,
                 size_threshold_bytes=0,
                 max_shard_size_bytes=8,
             )
@@ -455,7 +459,7 @@ class SaveSafetensorsTest(unittest.TestCase):
         ]
         model = _model_with_attributes(tensors)
         path = os.path.join(self.tmpdir, "model.onnx")
-        ir.save_safetensors(model, path, convert_attribute=True, size_threshold_bytes=0)
+        ir.save_safetensors(model, path, convert_attributes=True, size_threshold_bytes=0)
         with safetensors.safe_open(
             os.path.join(self.tmpdir, "model.safetensors"), framework="numpy"
         ) as file:
@@ -515,7 +519,7 @@ class SaveSafetensorsTest(unittest.TestCase):
             ir.save_safetensors(
                 _model_with_attributes(_named_attribute_tensors()),
                 os.path.join(self.tmpdir, "model.onnx"),
-                convert_attribute=True,
+                convert_attributes=True,
                 size_threshold_bytes=0,
                 max_shard_size_bytes=8,
             )

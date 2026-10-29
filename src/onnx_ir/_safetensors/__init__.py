@@ -248,7 +248,7 @@ def save_safetensors(
     size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
-    convert_attribute: bool = False,
+    convert_attributes: bool = False,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
@@ -310,7 +310,7 @@ def save_safetensors(
     .. versionadded:: 0.1.15
 
     .. versionadded:: 1.2.0
-        Added ``convert_attribute`` to optionally store tensors in node attributes
+        Added ``convert_attributes`` to optionally store tensors in node attributes
         as safetensors external data.
 
     .. versionchanged:: 1.2.0
@@ -334,7 +334,7 @@ def save_safetensors(
             The callback must have signature ``Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]``,
             where the first argument is the tensor being saved and the second contains
             metadata such as filename, progress, and the byte offset within the shard.
-        convert_attribute: Whether to store tensors in node attributes as external data
+        convert_attributes: Whether to store tensors in node attributes as external data
             according to ``size_threshold_bytes``, in addition to initializers.
             When true, non-string attribute tensors at or above the threshold are
             stored as external tensors; smaller tensors are embedded in the model.
@@ -427,7 +427,7 @@ def save_safetensors(
         tensor = reference[3]
         if tensor.dtype == ir.DataType.STRING:
             continue
-        if convert_attribute:
+        if convert_attributes:
             externalize = tensor.nbytes >= size_threshold_bytes
             if not externalize and isinstance(tensor, ir.ExternalTensor):
                 attributes_to_load.append(reference)

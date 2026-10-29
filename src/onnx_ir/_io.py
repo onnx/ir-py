@@ -53,7 +53,7 @@ def save(
     alignment: int | None = None,
     align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
     *,
-    convert_attribute: bool = False,
+    convert_attributes: bool = False,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -79,13 +79,13 @@ def save(
         file contents.
 
     .. versionadded:: 1.2.0
-        Added ``convert_attribute`` to optionally store tensors in node attributes
+        Added ``convert_attributes`` to optionally store tensors in node attributes
         as external data.
 
     .. versionchanged:: 1.2.0
         Tensors exactly at ``size_threshold_bytes`` are now externalized. Tensor
         docstrings and metadata properties are preserved during conversion.
-        With ``convert_attribute=False``, existing external attribute tensors stay
+        With ``convert_attributes=False``, existing external attribute tensors stay
         external and are streamed when relocation or an overwrite requires it.
         Original attribute objects are restored after saving; external tensors
         backed by successfully overwritten files are invalidated.
@@ -127,7 +127,7 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
-        convert_attribute: Whether to store tensors in node attributes as external data
+        convert_attributes: Whether to store tensors in node attributes as external data
             according to ``size_threshold_bytes``, in addition to initializers.
             When true, non-string attribute tensors at or above the threshold are
             stored as external tensors; smaller tensors are embedded in the model.
@@ -212,7 +212,7 @@ def save(
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
-                convert_attribute=convert_attribute,
+                convert_attributes=convert_attributes,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
                 max_workers=max_workers,

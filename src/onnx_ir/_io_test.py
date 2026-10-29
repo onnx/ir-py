@@ -174,7 +174,7 @@ class IOFunctionsTest(unittest.TestCase):
                 path,
                 external_data="model.data",
                 size_threshold_bytes=0,
-                convert_attribute=True,
+                convert_attributes=True,
             )
 
             self.assertIs(node.attributes["single"], original_single_attribute)
@@ -299,10 +299,10 @@ class IOFunctionsTest(unittest.TestCase):
                 actual.release()
 
     def test_save_attribute_restoration_and_invalidation_on_failure(self):
-        for convert_attribute in (False, True):
+        for convert_attributes in (False, True):
             for failure in ("write", "replace", "create_tensor", "serialize"):
                 with (
-                    self.subTest(convert_attribute=convert_attribute, failure=failure),
+                    self.subTest(convert_attributes=convert_attributes, failure=failure),
                     tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir,
                 ):
                     model, arrays, original_tensors = _create_model_with_external_attributes(
@@ -329,7 +329,7 @@ class IOFunctionsTest(unittest.TestCase):
                             os.path.join(tmpdir, "model.onnx"),
                             external_data="attributes.data",
                             size_threshold_bytes=8,
-                            convert_attribute=convert_attribute,
+                            convert_attributes=convert_attributes,
                         )
                     for node, name, attr in original_attrs:
                         self.assertIs(node.attributes[name], attr)
