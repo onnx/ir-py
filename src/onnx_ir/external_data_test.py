@@ -290,6 +290,33 @@ class AttributeExternalDataTest(unittest.TestCase):
             self.assertTrue(all(not tensor.valid() for tensor in tensors))
 
 
+class HeaderWriteTest(unittest.TestCase):
+    def test_serial_and_parallel_writes_preserve_header_and_offsets(self):
+        tensors = [
+            ir.tensor(np.array([1.0, 2.0], dtype=np.float32), name="first"),
+            ir.tensor(np.array([3.0], dtype=np.float32), name="second"),
+        ]
+        header = b"header00"
+        infos = [
+            external_data._ExternalDataInfo("first", len(header), tensors[0].nbytes),
+            external_data._ExternalDataInfo(
+                "second", len(header) + tensors[0].nbytes, tensors[1].nbytes
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for workers in (1, 4):
+                with self.subTest(workers=workers):
+                    path = os.path.join(tmpdir, f"{workers}.data")
+                    external_data._write_external_data(
+                        tensors, infos, path, max_workers=workers, header=header
+                    )
+                    with open(path, "rb") as file:
+                        self.assertEqual(
+                            file.read(),
+                            header + b"".join(tensor.tobytes() for tensor in tensors),
+                        )
+
+
 class AlignmentTest(unittest.TestCase):
     """Test the external data offset alignment policy."""
 

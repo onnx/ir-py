@@ -203,6 +203,7 @@ ir.save_safetensors(
     "model.onnx",
     size_threshold_bytes=0,
     max_shard_size_bytes=5 * 1000**3,
+    convert_attribute=True,  # optionally externalize tensors in node attributes
 )
 ```
 
@@ -212,6 +213,14 @@ keeping the ONNX graph in `model.onnx`.
 ## Important safetensors constraints
 
 - All initializer names across graphs/subgraphs must be unique.
-- Tensor attributes in nodes are not externalized to safetensors.
-- For large constant nodes you want externalized, consider lifting constants to
-  initializers before saving.
+- Set `convert_attribute=True` to store non-string attribute tensors at or above
+  `size_threshold_bytes` as safetensors external data. Smaller tensors stay embedded.
+- Attribute tensors may have duplicate or missing names. Safetensors uses generated
+  unique storage keys that cannot collide with initializer names; the original
+  attribute tensor names, docstrings, and metadata remain in the ONNX model.
+- With the default `convert_attribute=False`, existing external attribute references
+  are preserved when valid in the destination directory. Attributes requiring
+  relocation or backed by an overwritten file are streamed into safetensors,
+  regardless of their size, without materializing them in RAM.
+- Single-file saves replace the data file atomically. Sharded saves reject existing
+  destination shard and index files; choose a different output path to re-save.

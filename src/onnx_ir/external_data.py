@@ -494,6 +494,8 @@ def _write_external_data(
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     budget: _ByteBudget | None = None,
     tensor_write_locks: dict[int, threading.Lock] | None = None,
+    header: bytes = b"",
+    validate: Callable[[str], None] | None = None,
 ) -> None:
     """Write tensor data to an external file according to information stored in ExternalDataInfo objects.
 
@@ -511,6 +513,8 @@ def _write_external_data(
             peak memory does not scale with the number of shards.
         tensor_write_locks: Locks shared by shard writers to prevent concurrent
             evaluation of the same tensor object.
+        header: Optional file header preceding the tensor byte ranges.
+        validate: Optional check of the staged file before replacing the destination.
     """
     requested_path = os.fspath(file_path)
     destination_path = (
@@ -538,8 +542,11 @@ def _write_external_data(
                 if tensor_write_locks is not None
                 else _create_tensor_write_locks(tensors)
             ),
+            header=header,
         )
         writer.write()
+        if validate is not None:
+            validate(temporary_path)
         _replace_external_data_file(
             temporary_path,
             requested_path,
@@ -567,6 +574,7 @@ class _ExternalDataWriter:
         max_workers: int | None,
         max_in_flight_bytes: int,
         tensor_write_locks: dict[int, threading.Lock],
+        header: bytes = b"",
     ) -> None:
         assert len(tensors) == len(external_data_infos), (
             "Number of tensors and external data infos should match"
@@ -580,6 +588,7 @@ class _ExternalDataWriter:
         self._max_workers = max_workers
         self._max_in_flight_bytes = max_in_flight_bytes
         self._tensor_write_locks = tensor_write_locks
+        self._header = header
 
     def write(self) -> None:
         """Select the cheapest writer that provides the requested concurrency."""
@@ -619,6 +628,7 @@ class _ExternalDataWriter:
     def _write_serial(self) -> None:
         """Write sequentially through one file descriptor."""
         with open(self._file_path, "wb") as data_file:
+            data_file.write(self._header)
             # Seeking past EOF creates a file hole that reads back as zeros, so
             # aligned offsets need no explicit padding allocation or write.
             for i, (tensor, tensor_info) in enumerate(
@@ -649,6 +659,7 @@ class _ExternalDataWriter:
         # Preallocate so that every worker can seek to its own offset. Gaps between
         # tensors read back as zeros, matching the sparse holes created serially.
         with open(self._file_path, "wb") as data_file:
+            data_file.write(self._header)
             data_file.truncate(total_size)
 
         budget = (
