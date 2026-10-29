@@ -1056,7 +1056,7 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
 
     def __init__(
         self,
-        value: Sequence[bytes] | npt.NDArray[np.bytes_],
+        value: Sequence[bytes] | npt.NDArray[np.bytes_] | npt.NDArray[np.object_],
         *,
         shape: Shape | None = None,
         name: str | None = None,
@@ -1123,11 +1123,11 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
         return sum(len(string) for string in self.string_data())
 
     @property
-    def raw(self) -> Sequence[bytes] | npt.NDArray[np.bytes_]:
+    def raw(self) -> Sequence[bytes] | npt.NDArray[np.bytes_] | npt.NDArray[np.object_]:
         """Backing data of the tensor. Immutable."""
         return self._raw  # type: ignore[return-value]
 
-    def numpy(self) -> npt.NDArray[np.bytes_]:
+    def numpy(self) -> npt.NDArray[np.bytes_] | npt.NDArray[np.object_]:
         """Return the tensor as a numpy array."""
         return self.__array__()
 

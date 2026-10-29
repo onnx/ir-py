@@ -60,6 +60,20 @@ class DeduplicateInitializersTest(unittest.TestCase):
         new_model = self.apply_pass(model)
         self.assertEqual(len(new_model.graph.initializers), 1)
 
+    def test_deduplicates_identical_multibyte_string_initializers(self):
+        # Multi-byte strings are separate bytes objects in each initializer
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"AB", "CD"}, string[2] s2 = {"AB", "CD"}> {
+            }
+            """
+        )
+        self.assertEqual(len(model.graph.initializers), 2)
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 1)
+
     def test_initializers_with_different_shapes_not_deduplicated(self):
         model = ir.from_onnx_text(
             """

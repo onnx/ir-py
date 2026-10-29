@@ -146,7 +146,12 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
                 # Hash tensor data to avoid storing large amounts of data in memory
                 hashed = hashlib.sha512()
-                tensor_data = const_val.numpy()
+                if const_val.dtype.is_string():
+                    # numpy() gives an object array for strings, which would hash the
+                    # object references instead of the string contents
+                    tensor_data = _tobytes(const_val)
+                else:
+                    tensor_data = const_val.numpy()
                 hashed.update(tensor_data)
                 tensor_digest = hashed.hexdigest()
 
