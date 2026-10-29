@@ -45,7 +45,9 @@ def _remove_unused_optional_outputs(
             or training_mode.as_int() != 0
         ):
             return
-        node.attributes.pop("training_mode", None)
+        node.attributes["training_mode"] = ir.Attr(
+            "training_mode", ir.AttributeType.INT, 0
+        )
 
     optional_info = []
     for o in op_schema.outputs:
