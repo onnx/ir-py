@@ -2868,6 +2868,56 @@ class SparseTensorType(_TensorTypeBase):
     """A type that represents a sparse tensor."""
 
 
+class OpaqueType(_protocols.TypeProtocol, _display.PrettyPrintable, Hashable):
+    """A type whose representation is defined outside ONNX.
+
+    Args:
+        domain: The domain defining the type. None means the model's domain.
+        name: An optional name identifying the type within the domain.
+        denotation: An optional semantic description of the type.
+
+    Opaque types have no tensor data type or element type. Both :attr:`dtype`
+    and :attr:`elem_type` return None.
+    """
+
+    __slots__ = ("denotation", "domain", "name")
+
+    def __init__(
+        self,
+        domain: str | None = None,
+        name: str | None = None,
+        *,
+        denotation: str | None = None,
+    ) -> None:
+        self.domain = domain
+        self.name = name
+        self.denotation = denotation
+
+    @property
+    def dtype(self) -> None:
+        return None
+
+    @dtype.setter
+    def dtype(self, value: _enums.DataType) -> None:
+        raise TypeError("Opaque types do not have a tensor data type.")
+
+    @property
+    def elem_type(self) -> None:
+        return None
+
+    def __hash__(self) -> int:
+        return hash((self.__class__, self.domain, self.name))
+
+    def __eq__(self, other: object) -> bool:
+        if self.__class__ is not other.__class__:
+            return False
+        assert isinstance(other, OpaqueType)
+        return self.domain == other.domain and self.name == other.name
+
+    def __repr__(self) -> str:
+        return f"Opaque(domain={self.domain!r}, name={self.name!r})"
+
+
 class _RecursiveTypeBase(_protocols.TypeProtocol, _display.PrettyPrintable, Hashable):
     """Base for recursive types like Optional and Sequence."""
 
@@ -2880,7 +2930,7 @@ class _RecursiveTypeBase(_protocols.TypeProtocol, _display.PrettyPrintable, Hash
         self.denotation = denotation
 
     @property
-    def dtype(self) -> _enums.DataType:
+    def dtype(self) -> _enums.DataType | None:
         return self._elem_type.dtype
 
     @dtype.setter
@@ -3278,7 +3328,8 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
     def type(self) -> _protocols.TypeProtocol | None:
         """The type of the tensor.
 
-        Example types can be ``TensorType``, ``SparseTensorType``, ``SequenceType``, ``OptionalType``.
+        Example types can be ``TensorType``, ``SparseTensorType``, ``SequenceType``,
+        ``OptionalType``, ``OpaqueType``.
         To obtain the data type of the tensor, use ``type.dtype`` or conveniently
         :attr:`dtype`.
         """
@@ -3290,7 +3341,7 @@ class Value(WithArithmeticMethods, _protocols.ValueProtocol, _display.PrettyPrin
 
     @property
     def dtype(self) -> _enums.DataType | None:
-        """The data type of the tensor."""
+        """The tensor data type, or None for unknown or opaque types."""
         if self._type is None:
             return None
         return self._type.dtype
