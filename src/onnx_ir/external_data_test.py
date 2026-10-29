@@ -1,5 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+import errno
 import os
 import sys
 import tempfile
@@ -763,18 +764,24 @@ class OffloadExternalTensorTest(unittest.TestCase):
     def test_atomic_replace_preserves_destination_symlink(self):
         target_name = "target.data"
         target = os.path.join(self.base_path, target_name)
-        link = os.path.join(self.base_path, self.external_data_name)
+        link_name = "linked.data"
+        link = os.path.join(self.base_path, link_name)
         with open(target, "wb") as data_file:
             data_file.write(b"old")
         try:
             os.symlink(target_name, link)
         except OSError as error:
+            if (
+                error.errno not in {errno.EACCES, errno.EPERM, errno.ENOSYS, errno.ENOTSUP}
+                and getattr(error, "winerror", None) != 1314
+            ):
+                raise
             self.skipTest(f"Cannot create symlink on this platform: {error}")
 
         external_data.convert_tensors_to_external(
             [ir.Tensor(np.arange(4, dtype=np.uint8), name="tensor")],
             self.base_path,
-            self.external_data_name,
+            link_name,
         )
 
         self.assertTrue(os.path.islink(link))
