@@ -15,6 +15,7 @@ import onnx.external_data_helper
 
 import onnx_ir as ir
 from onnx_ir import external_data
+from onnx_ir._polyfill import zip
 
 
 def _sample_thread_count(stop: threading.Event, samples: list[int]) -> None:
@@ -71,6 +72,104 @@ class ExternalDataTest(unittest.TestCase):
 
 
 class AttributeExternalDataTest(unittest.TestCase):
+    def test_load_to_model_materializes_initializers_and_nested_attributes(self):
+        tensors = [
+            ir.tensor(np.arange(size, dtype=np.float32), name=f"tensor_{size}")
+            for size in range(1, 5)
+        ]
+        for tensor in tensors:
+            tensor.doc_string = "tensor annotation"
+            tensor.metadata_props["tag"] = "preserved"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            external_tensors = external_data.convert_tensors_to_external(
+                tensors, tmpdir, "source.data"
+            )
+            initializer = ir.Value(name="weight", const_value=external_tensors[0])
+            memory_tensor = ir.tensor(np.array([9.0], dtype=np.float32))
+            memory_initializer = ir.Value(name="embedded", const_value=memory_tensor)
+            uninitialized = ir.Value(name="uninitialized")
+            attribute = ir.AttrTensors(
+                "values", external_tensors[2:], doc_string="list annotation"
+            )
+            attribute.meta["analysis"] = "preserved"
+            nested_node = ir.Node("", "Op", [], attributes=[attribute])
+            nested_graph = ir.Graph(
+                [], [], nodes=[nested_node], initializers=[initializer], name="nested"
+            )
+            reference = ir.RefAttr("reference", "parameter", ir.AttributeType.TENSOR)
+            absent = ir.Attr("absent", ir.AttributeType.TENSOR, None)
+            node = ir.Node(
+                "",
+                "Op",
+                [],
+                attributes=[
+                    ir.AttrTensor("value", external_tensors[1]),
+                    ir.AttrGraphs("branches", [nested_graph]),
+                    reference,
+                    absent,
+                ],
+            )
+            model = ir.Model(
+                ir.Graph(
+                    [],
+                    [],
+                    nodes=[node],
+                    initializers=[memory_initializer, uninitialized],
+                    name="main",
+                ),
+                ir_version=10,
+            )
+
+            self.assertIs(external_data.load_to_model(model), model)
+            self.assertIs(memory_initializer.const_value, memory_tensor)
+            self.assertIsNone(uninitialized.const_value)
+            self.assertIs(node.attributes["reference"], reference)
+            self.assertIs(node.attributes["absent"], absent)
+            self.assertEqual(nested_node.attributes["values"].doc_string, "list annotation")
+            self.assertEqual(nested_node.attributes["values"].meta["analysis"], "preserved")
+            os.remove(os.path.join(tmpdir, "source.data"))
+            loaded = [
+                initializer.const_value,
+                node.attributes["value"].as_tensor(),
+                *nested_node.attributes["values"].as_tensors(),
+            ]
+            for actual, expected in zip(loaded, tensors, strict=True):
+                self.assertNotIsInstance(actual, ir.ExternalTensor)
+                self.assertEqual(actual.name, expected.name)
+                self.assertEqual(actual.doc_string, expected.doc_string)
+                self.assertEqual(actual.metadata_props, expected.metadata_props)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+    def test_unload_preserves_strings_uninitialized_values_and_reference_attributes(self):
+        for convert_attributes in (False, True):
+            with self.subTest(convert_attributes=convert_attributes):
+                tensor = ir.StringTensor([b"text"], shape=ir.Shape([1]), name="strings")
+                initializer = ir.Value(name="strings", const_value=tensor)
+                uninitialized = ir.Value(name="uninitialized")
+                attributes = [
+                    ir.AttrTensor("value", tensor),
+                    ir.AttrTensors("values", [tensor]),
+                    ir.RefAttr("reference", "parameter", ir.AttributeType.TENSORS),
+                    ir.Attr("absent", ir.AttributeType.TENSOR, None),
+                ]
+                node = ir.Node("", "Op", [], attributes=attributes)
+                model = ir.Model(
+                    ir.Graph([], [], nodes=[node], initializers=[initializer, uninitialized]),
+                    ir_version=10,
+                )
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    external_data.unload_from_model(
+                        model,
+                        tmpdir,
+                        "model.data",
+                        size_threshold_bytes=0,
+                        convert_attributes=convert_attributes,
+                    )
+                self.assertIs(initializer.const_value, tensor)
+                self.assertIsNone(uninitialized.const_value)
+                for attribute in attributes:
+                    self.assertIs(node.attributes[attribute.name], attribute)
+
     def test_unload_from_model_externalizes_attributes_in_subgraphs(self):
         single_data = np.array([1.0, 2.0], dtype=np.float32)
         sequence_data = [
