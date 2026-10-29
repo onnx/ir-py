@@ -1102,9 +1102,13 @@ def unload_from_model(
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
-        convert_attribute: Whether to apply the size threshold to tensor attributes
-            in addition to initializers. When false, existing external attributes
-            remain external and in-memory attributes remain embedded.
+        convert_attribute: Whether to store tensors in node attributes as external data
+            according to ``size_threshold_bytes``, in addition to initializers.
+            When true, non-string attribute tensors at or above the threshold are
+            stored as external tensors; smaller tensors are embedded in the model.
+            When false, existing external attributes remain external and are streamed
+            to the destination if relocation or an overwrite requires it. In-memory
+            attributes remain embedded.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
             ``relative_path``.  When set, tensors are written to multiple numbered shard

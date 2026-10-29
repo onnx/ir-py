@@ -115,7 +115,10 @@ def save(
             it will be serialized in the ONNX Proto message.
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
-        convert_attribute: Whether to convert tensor attributes in addition to initializers.
+        convert_attribute: Whether to store tensors in node attributes as external data
+            according to ``size_threshold_bytes``, in addition to initializers.
+            When true, non-string attribute tensors at or above the threshold are
+            stored as external tensors; smaller tensors are embedded in the model.
             When false, existing external attributes remain external and are streamed
             to the destination if relocation or an overwrite requires it. In-memory
             attributes remain embedded.

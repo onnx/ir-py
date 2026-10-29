@@ -99,8 +99,9 @@ Notes:
 
 - `external_data` must be a **relative** path.
 - `max_shard_size_bytes` requires `external_data`.
-- Set `convert_attribute=True` to externalize tensor attributes as well as
-  initializers.
+- Set `convert_attribute=True` to store non-string tensors in node attributes as
+  external data when their size is at or above `size_threshold_bytes`, in addition
+  to initializers. Smaller attribute tensors are embedded in the model.
 - With the default `convert_attribute=False`, in-memory attributes stay embedded
   and existing external attributes stay external. References that remain valid
   in the destination directory are preserved unless their file will be overwritten.
