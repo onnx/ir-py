@@ -18,12 +18,13 @@ __all__ = [
 import concurrent.futures
 import contextlib
 import dataclasses
+import functools
 import logging
 import os
 import shutil
 import tempfile
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 from onnx_ir import _core, _enums, _protocols
 from onnx_ir import traversal as _traversal
@@ -270,20 +271,52 @@ def _external_tensor_to_memory_tensor(
     # Copy the data as the .numpy() call references data from a file whose data is eventually modified
     tensor_data = tensor.numpy().copy()
     tensor.release()
-    return _core.Tensor(tensor_data, name=tensor.name, dtype=tensor.dtype)
+    return _core.Tensor(
+        tensor_data,
+        name=tensor.name,
+        dtype=tensor.dtype,
+        doc_string=tensor.doc_string,
+        metadata_props=dict(tensor.metadata_props),
+    )
 
 
-def _paths_refer_to_same_file(path1: str | os.PathLike, path2: str | os.PathLike) -> bool:
-    """Return True if both paths exist and refer to the same file.
-
-    Uses :func:`os.path.samefile` so that hard links and symlinks pointing to the
-    same underlying file are correctly detected.
-    """
+def _file_identity(path: str | os.PathLike) -> tuple[int, int] | None:
+    """Identify an existing file, following symlinks and recognizing hard links."""
     try:
-        return os.path.samefile(path1, path2)
-    except OSError:
-        # One of the paths does not exist (or cannot be stat'd).
+        # samefile() uses these IDs on all supported platforms. Returning them lets
+        # callers cache one stat per shared path instead of statting both per comparison.
+        stat = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def _attribute_needs_relocation(
+    tensor: _core.ExternalTensor,
+    base_dir: str | os.PathLike,
+    file_identity: Callable[[str], tuple[int, int] | None],
+) -> bool:
+    target_path = os.path.join(base_dir, tensor.location)
+    if os.path.normcase(os.path.abspath(tensor.path)) == os.path.normcase(
+        os.path.abspath(target_path)
+    ):
         return False
+    source_identity = file_identity(tensor.path)
+    return source_identity is None or source_identity != file_identity(target_path)
+
+
+def _invalidate_external_tensors(
+    tensors: Sequence[_core.ExternalTensor],
+) -> None:
+    for tensor in tensors:
+        if not tensor.valid():
+            continue
+        tensor.invalidate()
+        logger.warning(
+            "External tensor %s referred to an overwritten destination and has "
+            "been invalidated. Load the newly saved model to obtain a valid tensor.",
+            tensor,
+        )
 
 
 def _check_no_existing_shard_files(
@@ -313,6 +346,35 @@ def _check_no_existing_shard_files(
             "files. Delete the conflicting files or save into a different "
             "directory or under a different external data path."
         )
+
+
+def _replace_external_data_file(
+    staged_path: str | os.PathLike,
+    requested_path: str | os.PathLike,
+    tensors: Sequence[_protocols.TensorProtocol],
+) -> None:
+    requested_path = os.fspath(requested_path)
+    destination_path = (
+        os.path.realpath(requested_path) if os.path.islink(requested_path) else requested_path
+    )
+    file_identity = functools.cache(_file_identity)
+    destination_identity = file_identity(destination_path)
+    overwritten_tensors = [
+        tensor
+        for tensor in {id(tensor): tensor for tensor in tensors}.values()
+        if isinstance(tensor, _core.ExternalTensor)
+        and destination_identity is not None
+        and file_identity(tensor.path) == destination_identity
+    ]
+
+    # Windows cannot atomically replace a file while one of its mmap handles
+    # is open. Other ExternalTensors are left untouched.
+    for tensor in overwritten_tensors:
+        tensor.release()
+    if os.path.exists(destination_path):
+        shutil.copymode(destination_path, staged_path)
+    os.replace(staged_path, destination_path)
+    _invalidate_external_tensors(overwritten_tensors)
 
 
 def _compute_external_data_info(
@@ -432,6 +494,8 @@ def _write_external_data(
     max_in_flight_bytes: int = _DEFAULT_MAX_IN_FLIGHT_BYTES,
     budget: _ByteBudget | None = None,
     tensor_write_locks: dict[int, threading.Lock] | None = None,
+    header: bytes = b"",
+    validate: Callable[[str], None] | None = None,
 ) -> None:
     """Write tensor data to an external file according to information stored in ExternalDataInfo objects.
 
@@ -449,6 +513,8 @@ def _write_external_data(
             peak memory does not scale with the number of shards.
         tensor_write_locks: Locks shared by shard writers to prevent concurrent
             evaluation of the same tensor object.
+        header: Optional file header preceding the tensor byte ranges.
+        validate: Optional check of the staged file before replacing the destination.
     """
     requested_path = os.fspath(file_path)
     destination_path = (
@@ -461,12 +527,6 @@ def _write_external_data(
     )
     temporary_path = os.path.join(temporary_dir, os.path.basename(destination_path))
 
-    overwritten_tensors = [
-        tensor
-        for tensor in tensors
-        if isinstance(tensor, _core.ExternalTensor)
-        and _paths_refer_to_same_file(tensor.path, destination_path)
-    ]
     try:
         writer = _ExternalDataWriter(
             tensors,
@@ -482,28 +542,21 @@ def _write_external_data(
                 if tensor_write_locks is not None
                 else _create_tensor_write_locks(tensors)
             ),
+            header=header,
         )
         writer.write()
-        # Windows cannot atomically replace a file while one of its mmap handles
-        # is open. Other ExternalTensors are left untouched.
-        for tensor in overwritten_tensors:
-            tensor.release()
-        if os.path.exists(destination_path):
-            shutil.copymode(destination_path, temporary_path)
-        os.replace(temporary_path, destination_path)
+        if validate is not None:
+            validate(temporary_path)
+        _replace_external_data_file(
+            temporary_path,
+            requested_path,
+            tensors,
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.remove(temporary_path)
         with contextlib.suppress(FileNotFoundError):
             os.rmdir(temporary_dir)
-
-    for tensor in overwritten_tensors:
-        tensor.invalidate()
-        logger.warning(
-            "External tensor %s referred to the overwritten destination and has "
-            "been invalidated. Load the newly saved model to obtain a valid tensor.",
-            tensor,
-        )
 
 
 class _ExternalDataWriter:
@@ -521,6 +574,7 @@ class _ExternalDataWriter:
         max_workers: int | None,
         max_in_flight_bytes: int,
         tensor_write_locks: dict[int, threading.Lock],
+        header: bytes = b"",
     ) -> None:
         assert len(tensors) == len(external_data_infos), (
             "Number of tensors and external data infos should match"
@@ -534,6 +588,7 @@ class _ExternalDataWriter:
         self._max_workers = max_workers
         self._max_in_flight_bytes = max_in_flight_bytes
         self._tensor_write_locks = tensor_write_locks
+        self._header = header
 
     def write(self) -> None:
         """Select the cheapest writer that provides the requested concurrency."""
@@ -573,6 +628,7 @@ class _ExternalDataWriter:
     def _write_serial(self) -> None:
         """Write sequentially through one file descriptor."""
         with open(self._file_path, "wb") as data_file:
+            data_file.write(self._header)
             # Seeking past EOF creates a file hole that reads back as zeros, so
             # aligned offsets need no explicit padding allocation or write.
             for i, (tensor, tensor_info) in enumerate(
@@ -603,6 +659,7 @@ class _ExternalDataWriter:
         # Preallocate so that every worker can seek to its own offset. Gaps between
         # tensors read back as zeros, matching the sparse holes created serially.
         with open(self._file_path, "wb") as data_file:
+            data_file.write(self._header)
             data_file.truncate(total_size)
 
         budget = (
@@ -674,6 +731,8 @@ def _create_external_tensor(
         tensor.dtype,  # type: ignore[arg-type]
         shape=tensor.shape,  # type: ignore[arg-type]
         name=tensor.name,  # type: ignore[arg-type]
+        doc_string=getattr(tensor, "doc_string", None),
+        metadata_props=dict(getattr(tensor, "metadata_props", {})),
         base_dir=os.path.normpath(base_dir),
     )
 
@@ -682,6 +741,9 @@ def convert_tensors_from_external(
     tensors: Sequence[_protocols.TensorProtocol],
 ) -> list[_protocols.TensorProtocol]:
     """Convert a sequence of external tensors to in-memory tensors.
+
+    .. versionchanged:: 1.2.0
+        Tensor docstrings and metadata properties are preserved during conversion.
 
     Args:
         tensors: External tensors to be converted to in-memory tensors.
@@ -714,6 +776,9 @@ def convert_tensors_to_external(
         Tensors are packed densely in input order by default, and writes now
         atomically replace the destination after succeeding. Added concurrent
         writing and optional alignment controls.
+
+    .. versionchanged:: 1.2.0
+        Tensor docstrings and metadata properties are preserved during conversion.
 
     Data is written to a temporary file in the destination directory and atomically
     replaces the destination only after the write succeeds. Existing external
@@ -911,15 +976,83 @@ def _write_external_tensors(
     return external_tensors
 
 
-def load_to_model(model: _core.Model) -> _core.Model:
-    """Convert all external model initializers to memory tensors in-place.
+_AttributeTensorReference = tuple[
+    _core.Node,
+    str,
+    int | None,
+    _protocols.TensorProtocol,
+]
 
-    All initializers in the main graph and subgraphs are handled.
+
+def _attribute_tensor_references(model: _core.Model) -> Iterator[_AttributeTensorReference]:
+    for node in _traversal.RecursiveGraphIterator(model.graph):
+        for name, attr in node.attributes.items():
+            if attr.is_ref() or attr.value is None:
+                continue
+            if attr.type == _enums.AttributeType.TENSOR:
+                yield node, name, None, attr.value
+            elif attr.type == _enums.AttributeType.TENSORS:
+                for index, tensor in enumerate(attr.value):
+                    yield node, name, index, tensor
+
+
+def _replace_attribute_tensors(
+    replacements: Iterable[tuple[_AttributeTensorReference, _protocols.TensorProtocol]],
+) -> None:
+    """Rebuild each affected attribute once, even with mixed replacement types."""
+    grouped: dict[
+        tuple[_core.Node, str],
+        _protocols.TensorProtocol | list[_protocols.TensorProtocol],
+    ] = {}
+    for (node, name, index, _), tensor in replacements:
+        key = node, name
+        if index is None:
+            grouped[key] = tensor
+        else:
+            if key not in grouped:
+                grouped[key] = list(node.attributes[name].as_tensors())
+            tensors = grouped[key]
+            assert isinstance(tensors, list)
+            tensors[index] = tensor
+    for (node, name), value in grouped.items():
+        attr = node.attributes[name]
+        replacement = _core.Attr(
+            attr.name,
+            attr.type,
+            value,
+            doc_string=attr.doc_string,
+        )
+        replacement.meta.update(attr.meta)
+        node.attributes[name] = replacement
+
+
+def _load_external_attribute_tensors(model: _core.Model) -> None:
+    attribute_references = [
+        reference
+        for reference in _attribute_tensor_references(model)
+        if isinstance(reference[3], _core.ExternalTensor)
+    ]
+    loaded_attribute_tensors = convert_tensors_from_external(
+        [reference[3] for reference in attribute_references]
+    )
+    _replace_attribute_tensors(
+        zip(attribute_references, loaded_attribute_tensors, strict=True)
+    )
+
+
+def load_to_model(model: _core.Model) -> _core.Model:
+    """Convert all external model tensors to memory tensors in-place.
+
+    All initializers and tensor attributes in the main graph and subgraphs are handled.
+
+    .. versionchanged:: 1.2.0
+        Also materializes external ``TENSOR`` and ``TENSORS`` node attributes in
+        the main graph and subgraphs. Tensor docstrings and metadata properties
+        are preserved during conversion.
 
     Args:
         model: Model to process.
     """
-    # TODO(justinchuby): Load tensor attributes in subgraphs
     values_to_convert = []
     for graph in model.graphs():
         for value in graph.initializers.values():
@@ -934,6 +1067,8 @@ def load_to_model(model: _core.Model) -> _core.Model:
     for value, tensor in zip(values_to_convert, loaded_tensors, strict=True):
         value.const_value = tensor
 
+    _load_external_attribute_tensors(model)
+
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged
     return model
@@ -945,6 +1080,7 @@ def unload_from_model(
     relative_path: str | os.PathLike,
     *,
     size_threshold_bytes: int = 0,
+    convert_attributes: bool = False,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[_protocols.TensorProtocol, CallbackInfo], None] | None = None,
     max_workers: int | None = None,
@@ -952,7 +1088,7 @@ def unload_from_model(
     alignment: int | None = None,
     align_threshold: int = _DEFAULT_ALIGN_THRESHOLD,
 ) -> _core.Model:
-    """Convert all initializers equal or above size_threshold_bytes to external tensors in-place and save data to one or more data files.
+    """Convert model tensors equal or above size_threshold_bytes to external tensors in-place and save their data.
 
     .. versionadded:: 1.1.0
         Added ``max_shard_size_bytes``, ``max_workers``,
@@ -963,8 +1099,22 @@ def unload_from_model(
         Single-file writes now replace the destination atomically. Added
         concurrent writing, sharding, and optional alignment controls.
 
-    It should only replace the initializers in the model with external tensors
-    and not make any other modifications to the model.
+    .. versionadded:: 1.2.0
+        Added ``convert_attributes`` to optionally store tensors in node attributes
+        as external data.
+
+    .. versionchanged:: 1.2.0
+        Tensors exactly at ``size_threshold_bytes`` are now externalized; string
+        tensors remain embedded. Tensor docstrings and metadata properties are
+        preserved during conversion. With ``convert_attributes=False``, existing
+        external attribute tensors stay external and are streamed when relocation
+        or an overwrite requires it.
+
+    It should only replace initializers and requested tensor attributes in the model
+    with external tensors and not make any other modifications to the model.
+    When attribute conversion is disabled, existing external attributes stay
+    external. Attributes needing relocation or backed by an overwritten destination
+    are streamed into the new external data file regardless of the size threshold.
 
     If any existing external tensor
     references the provided ``external_data`` path, it will be invalidated
@@ -972,7 +1122,8 @@ def unload_from_model(
     to load the newly saved model, or provide a different external data path that
     is not currently referenced by any tensors in the model.
 
-    All initializers in the main graph and subgraphs are handled.
+    All initializers in the main graph and subgraphs are handled. Tensor attributes
+    are also handled when ``convert_attributes`` is true.
 
     When ``max_shard_size_bytes`` is set, tensors are distributed across multiple
     shard files named like ``model-00001-of-00003.data``. Because each ONNX tensor
@@ -985,7 +1136,14 @@ def unload_from_model(
         relative_path: Path to which external data is to be stored, relative to the ONNX file.
             E.g. "model.data". When sharding is enabled this becomes the base name used to
             generate shard filenames such as "model-00001-of-00003.data".
-        size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
+        convert_attributes: Whether to store tensors in node attributes as external data
+            according to ``size_threshold_bytes``, in addition to initializers.
+            When true, non-string attribute tensors at or above the threshold are
+            stored as external tensors; smaller tensors are embedded in the model.
+            When false, existing external attributes remain external and are streamed
+            to the destination if relocation or an overwrite requires it. In-memory
+            attributes remain embedded.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single shard file.
             When ``None`` (the default) all tensors are written to a single file given by
             ``relative_path``.  When set, tensors are written to multiple numbered shard
@@ -1047,42 +1205,105 @@ def unload_from_model(
             if value.const_value is None:
                 # Filter out the uninitialized initializer values
                 continue
-            if value.const_value.nbytes > size_threshold_bytes:
+            if value.const_value.dtype == _enums.DataType.STRING:
+                continue
+            if value.const_value.nbytes >= size_threshold_bytes:
                 initializers_to_become_external.append(value)
             elif isinstance(value.const_value, _core.ExternalTensor):
                 initializers_to_load_to_memory.append(value)
+
+    attributes_to_become_external = []
+    attributes_to_load_to_memory = []
+    file_identity = functools.cache(_file_identity)
+    destination_identity = (
+        file_identity(os.path.join(base_dir, relative_path))
+        if max_shard_size_bytes is None
+        else None
+    )
+    for reference in _attribute_tensor_references(model):
+        tensor = reference[3]
+        if tensor.dtype == _enums.DataType.STRING:
+            continue
+        if convert_attributes:
+            if tensor.nbytes >= size_threshold_bytes:
+                attributes_to_become_external.append(reference)
+            elif isinstance(tensor, _core.ExternalTensor):
+                attributes_to_load_to_memory.append(reference)
+        elif isinstance(tensor, _core.ExternalTensor) and (
+            (
+                destination_identity is not None
+                and file_identity(tensor.path) == destination_identity
+            )
+            or _attribute_needs_relocation(tensor, base_dir, file_identity)
+        ):
+            attributes_to_become_external.append(reference)
+
+    materialized_sources = [value.const_value for value in initializers_to_load_to_memory]
+    materialized_sources.extend(reference[3] for reference in attributes_to_load_to_memory)
+    overwritten_materialized_tensors = [
+        tensor
+        for tensor in materialized_sources
+        if isinstance(tensor, _core.ExternalTensor)
+        and destination_identity is not None
+        and file_identity(tensor.path) == destination_identity
+    ]
 
     # Load to memory first, then convert to external tensors, because
     # the existing external tensors may be overwritten by the new external data
     memory_tensors = convert_tensors_from_external(
         [v.const_value for v in initializers_to_load_to_memory]  # type: ignore[misc]
     )
+    memory_attribute_tensors = convert_tensors_from_external(
+        [reference[3] for reference in attributes_to_load_to_memory]
+    )
 
     tensors_to_externalize: list[_protocols.TensorProtocol] = [
         v.const_value  # type: ignore[misc]
         for v in initializers_to_become_external
     ]
-    external_tensors = _write_external_tensors(
-        tensors_to_externalize,
-        base_dir,
-        relative_path,
-        max_shard_size_bytes=max_shard_size_bytes,
-        callback=callback,
-        max_workers=max_workers,
-        max_in_flight_bytes=max_in_flight_bytes,
-        alignment=alignment,
-        align_threshold=align_threshold,
-    )
+    tensors_to_externalize.extend(reference[3] for reference in attributes_to_become_external)
+    try:
+        external_tensors = _write_external_tensors(
+            tensors_to_externalize,
+            base_dir,
+            relative_path,
+            max_shard_size_bytes=max_shard_size_bytes,
+            callback=callback,
+            max_workers=max_workers,
+            max_in_flight_bytes=max_in_flight_bytes,
+            alignment=alignment,
+            align_threshold=align_threshold,
+        )
+    finally:
+        # Materialized sources are not writer inputs. Detect replacement even if
+        # constructing the new ExternalTensors fails after the file was committed.
+        if overwritten_materialized_tensors and (
+            _file_identity(os.path.join(base_dir, relative_path)) != destination_identity
+        ):
+            _invalidate_external_tensors(overwritten_materialized_tensors)
 
     # Replace the initializer values with external tensors and save the model
+    attribute_tensor_offset = len(initializers_to_become_external)
     for value, external_tensor in zip(
-        initializers_to_become_external, external_tensors, strict=True
+        initializers_to_become_external,
+        external_tensors[:attribute_tensor_offset],
+        strict=True,
     ):
         value.const_value = external_tensor
     for value, memory_tensor in zip(
         initializers_to_load_to_memory, memory_tensors, strict=True
     ):
         value.const_value = memory_tensor
+    _replace_attribute_tensors(
+        [
+            *zip(
+                attributes_to_become_external,
+                external_tensors[attribute_tensor_offset:],
+                strict=True,
+            ),
+            *zip(attributes_to_load_to_memory, memory_attribute_tensors, strict=True),
+        ]
+    )
 
     # Return the model because we may change the implementation to an out of place one
     # to keep the input unchanged

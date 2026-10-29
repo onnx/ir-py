@@ -11,8 +11,9 @@ from typing import Callable
 
 import onnx  # ruff: ignore[banned-api]
 
-from onnx_ir import _core, _protocols, serde
+from onnx_ir import _core, _enums, _protocols, serde
 from onnx_ir import external_data as _external_data
+from onnx_ir import traversal as _traversal
 from onnx_ir._polyfill import zip
 
 
@@ -51,6 +52,8 @@ def save(
     max_in_flight_bytes: int = _external_data._DEFAULT_MAX_IN_FLIGHT_BYTES,
     alignment: int | None = None,
     align_threshold: int = _external_data._DEFAULT_ALIGN_THRESHOLD,
+    *,
+    convert_attributes: bool = False,
 ) -> None:
     """Save an ONNX model to a file.
 
@@ -74,6 +77,18 @@ def save(
         leave an existing destination unchanged. Replacement preserves symlinks and
         file permissions, but creates a new inode, so other hardlinks keep the old
         file contents.
+
+    .. versionadded:: 1.2.0
+        Added ``convert_attributes`` to optionally store tensors in node attributes
+        as external data.
+
+    .. versionchanged:: 1.2.0
+        Tensors exactly at ``size_threshold_bytes`` are now externalized. Tensor
+        docstrings and metadata properties are preserved during conversion.
+        With ``convert_attributes=False``, existing external attribute tensors stay
+        external and are streamed when relocation or an overwrite requires it.
+        Original attribute objects are restored after saving; external tensors
+        backed by successfully overwritten files are invalidated.
 
     .. tip::
 
@@ -110,7 +125,15 @@ def save(
             That is, if a tensor in the model is already external, it will be saved
             with the same external information; if the tensor is not external,
             it will be serialized in the ONNX Proto message.
-        size_threshold_bytes: Save to external data if the tensor size in bytes is larger than this threshold.
+        size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
+            Effective only when ``external_data`` is set.
+        convert_attributes: Whether to store tensors in node attributes as external data
+            according to ``size_threshold_bytes``, in addition to initializers.
+            When true, non-string attribute tensors at or above the threshold are
+            stored as external tensors; smaller tensors are embedded in the model.
+            When false, existing external attributes remain external and are streamed
+            to the destination if relocation or an overwrite requires it. In-memory
+            attributes remain embedded.
             Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
             When ``None`` (the default) all external tensors are written to the single file
@@ -176,13 +199,20 @@ def save(
             # Collect from all subgraphs as well
             initialized_values.extend(graph.initializers.values())
         tensors = [v.const_value for v in initialized_values]
-
+        tensor_attributes = [
+            (node, name, attr)
+            for node in _traversal.RecursiveGraphIterator(model.graph)
+            for name, attr in node.attributes.items()
+            if not attr.is_ref()
+            and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
+        ]
         try:
             model = _external_data.unload_from_model(
                 model,
                 base_dir,
                 external_data,
                 size_threshold_bytes=size_threshold_bytes,
+                convert_attributes=convert_attributes,
                 max_shard_size_bytes=max_shard_size_bytes,
                 callback=callback,
                 max_workers=max_workers,
@@ -197,7 +227,8 @@ def save(
             # Restore the original initializer values so the model is unchanged
             for initializer, tensor in zip(initialized_values, tensors, strict=True):
                 initializer.const_value = tensor
-
+            for node, name, attr in tensor_attributes:
+                node.attributes[name] = attr
     else:
         proto = serde.serialize_model(model)
         onnx.save(proto, path, format=format)
