@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import sys
@@ -16,6 +17,7 @@ import numpy as np
 import safetensors
 
 import onnx_ir as ir
+from onnx_ir import _core
 from onnx_ir._polyfill import zip
 
 
@@ -261,6 +263,11 @@ class SaveSafetensorsTest(unittest.TestCase):
         path = os.path.join(self.tmpdir, "model.onnx")
         with (
             unittest.mock.patch.object(
+                _core,
+                "_check_external_data_path",
+                wraps=_core._check_external_data_path,
+            ) as check_path,
+            unittest.mock.patch.object(
                 ir.ExternalTensor, "numpy", side_effect=AssertionError("Must not load")
             ),
             unittest.mock.patch.object(
@@ -268,6 +275,7 @@ class SaveSafetensorsTest(unittest.TestCase):
             ),
         ):
             ir.save_safetensors(model, path, size_threshold_bytes=0)
+        self.assertEqual(check_path.call_count, 2)
         loaded = ir.load(path)
         for actual, original, expected in zip(
             _attribute_tensors(loaded), external_tensors, tensors, strict=True
@@ -371,34 +379,109 @@ class SaveSafetensorsTest(unittest.TestCase):
             if isinstance(actual, ir.ExternalTensor):
                 actual.release()
 
-    def test_valid_hardlinked_attribute_references_are_not_read_or_copied(self):
-        tensors = _named_attribute_tensors()
-        external_tensors = ir.external_data.convert_tensors_to_external(
-            tensors, self.tmpdir, "attributes.data"
-        )
-        destination = os.path.join(self.tmpdir, "destination")
-        os.mkdir(destination)
-        os.link(
-            os.path.join(self.tmpdir, "attributes.data"),
-            os.path.join(destination, "attributes.data"),
-        )
-        model = _model_with_attributes(external_tensors)
-        path = os.path.join(destination, "model.onnx")
-        with (
-            unittest.mock.patch.object(
-                ir.ExternalTensor, "numpy", side_effect=AssertionError("Must not load")
-            ),
-            unittest.mock.patch.object(
-                ir.ExternalTensor, "tofile", side_effect=AssertionError("Must not copy")
-            ),
+    def test_rejects_prohibited_attribute_sources_before_writing(self):
+        for alias, convert_attributes in itertools.product(
+            ("hardlink", "escaping_symlink"), (False, True)
         ):
-            ir.save_safetensors(model, path, size_threshold_bytes=0)
-        self.assertTrue(all(tensor.valid() for tensor in external_tensors))
-        os.remove(os.path.join(self.tmpdir, "attributes.data"))
-        for actual, expected in zip(_attribute_tensors(ir.load(path)), tensors, strict=True):
-            self.assertEqual(actual.location, "attributes.data")
-            np.testing.assert_array_equal(actual.numpy(), expected.numpy())
-            actual.release()
+            with self.subTest(alias=alias, convert_attributes=convert_attributes):
+                directory = os.path.join(self.tmpdir, f"{alias}_{convert_attributes}")
+                source = os.path.join(directory, "source")
+                destination = os.path.join(directory, "destination")
+                os.makedirs(source)
+                os.mkdir(destination)
+                external_tensors = ir.external_data.convert_tensors_to_external(
+                    _named_attribute_tensors(), source, "attributes.data"
+                )
+                source_path = os.path.join(source, "attributes.data")
+                if alias == "hardlink":
+                    os.link(source_path, os.path.join(destination, "attributes.data"))
+                else:
+                    outside = os.path.join(directory, "outside.data")
+                    os.replace(source_path, outside)
+                    os.symlink(outside, source_path)
+                model = _model_with_attributes(external_tensors)
+                path = os.path.join(destination, "model.onnx")
+                data_path = os.path.join(destination, "model.safetensors")
+                for existing in (path, data_path):
+                    with open(existing, "wb") as file:
+                        file.write(b"unchanged")
+                before = set(os.listdir(destination))
+                with (
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor,
+                        "tofile",
+                        side_effect=AssertionError("Must preflight"),
+                    ),
+                    self.assertRaisesRegex(ValueError, "hard link|symlink"),
+                ):
+                    ir.save_safetensors(
+                        model,
+                        path,
+                        size_threshold_bytes=0,
+                        convert_attributes=convert_attributes,
+                    )
+                self.assertEqual(set(os.listdir(destination)), before)
+                for existing in (path, data_path):
+                    with open(existing, "rb") as file:
+                        self.assertEqual(file.read(), b"unchanged")
+                self.assertTrue(all(tensor.valid() for tensor in external_tensors))
+
+    def test_checks_symlink_references_in_the_destination_directory(self):
+        for contained, convert_attributes, shard_size in itertools.product(
+            (False, True), (False, True), (None, 8)
+        ):
+            with self.subTest(
+                contained=contained,
+                convert_attributes=convert_attributes,
+                shard_size=shard_size,
+            ):
+                source = os.path.join(
+                    self.tmpdir, f"{contained}_{convert_attributes}_{shard_size}"
+                )
+                destination = os.path.join(source, "destination")
+                os.makedirs(destination)
+                tensors = _named_attribute_tensors()
+                external_tensors = ir.external_data.convert_tensors_to_external(
+                    tensors, source, "attributes.data"
+                )
+                source_path = os.path.join(source, "attributes.data")
+                target = source_path
+                if contained:
+                    target = os.path.join(destination, "target.data")
+                    os.replace(source_path, target)
+                    os.symlink(target, source_path)
+                alias_path = os.path.join(destination, "attributes.data")
+                os.symlink(target, alias_path)
+                model = _model_with_attributes(external_tensors)
+                path = os.path.join(destination, "model.onnx")
+                with (
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+                    ),
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor,
+                        "tofile",
+                        autospec=True,
+                        side_effect=ir.ExternalTensor.tofile,
+                    ) as copy,
+                ):
+                    ir.save_safetensors(
+                        model,
+                        path,
+                        size_threshold_bytes=0 if convert_attributes else 256,
+                        convert_attributes=convert_attributes,
+                        max_shard_size_bytes=shard_size,
+                    )
+                preserved = contained and not convert_attributes
+                self.assertEqual(copy.call_count == 0, preserved)
+                self.assertTrue(os.path.islink(alias_path))
+                self.assertTrue(all(tensor.valid() for tensor in external_tensors))
+                for actual, expected in zip(
+                    _attribute_tensors(ir.load(path)), tensors, strict=True
+                ):
+                    self.assertEqual(actual.location == "attributes.data", preserved)
+                    np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+                    actual.release()
 
     def test_duplicate_initializer_names_across_graphs_fail_before_writing(self):
         model = _model_with_attributes(_named_attribute_tensors())

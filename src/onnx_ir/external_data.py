@@ -292,16 +292,24 @@ def _file_identity(path: str | os.PathLike) -> tuple[int, int] | None:
 
 
 def _attribute_needs_relocation(
-    tensor: _core.ExternalTensor,
+    location: str | os.PathLike,
+    source_base_dir: str | os.PathLike,
+    *,
     base_dir: str | os.PathLike,
     file_identity: Callable[[str], tuple[int, int] | None],
 ) -> bool:
-    target_path = os.path.join(base_dir, tensor.location)
-    if os.path.normcase(os.path.abspath(tensor.path)) == os.path.normcase(
+    # Equal file IDs do not imply a reference is readable from the saved model.
+    try:
+        _core._check_external_data_path(location, base_dir or os.curdir)
+    except ValueError:
+        return True
+    source_path = os.path.join(source_base_dir, location)
+    target_path = os.path.join(base_dir, location)
+    if os.path.normcase(os.path.abspath(source_path)) == os.path.normcase(
         os.path.abspath(target_path)
     ):
         return False
-    source_identity = file_identity(tensor.path)
+    source_identity = file_identity(source_path)
     return source_identity is None or source_identity != file_identity(target_path)
 
 
@@ -1109,6 +1117,8 @@ def unload_from_model(
         preserved during conversion. With ``convert_attributes=False``, existing
         external attribute tensors stay external and are streamed when relocation
         or an overwrite requires it.
+        External source paths are validated before writing. Preserved attribute
+        references must also pass the containment policy in the destination directory.
 
     It should only replace initializers and requested tensor attributes in the model
     with external tensors and not make any other modifications to the model.
@@ -1175,6 +1185,7 @@ def unload_from_model(
         converted to external tensors.
 
     Raises:
+        ValueError: If an external source violates the path containment policy.
         ValueError: If a numeric write option is outside its supported range.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
             destination shard file already exists on disk. The sharded write
@@ -1200,11 +1211,17 @@ def unload_from_model(
     initializers_to_become_external = []
     # Existing external tensors, if below the threshold, should be loaded to memory
     initializers_to_load_to_memory = []
+    check_source_path = functools.cache(_core._check_external_data_path)
     for graph in model.graphs():
         for value in graph.initializers.values():
             if value.const_value is None:
                 # Filter out the uninitialized initializer values
                 continue
+            if isinstance(value.const_value, _core.ExternalTensor):
+                check_source_path(
+                    os.fspath(value.const_value.location),
+                    os.fspath(value.const_value.base_dir),
+                )
             if value.const_value.dtype == _enums.DataType.STRING:
                 continue
             if value.const_value.nbytes >= size_threshold_bytes:
@@ -1215,6 +1232,11 @@ def unload_from_model(
     attributes_to_become_external = []
     attributes_to_load_to_memory = []
     file_identity = functools.cache(_file_identity)
+    needs_relocation = functools.cache(
+        functools.partial(
+            _attribute_needs_relocation, base_dir=base_dir, file_identity=file_identity
+        )
+    )
     destination_identity = (
         file_identity(os.path.join(base_dir, relative_path))
         if max_shard_size_bytes is None
@@ -1222,6 +1244,8 @@ def unload_from_model(
     )
     for reference in _attribute_tensor_references(model):
         tensor = reference[3]
+        if isinstance(tensor, _core.ExternalTensor):
+            check_source_path(os.fspath(tensor.location), os.fspath(tensor.base_dir))
         if tensor.dtype == _enums.DataType.STRING:
             continue
         if convert_attributes:
@@ -1234,7 +1258,7 @@ def unload_from_model(
                 destination_identity is not None
                 and file_identity(tensor.path) == destination_identity
             )
-            or _attribute_needs_relocation(tensor, base_dir, file_identity)
+            or needs_relocation(os.fspath(tensor.location), os.fspath(tensor.base_dir))
         ):
             attributes_to_become_external.append(reference)
 

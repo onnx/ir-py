@@ -32,6 +32,14 @@ All three checks run at **load time** — when `numpy()`, `tofile()`, or
 `tobytes()` (indirectly, via `_load()`) is called — not at construction time.
 This allows safe deserialization of untrusted protos without triggering I/O.
 
+`save(..., external_data=...)`, `external_data.unload_from_model()`, and
+`save_safetensors()` also validate external source paths before writing any data.
+An existing attribute reference is preserved only if it passes the same policy
+relative to the destination model directory. If a readable source cannot be
+referenced safely from the destination, its bytes are streamed into the new
+external data file instead. File identity alone does not establish that a
+destination reference is permitted.
+
 ## `base_dir=""` bypass (by design)
 
 When `base_dir` is empty (the default), **all security checks are skipped**.

@@ -278,38 +278,113 @@ class IOFunctionsTest(unittest.TestCase):
                     np.testing.assert_array_equal(actual.numpy(), expected)
                     actual.release()
 
-    def test_save_preserves_hardlinked_attribute_references_without_copying(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            source = os.path.join(tmpdir, "source")
-            destination = os.path.join(tmpdir, "destination")
-            os.mkdir(source)
-            os.mkdir(destination)
-            model, arrays, original_tensors = _create_model_with_external_attributes(source)
-            os.link(
-                os.path.join(source, "attributes.data"),
-                os.path.join(destination, "attributes.data"),
-            )
-            path = os.path.join(destination, "model.onnx")
+    def test_save_rejects_prohibited_attribute_sources_before_writing(self):
+        for alias, convert_attributes in itertools.product(
+            ("hardlink", "escaping_symlink"), (False, True)
+        ):
             with (
-                unittest.mock.patch.object(
-                    ir.ExternalTensor, "numpy", side_effect=AssertionError("Must not load")
-                ),
-                unittest.mock.patch.object(
-                    ir.ExternalTensor, "tofile", side_effect=AssertionError("Must not copy")
-                ),
+                self.subTest(alias=alias, convert_attributes=convert_attributes),
+                tempfile.TemporaryDirectory() as tmpdir,
             ):
-                _io.save(model, path, external_data="weights.data", size_threshold_bytes=0)
-            self.assertTrue(all(tensor.valid() for tensor in original_tensors))
-            os.remove(os.path.join(source, "attributes.data"))
-            for reference, expected in zip(
-                ir.external_data._attribute_tensor_references(_io.load(path)),
-                arrays,
-                strict=True,
+                source = os.path.join(tmpdir, "source")
+                destination = os.path.join(tmpdir, "destination")
+                os.mkdir(source)
+                os.mkdir(destination)
+                model, _, original_tensors = _create_model_with_external_attributes(source)
+                source_path = os.path.join(source, "attributes.data")
+                if alias == "hardlink":
+                    os.link(source_path, os.path.join(destination, "attributes.data"))
+                else:
+                    outside = os.path.join(tmpdir, "outside.data")
+                    os.replace(source_path, outside)
+                    os.symlink(outside, source_path)
+                path = os.path.join(destination, "model.onnx")
+                data_path = os.path.join(destination, "weights.data")
+                for existing in (path, data_path):
+                    with open(existing, "wb") as file:
+                        file.write(b"unchanged")
+                before = set(os.listdir(destination))
+                with (
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor,
+                        "tofile",
+                        side_effect=AssertionError("Must preflight"),
+                    ),
+                    self.assertRaisesRegex(ValueError, "hard link|symlink"),
+                ):
+                    _io.save(
+                        model,
+                        path,
+                        external_data="weights.data",
+                        size_threshold_bytes=0,
+                        convert_attributes=convert_attributes,
+                        max_workers=4,
+                    )
+                self.assertEqual(set(os.listdir(destination)), before)
+                for existing in (path, data_path):
+                    with open(existing, "rb") as file:
+                        self.assertEqual(file.read(), b"unchanged")
+                self.assertTrue(all(tensor.valid() for tensor in original_tensors))
+
+    def test_save_checks_symlink_references_in_the_destination_directory(self):
+        for contained, convert_attributes, shard_size in itertools.product(
+            (False, True), (False, True), (None, 8)
+        ):
+            with (
+                self.subTest(
+                    contained=contained,
+                    convert_attributes=convert_attributes,
+                    shard_size=shard_size,
+                ),
+                tempfile.TemporaryDirectory() as tmpdir,
             ):
-                actual = reference[3]
-                self.assertEqual(actual.location, "attributes.data")
-                np.testing.assert_array_equal(actual.numpy(), expected)
-                actual.release()
+                model, arrays, original_tensors = _create_model_with_external_attributes(
+                    tmpdir
+                )
+                destination = os.path.join(tmpdir, "destination")
+                os.mkdir(destination)
+                source_path = os.path.join(tmpdir, "attributes.data")
+                target = source_path
+                if contained:
+                    target = os.path.join(destination, "target.data")
+                    os.replace(source_path, target)
+                    os.symlink(target, source_path)
+                alias_path = os.path.join(destination, "attributes.data")
+                os.symlink(target, alias_path)
+                path = os.path.join(destination, "model.onnx")
+                with (
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+                    ),
+                    unittest.mock.patch.object(
+                        ir.ExternalTensor,
+                        "tofile",
+                        autospec=True,
+                        side_effect=ir.ExternalTensor.tofile,
+                    ) as copy,
+                ):
+                    _io.save(
+                        model,
+                        path,
+                        external_data="weights.data",
+                        size_threshold_bytes=0 if convert_attributes else 256,
+                        convert_attributes=convert_attributes,
+                        max_shard_size_bytes=shard_size,
+                        max_workers=4,
+                    )
+                preserved = contained and not convert_attributes
+                self.assertEqual(copy.call_count == 0, preserved)
+                self.assertTrue(os.path.islink(alias_path))
+                self.assertTrue(all(tensor.valid() for tensor in original_tensors))
+                for reference, expected in zip(
+                    ir.external_data._attribute_tensor_references(_io.load(path)),
+                    arrays,
+                    strict=True,
+                ):
+                    actual = reference[3]
+                    self.assertEqual(actual.location == "attributes.data", preserved)
+                    np.testing.assert_array_equal(actual.numpy(), expected)
+                    actual.release()
 
     def test_shared_materialized_attributes_are_invalidated_once_after_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

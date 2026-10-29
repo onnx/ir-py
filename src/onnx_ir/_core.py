@@ -634,6 +634,43 @@ class Tensor(TensorBase, _protocols.TensorProtocol, Generic[TArrayCompatible]): 
             file.write(self.tobytes())
 
 
+def _check_external_data_path(
+    location: str | os.PathLike, base_dir: str | os.PathLike
+) -> None:
+    """Apply the external tensor containment policy without loading tensor data."""
+    if not base_dir:
+        return
+    path = os.path.join(base_dir, location)
+    base_abs = os.path.normcase(os.path.normpath(os.path.abspath(os.fspath(base_dir))))
+    path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
+    if path_abs != base_abs and not path_abs.startswith(sep_base):
+        raise ValueError(
+            f"External data location '{location}' resolves to '{path_abs}' "
+            f"which is outside the base directory '{base_abs}'. "
+            "This may indicate a path traversal attack."
+        )
+    base_real = os.path.normcase(os.path.realpath(os.fspath(base_dir)))
+    path_real = os.path.normcase(os.path.realpath(path))
+    sep_base_real = base_real if base_real.endswith(os.sep) else base_real + os.sep
+    if path_real != base_real and not path_real.startswith(sep_base_real):
+        raise ValueError(
+            f"External data path '{path}' resolves via symlink to '{path_real}' "
+            f"which is outside the base directory '{base_real}'. "
+            "This may indicate a path traversal attack via a symbolic link."
+        )
+    try:
+        nlink = os.stat(path_real).st_nlink
+    except OSError:
+        nlink = 1  # File doesn't exist yet -- skip hardlink check.
+    if nlink > 1:
+        raise ValueError(
+            f"External data path '{path}' has multiple hard links "
+            f"(nlink={nlink}). "
+            "This may indicate a hard link attack."
+        )
+
+
 class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=too-many-ancestors
     """An immutable concrete tensor with its data store on disk.
 
@@ -788,52 +825,7 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
         Security: all checks are skipped when ``base_dir`` is empty (the default
         for programmatic construction). This is by design — see docs/security.md.
         """
-        if not self._base_dir:
-            # Security: when base_dir is empty no containment boundary is
-            # defined, so all path checks are skipped.  This is intentional
-            # for programmatic construction where the caller controls the
-            # paths directly.  See docs/security.md for details.
-            return
-        path = self.path
-        # Check 1: string-based path traversal (no filesystem access required).
-        # os.path.normcase handles case-insensitive file systems (e.g. Windows).
-        base_abs = os.path.normcase(
-            os.path.normpath(os.path.abspath(os.fspath(self._base_dir)))
-        )
-        path_abs = os.path.normcase(os.path.normpath(os.path.abspath(path)))
-        sep_base = base_abs if base_abs.endswith(os.sep) else base_abs + os.sep
-        if path_abs != base_abs and not path_abs.startswith(sep_base):
-            raise ValueError(
-                f"External data location '{self._location}' resolves to '{path_abs}' "
-                f"which is outside the base directory '{base_abs}'. "
-                "This may indicate a path traversal attack."
-            )
-        # Check 2: realpath containment — resolve all symlinks and re-validate.
-        # This catches symlinks inside base_dir that point outside it.
-        base_real = os.path.normcase(os.path.realpath(os.fspath(self._base_dir)))
-        path_real = os.path.normcase(os.path.realpath(path))
-        sep_base_real = base_real if base_real.endswith(os.sep) else base_real + os.sep
-        if path_real != base_real and not path_real.startswith(sep_base_real):
-            raise ValueError(
-                f"External data path '{path}' resolves via symlink to '{path_real}' "
-                f"which is outside the base directory '{base_real}'. "
-                "This may indicate a path traversal attack via a symbolic link."
-            )
-        # Check 3: hardlink detection — reject files with multiple hard links.
-        # An attacker with write access could hard-link a sensitive file into the
-        # model directory so it passes the containment checks above.
-        # Uses a single stat call (try/except) to avoid a TOCTOU between
-        # os.path.exists() and os.stat().
-        try:
-            nlink = os.stat(path_real).st_nlink
-        except OSError:
-            nlink = 1  # File doesn't exist yet — skip hardlink check
-        if nlink > 1:
-            raise ValueError(
-                f"External data path '{path}' has multiple hard links "
-                f"(nlink={nlink}). "
-                "This may indicate a hard link attack."
-            )
+        _check_external_data_path(self._location, self._base_dir)
 
     def _load(self):
         self._check_validity()

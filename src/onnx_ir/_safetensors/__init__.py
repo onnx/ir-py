@@ -17,6 +17,7 @@ from typing import Any
 import packaging.version
 
 import onnx_ir as ir
+from onnx_ir import _core
 from onnx_ir._polyfill import zip
 from onnx_ir._shard_filename import get_shard_filename
 
@@ -320,6 +321,8 @@ def save_safetensors(
         in the model. Single-file writes replace destinations atomically; sharded
         writes refuse to overwrite existing files. Callback offsets identify the
         tensor's physical byte offset within its shard, including the header.
+        External source paths are validated before writing. Preserved attribute
+        references must also pass the containment policy in the destination directory.
 
     Args:
         model: ONNX model to save.
@@ -343,6 +346,7 @@ def save_safetensors(
             attributes remain embedded.
 
     Raises:
+        ValueError: If an external source violates the path containment policy.
         ValueError: If initializer names are missing, duplicated, or reserved by safetensors.
         ValueError: If ``max_shard_size_bytes`` is not positive.
         ValueError: If the ONNX model and safetensors data paths are the same.
@@ -368,6 +372,7 @@ def save_safetensors(
     tensors_to_save: dict[str, ir.TensorProtocol] = {}
     initializers_to_externalize: dict[str, ir.Value] = {}
     initializers_to_load: list[ir.Value] = []
+    check_source_path = functools.cache(_core._check_external_data_path)
     for graph in model.graphs():
         for value in graph.initializers.values():
             tensor = value.const_value
@@ -387,6 +392,8 @@ def save_safetensors(
             initializer_names.add(name)
             if tensor is None:
                 continue
+            if isinstance(tensor, ir.ExternalTensor):
+                check_source_path(os.fspath(tensor.location), os.fspath(tensor.base_dir))
             value_tensor_pairs.append((value, tensor))
             if tensor.dtype == ir.DataType.STRING:
                 continue
@@ -410,6 +417,13 @@ def save_safetensors(
     selected_attributes = []
     overlapping_attributes = []
     file_identity = functools.cache(ir.external_data._file_identity)
+    needs_relocation = functools.cache(
+        functools.partial(
+            ir.external_data._attribute_needs_relocation,
+            base_dir=os.path.dirname(path),
+            file_identity=file_identity,
+        )
+    )
     destination_path = os.path.join(os.path.dirname(path), external_data)
     if os.path.normcase(os.path.abspath(path)) == os.path.normcase(
         os.path.abspath(destination_path)
@@ -425,6 +439,8 @@ def save_safetensors(
         raise ValueError("The ONNX model and safetensors data paths must be different.")
     for reference in references:
         tensor = reference[3]
+        if isinstance(tensor, ir.ExternalTensor):
+            check_source_path(os.fspath(tensor.location), os.fspath(tensor.base_dir))
         if tensor.dtype == ir.DataType.STRING:
             continue
         if convert_attributes:
@@ -432,8 +448,8 @@ def save_safetensors(
             if not externalize and isinstance(tensor, ir.ExternalTensor):
                 attributes_to_load.append(reference)
         elif isinstance(tensor, ir.ExternalTensor):
-            externalize = ir.external_data._attribute_needs_relocation(
-                tensor, os.path.dirname(path), file_identity
+            externalize = needs_relocation(
+                os.fspath(tensor.location), os.fspath(tensor.base_dir)
             )
             if (
                 not externalize
