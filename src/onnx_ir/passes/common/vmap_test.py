@@ -36,9 +36,9 @@ def _data(shape, offset=0):
     )
 
 
-def _equivalent(model, in_axes, feeds, *, out_axes=0, size=3):
+def _equivalent(model, in_axes, feeds, *, out_axes=0, size=3, dynamic=False):
     before = ir.to_proto(model).SerializeToString()
-    result = VmapPass(in_axes, axis_size=size, out_axes=out_axes)(model)
+    result = VmapPass(in_axes, axis_size=None if dynamic else size, out_axes=out_axes)(model)
     assert result.modified
     assert result.model is not model
     assert ir.to_proto(model).SerializeToString() == before
@@ -77,13 +77,14 @@ def _equivalent(model, in_axes, feeds, *, out_axes=0, size=3):
 
 @pytest.mark.parametrize("op", ["Add", "Sub", "Mul", "Div", "Pow", "Max", "Min", "Sum"])
 @pytest.mark.parametrize("in_axes", [(0, None), (None, -1), (-1, 1)])
-def test_elementwise_broadcasting(op, in_axes):
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_elementwise_broadcasting(op, in_axes, dynamic):
     model = _model(op, [[], [2, 4]])
     feeds = {}
     for i, (shape, axis) in enumerate(zip([[], [2, 4]], in_axes)):
         data = _data([3, *shape], i) if axis is not None else _data(shape, i)
         feeds[f"x{i}"] = np.moveaxis(data, 0, axis) if axis is not None else data
-    _equivalent(model, in_axes, feeds, out_axes=-1)
+    _equivalent(model, in_axes, feeds, out_axes=-1, dynamic=dynamic)
 
 
 def test_mean():
@@ -170,13 +171,14 @@ def test_comparisons(op):
     ],
 )
 @pytest.mark.parametrize("in_axes", [(0, None), (None, -1), (-1, 1)])
-def test_matmul(left, right, in_axes):
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_matmul(left, right, in_axes, dynamic):
     model = _model("MatMul", [left, right])
     feeds = {}
     for i, (shape, axis) in enumerate(zip([left, right], in_axes)):
         data = _data([3, *shape], i) if axis is not None else _data(shape, i)
         feeds[f"x{i}"] = np.moveaxis(data, 0, axis) if axis is not None else data
-    _equivalent(model, in_axes, feeds, out_axes=-1)
+    _equivalent(model, in_axes, feeds, out_axes=-1, dynamic=dynamic)
 
 
 @pytest.mark.parametrize(
@@ -196,7 +198,8 @@ def test_matmul(left, right, in_axes):
 )
 @pytest.mark.parametrize("axes", [None, [], [0], [-1], [0, 1]])
 @pytest.mark.parametrize("keepdims", [0, 1])
-def test_reductions(op, axes, keepdims):
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_reductions(op, axes, keepdims, dynamic):
     model = _model(op, [[2, 4]], {"keepdims": keepdims})
     node = model.graph[0]
     if axes is not None:
@@ -208,7 +211,7 @@ def test_reductions(op, axes, keepdims):
         node.replace_input_with(1, value)
     model.graph.outputs[0].shape = None
     model = ir.from_proto(onnx.shape_inference.infer_shapes(ir.to_proto(model)))
-    _equivalent(model, [-1], {"x0": _data([2, 4, 3])})
+    _equivalent(model, [-1], {"x0": _data([2, 4, 3])}, dynamic=dynamic)
 
 
 @pytest.mark.parametrize(
@@ -303,7 +306,8 @@ def test_composed_graph_with_missing_intermediate_shapes():
     _equivalent(model, [0], {"x": _data([3, 2, 4])})
 
 
-def test_shared_outputs_and_per_output_axes():
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_shared_outputs_and_per_output_axes(dynamic):
     model = _model("Add", [[2, 4], [4]])
     shared = ir.node("Neg", [model.graph.inputs[1]])
     shared.outputs[0].name = "shared"
@@ -318,11 +322,16 @@ def test_shared_outputs_and_per_output_axes():
     model.graph.append(constant)
     model.graph.outputs.append(constant.outputs[0])
     _equivalent(
-        model, [1, None], {"x0": _data([2, 3, 4]), "x1": _data([4])}, out_axes=[2, -1, 0]
+        model,
+        [1, None],
+        {"x0": _data([2, 3, 4]), "x1": _data([4])},
+        out_axes=[2, -1, 0],
+        dynamic=dynamic,
     )
 
 
-def test_shared_matmul_and_reduction():
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_shared_matmul_and_reduction(dynamic):
     model = _model("MatMul", [[2, 4], [4, 5]])
     # The third input is mapped but unused, so the whole computation is shared.
     model.graph.inputs.append(ir.val("x2", dtype=ir.DataType.FLOAT, shape=[]))
@@ -330,10 +339,11 @@ def test_shared_matmul_and_reduction():
         model,
         [None, None, 0],
         {"x0": _data([2, 4]), "x1": _data([4, 5]), "x2": _data([3])},
+        dynamic=dynamic,
     )
     model = _model("ReduceMean", [[2, 4]])
     model.graph.inputs.append(ir.val("x1", dtype=ir.DataType.FLOAT, shape=[]))
-    _equivalent(model, [None, 0], {"x0": _data([2, 4]), "x1": _data([3])})
+    _equivalent(model, [None, 0], {"x0": _data([2, 4]), "x1": _data([3])}, dynamic=dynamic)
 
 
 @pytest.mark.parametrize("in_axis,out_axis", [(0, 0), (1, 0), (1, 1)])
@@ -554,3 +564,60 @@ def test_non_topological_graph_rejected_without_mutation():
     with pytest.raises(ir.passes.PreconditionError, match="topologically sorted"):
         VmapPass([0], axis_size=3)(model)
     assert ir.to_proto(model).SerializeToString() == before
+
+
+def test_dynamic_model_reused_at_different_batch_sizes():
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[2, 4])
+    scalar = ir.val("scalar", dtype=ir.DataType.FLOAT, shape=[])
+    shared = ir.val("shared", dtype=ir.DataType.FLOAT, shape=[2, 5])
+    tape = ir.tape.Tape()
+    weight = tape.initializer(ir.tensor(_data([4, 5]), name="weight"))
+    y = tape.op("MatMul", [x, weight])
+    y = tape.op("Add", [y, scalar])
+    y = tape.op("Relu", [y])
+    y = tape.op("Softmax", [y], {"axis": -1})
+    y = tape.op("Concat", [y, shared], {"axis": 0})
+    y = tape.op("Transpose", [y])
+    axes = tape.op("Constant", [], {"value": ir.tensor([-1], dtype=ir.DataType.INT64)})
+    y = tape.op("ReduceMean", [y, axes], {"keepdims": 0})
+    y.name = "result"
+    y.dtype = ir.DataType.FLOAT
+    y.shape = ir.Shape([5])
+    model = ir.Model(
+        ir.Graph(
+            [x, scalar, shared],
+            [y, weight, shared],
+            nodes=tape.nodes,
+            initializers=tape.initializers,
+            opset_imports={"": 18},
+            name="dynamic",
+        ),
+        ir_version=10,
+    )
+    before = ir.to_proto(model).SerializeToString()
+    transformed = VmapPass([1, 0, None], out_axes=[1, 2, 0])(model).model
+    assert ir.to_proto(model).SerializeToString() == before
+    assert transformed.graph.inputs[0].shape == [2, None, 4]
+    proto = ir.to_proto(transformed)
+    onnx.checker.check_model(proto, full_check=True)
+    evaluator = ReferenceEvaluator(
+        ir.to_proto(ir.from_proto(onnx.load_from_string(proto.SerializeToString())))
+    )
+    single_example = ReferenceEvaluator(ir.to_proto(model))
+    for size in (1, 3, 7):
+        feeds = {"x": _data([2, size, 4]), "scalar": _data([size]), "shared": _data([2, 5])}
+        actual = evaluator.run(None, feeds)
+        examples = [
+            single_example.run(
+                None,
+                {
+                    "x": feeds["x"][:, i],
+                    "scalar": feeds["scalar"][i],
+                    "shared": feeds["shared"],
+                },
+            )
+            for i in range(size)
+        ]
+        for j, axis in enumerate([1, 2, 0]):
+            expected = np.stack([example[j] for example in examples], axis=axis)
+            np.testing.assert_allclose(actual[j], expected, rtol=2e-5, atol=1e-6)

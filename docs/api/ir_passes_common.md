@@ -56,17 +56,20 @@ from onnx_ir.passes.common import VmapPass
 model = ir.load("single_example.onnx")
 batched = VmapPass(
     in_axes=(0, None),  # x is mapped; weight is shared.
-    axis_size=32,
     out_axes=-1,
 )(model).model
-# The new graph takes x: [32, D], weight: [D, H], and returns y: [H, 32].
+# The new graph takes x: [B, D], weight: [D, H], and returns y: [H, B].
+# B is determined at runtime; pass axis_size=32 to specialize it to 32.
 ir.save(batched, "batched.onnx")
 ```
 
 `in_axes` has one entry per graph input, in graph-input order. An integer
 **inserts** a batch axis into that input's single-example shape; `None` leaves
-the input shared. At least one input must be mapped. All mapped inputs must
-receive exactly `axis_size` examples. `out_axes` is either one integer for every
+the input shared. At least one input must be mapped. By default, the batch length
+is inferred at runtime from the first mapped input. All mapped inputs must have
+the **same** runtime batch length; this is part of the model's input contract,
+not an inserted runtime assertion. Supply `axis_size` to specialize the graph
+to a fixed positive number of examples. `out_axes` is either one integer for every
 output or a sequence of integers in graph-output order. Negative axes index the
 resulting batched tensor, not the original tensor. Every output is mapped:
 outputs independent of mapped inputs are repeated along the requested axis.
@@ -101,8 +104,9 @@ can override them.
 
 - The source must be a valid, topologically sorted ONNX graph with
   standard-domain opset **18 or newer**. The pass does not upgrade the opset.
-- `axis_size` is a fixed positive integer. Runtime-variable batch sizes and
-  empty batches are not supported. Example dimensions may be zero, symbolic, or
+- `axis_size` may be omitted for dynamic batch sizes or set to a fixed positive
+  integer. Empty batches are outside the supported input contract. Example
+  dimensions may be zero, symbolic, or
   unknown, but graph inputs must be tensors with known ranks.
 - Examples must have uniform shapes. Ragged results, sequence/optional values,
   control flow, custom operators, local function calls, randomness, and all

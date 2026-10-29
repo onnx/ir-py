@@ -80,7 +80,7 @@ class VmapPass(ir.passes.FunctionalPass):
     """Batch independent applications of a single-example model.
 
     The source model describes *one* example. This functional pass inserts an
-    axis of length ``axis_size`` into each mapped input and every output. It
+    batch axis into each mapped input and every output. It
     emits ordinary ONNX tensor operations, not a Loop or a custom Map operator.
     Input names and node-output names are preserved, and the source model is not
     modified. A directly returned input or initializer may need a new output name.
@@ -90,7 +90,10 @@ class VmapPass(ir.passes.FunctionalPass):
             selects where to insert the batch axis; ``None`` leaves an input
             shared between examples. Negative axes index the resulting input.
             At least one input must be mapped.
-        axis_size: Fixed, positive number of independent examples.
+        axis_size: Optional fixed, positive number of independent examples.
+            When omitted, the batch length is inferred at runtime from the first
+            mapped input. All mapped inputs must have the same batch length;
+            this is an input contract, not a runtime assertion.
         out_axes: Where to insert the batch axis in each output. An integer
             applies to all outputs; a sequence specifies one axis per output.
             Negative axes index the resulting output. Outputs independent of
@@ -115,11 +118,13 @@ class VmapPass(ir.passes.FunctionalPass):
         self,
         in_axes: Sequence[int | None],
         *,
-        axis_size: int,
+        axis_size: int | None = None,
         out_axes: int | Sequence[int] = 0,
     ) -> None:
-        if isinstance(axis_size, bool) or not isinstance(axis_size, int) or axis_size <= 0:
-            raise ValueError("axis_size must be a positive integer.")
+        if axis_size is not None and (
+            isinstance(axis_size, bool) or not isinstance(axis_size, int) or axis_size <= 0
+        ):
+            raise ValueError("axis_size must be a positive integer or None.")
         self.in_axes = tuple(in_axes)
         self.axis_size = axis_size
         self.out_axes = out_axes if isinstance(out_axes, int) else tuple(out_axes)
@@ -156,13 +161,15 @@ class VmapPass(ir.passes.FunctionalPass):
 
 
 class _Batcher:
-    def __init__(self, graph: ir.Graph, axis_size: int) -> None:
+    def __init__(self, graph: ir.Graph, axis_size: int | None) -> None:
         self.graph = graph
         self.axis_size = axis_size
         self.ranks: dict[ir.Value, int] = {}
         self.mapped: dict[ir.Value, bool] = {}
         self.values: dict[ir.Value, ir.Value] = {}
         self.before: ir.Node | None = None
+        self.batch_source: ir.Value | None = None
+        self.batch_shape: ir.Value | None = None
 
     def _emit(
         self,
@@ -204,8 +211,17 @@ class _Batcher:
         return result
 
     def _repeat(self, value: ir.Value) -> ir.Value:
+        if self.batch_shape is None:
+            if self.axis_size is not None:
+                self.batch_shape = self._ints([self.axis_size])
+            else:
+                assert self.batch_source is not None
+                batch_source_shape = self._emit("Shape", [self.batch_source])
+                self.batch_shape = self._emit(
+                    "Gather", [batch_source_shape, self._ints([0])], {"axis": 0}
+                )
         shape = self._emit("Shape", [value])
-        target = self._emit("Concat", [self._ints([self.axis_size]), shape], {"axis": 0})
+        target = self._emit("Concat", [self.batch_shape, shape], {"axis": 0})
         result = self._emit("Expand", [self._unsqueeze(value, [0]), target])
         result.type = value.type
         if value.shape is not None:
@@ -422,6 +438,8 @@ class _Batcher:
             self.values[value] = self._transpose(
                 value, [axis, *(i for i in range(rank + 1) if i != axis)]
             )
+            if self.batch_source is None:
+                self.batch_source = self.values[value]
         for node in nodes:
             self.before = node
             self._node(node)
