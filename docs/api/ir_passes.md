@@ -9,7 +9,8 @@ composition, metadata invalidation, and testing guidance. See
 [Model I/O](../model_io.md) for targeted normalization and validation tools.
 
 ```{eval-rst}
-.. automodule::onnx_ir.passes
+.. automodule:: onnx_ir.passes
+.. currentmodule:: onnx_ir.passes
 ```
 
 ## Pass infrastructure
@@ -20,12 +21,12 @@ composition, metadata invalidation, and testing guidance. See
     :template: classtemplate.rst
     :nosignatures:
 
-    onnx_ir.passes.PassBase
-    onnx_ir.passes.InPlacePass
-    onnx_ir.passes.FunctionalPass
-    onnx_ir.passes.Sequential
-    onnx_ir.passes.PassResult
-    onnx_ir.passes.PassManager
+    PassBase
+    InPlacePass
+    FunctionalPass
+    Sequential
+    PassResult
+    PassManager
 ```
 
 ## Errors

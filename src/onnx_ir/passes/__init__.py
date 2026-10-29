@@ -1,6 +1,15 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+"""Transformation passes and their composition infrastructure.
+
+Batching and automatic differentiation implementations are developed separately
+in the private ``_batching`` and ``_autodiff`` modules. They share private
+domain/operator/opset dispatch, but have independent rule contracts and coverage.
+These internals are experimental, not a supported plugin interface. Public pass
+entry points belong in :mod:`onnx_ir.passes.common`.
+"""
+
 __all__ = [
     "PassBase",
     "PassResult",
