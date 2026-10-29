@@ -9,8 +9,10 @@ __all__ = [
     "CommonSubexpressionEliminationPass",
     "DeduplicateHashedInitializersPass",
     "DeduplicateInitializersPass",
+    "GradPass",
     "IdentityEliminationPass",
     "InlinePass",
+    "JvpPass",
     "LiftConstantsToInitializersPass",
     "LiftSubgraphInitializersToMainGraphPass",
     "NameFixPass",
@@ -21,8 +23,10 @@ __all__ = [
     "RemoveUnusedOpsetsPass",
     "ShapeInferencePass",
     "TopologicalSortPass",
+    "VjpPass",
 ]
 
+from onnx_ir.passes.common.autodiff import GradPass, JvpPass, VjpPass
 from onnx_ir.passes.common.clear_metadata_and_docstring import (
     ClearMetadataAndDocStringPass,
 )

@@ -26,8 +26,10 @@ for inlining, and [Model I/O](../model_io.md) for validation workflows.
     CommonSubexpressionEliminationPass
     DeduplicateHashedInitializersPass
     DeduplicateInitializersPass
+    GradPass
     IdentityEliminationPass
     InlinePass
+    JvpPass
     LiftConstantsToInitializersPass
     LiftSubgraphInitializersToMainGraphPass
     NameFixPass
@@ -38,4 +40,5 @@ for inlining, and [Model I/O](../model_io.md) for validation workflows.
     RemoveUnusedOpsetsPass
     ShapeInferencePass
     TopologicalSortPass
+    VjpPass
 ```
