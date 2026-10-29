@@ -45,6 +45,9 @@ def _remove_unused_optional_outputs(
             or training_mode.as_int() != 0
         ):
             return
+        # Instead of deleting the attribute, set to the default (inference mode)
+        # to prevent a potential cycle involving the AddDefaultAttributesPass
+        # adding and unused removal subsequently deleting the attribute.
         node.attributes["training_mode"] = ir.Attr("training_mode", ir.AttributeType.INT, 0)
 
     optional_info = []
