@@ -419,7 +419,8 @@ class AttributeExternalDataTest(unittest.TestCase):
 
     def test_programmatic_source_without_base_dir_is_relocated_to_a_safe_reference(self):
         data = np.array([1.0, 2.0], dtype=np.float32)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Keep the relative source on the working directory's volume on Windows.
+        with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmpdir:
             source = os.path.join(tmpdir, "source.data")
             data.tofile(source)
             tensor = ir.ExternalTensor(
