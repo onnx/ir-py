@@ -414,7 +414,7 @@ class AttributeExternalDataTest(unittest.TestCase):
                 wraps=_core._check_external_data_path,
             ) as check_path:
                 external_data.unload_from_model(model, tmpdir, "weights.data")
-            self.assertEqual(check_path.call_count, 2)
+            self.assertEqual(check_path.call_count, 3)
             self.assertIs(node.attributes["values"], attribute)
 
     def test_programmatic_source_without_base_dir_is_relocated_to_a_safe_reference(self):

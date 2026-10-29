@@ -89,7 +89,7 @@ def save(
         external and are streamed when relocation or an overwrite requires it.
         Original attribute objects are restored after saving; external tensors
         backed by successfully overwritten files are invalidated.
-        External source paths are validated before writing. Preserved attribute
+        External source and output paths are validated before writing. Preserved attribute
         references must also pass the containment policy in the destination directory.
 
     .. tip::
@@ -169,7 +169,7 @@ def save(
             Ignored when ``alignment`` is ``None``.
 
     Raises:
-        ValueError: If an external source violates the path containment policy
+        ValueError: If an external data path violates the containment policy
             when ``external_data`` is set.
         ValueError: If the external data path is absolute or a numeric write
             option is outside its supported range.

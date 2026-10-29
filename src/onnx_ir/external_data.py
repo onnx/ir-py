@@ -878,6 +878,7 @@ def _write_external_tensors(
     #         `-- one _ExternalDataWriter per shard -> serial or parallel
     tensor_write_locks = _create_tensor_write_locks(tensors)
     if max_shard_size_bytes is None:
+        _core._check_external_data_path(relative_path, base_dir or os.curdir)
         # Single-file writes atomically replace an existing destination.
         # Sharded writes reject collisions because layouts with different
         # shard counts have different, potentially ambiguous names.
@@ -907,6 +908,8 @@ def _write_external_tensors(
     # input ExternalTensor is backed by a destination about to be overwritten,
     # so shard inputs do not need to be staged in memory.
     _check_no_existing_shard_files(destination_paths)
+    for shard_relative_path in shard_relative_paths:
+        _core._check_external_data_path(shard_relative_path, base_dir or os.curdir)
 
     shard_jobs: list[
         tuple[
@@ -1117,7 +1120,7 @@ def unload_from_model(
         preserved during conversion. With ``convert_attributes=False``, existing
         external attribute tensors stay external and are streamed when relocation
         or an overwrite requires it.
-        External source paths are validated before writing. Preserved attribute
+        External source and output paths are validated before writing. Preserved attribute
         references must also pass the containment policy in the destination directory.
 
     It should only replace initializers and requested tensor attributes in the model
@@ -1185,7 +1188,7 @@ def unload_from_model(
         converted to external tensors.
 
     Raises:
-        ValueError: If an external source violates the path containment policy.
+        ValueError: If an external data path violates the containment policy.
         ValueError: If a numeric write option is outside its supported range.
         FileExistsError: When ``max_shard_size_bytes`` is set and any
             destination shard file already exists on disk. The sharded write

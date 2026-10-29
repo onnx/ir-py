@@ -108,7 +108,7 @@ Notes:
   Otherwise, attribute data is streamed into the requested external data file
   (or shards), regardless of the size threshold, without materializing it in RAM.
   Use `external_data.load_to_model(model)` explicitly to embed external attributes.
-- External source paths are checked before any data is written. Preserved attribute
+- External source and output paths are checked before any data is written. Preserved attribute
   references must also satisfy the [containment policy](security.md) in the destination
   directory: symlinks resolving within that directory are allowed, but escaping
   symlinks and files with multiple hard links are not. Readable sources are streamed

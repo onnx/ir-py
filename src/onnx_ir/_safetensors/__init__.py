@@ -188,6 +188,13 @@ def _save_file(
             destinations.append(index_path)
         ir.external_data._check_no_existing_shard_files(destinations)
 
+    for filename in filenames:
+        _core._check_external_data_path(filename, base_dir or os.curdir)
+    if index_path is not None:
+        _core._check_external_data_path(
+            os.path.relpath(index_path, base_dir or os.curdir), base_dir or os.curdir
+        )
+
     weight_map: dict[str, str] = {}
     replacements: dict[str, ir.ExternalTensor] = {}
     current_index = 0
@@ -321,7 +328,7 @@ def save_safetensors(
         in the model. Single-file writes replace destinations atomically; sharded
         writes refuse to overwrite existing files. Callback offsets identify the
         tensor's physical byte offset within its shard, including the header.
-        External source paths are validated before writing. Preserved attribute
+        External source and output paths are validated before writing. Preserved attribute
         references must also pass the containment policy in the destination directory.
 
     Args:
@@ -346,7 +353,7 @@ def save_safetensors(
             attributes remain embedded.
 
     Raises:
-        ValueError: If an external source violates the path containment policy.
+        ValueError: If an external data path violates the containment policy.
         ValueError: If initializer names are missing, duplicated, or reserved by safetensors.
         ValueError: If ``max_shard_size_bytes`` is not positive.
         ValueError: If the ONNX model and safetensors data paths are the same.

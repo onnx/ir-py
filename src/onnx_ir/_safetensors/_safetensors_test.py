@@ -275,7 +275,7 @@ class SaveSafetensorsTest(unittest.TestCase):
             ),
         ):
             ir.save_safetensors(model, path, size_threshold_bytes=0)
-        self.assertEqual(check_path.call_count, 2)
+        self.assertEqual(check_path.call_count, 3)
         loaded = ir.load(path)
         for actual, original, expected in zip(
             _attribute_tensors(loaded), external_tensors, tensors, strict=True
@@ -483,6 +483,34 @@ class SaveSafetensorsTest(unittest.TestCase):
                     np.testing.assert_array_equal(actual.numpy(), expected.numpy())
                     actual.release()
 
+    def test_rejects_output_symlink_escaping_destination_before_writing(self):
+        source = os.path.join(self.tmpdir, "attributes.data")
+        tensors = _named_attribute_tensors()
+        external_tensors = ir.external_data.convert_tensors_to_external(
+            tensors, self.tmpdir, "attributes.data"
+        )
+        destination = os.path.join(self.tmpdir, "destination")
+        os.mkdir(destination)
+        os.symlink(source, os.path.join(destination, "model.safetensors"))
+        path = os.path.join(destination, "model.onnx")
+        with open(path, "wb") as file:
+            file.write(b"unchanged")
+        with (
+            unittest.mock.patch.object(
+                ir.ExternalTensor, "tofile", side_effect=AssertionError("Must preflight")
+            ),
+            self.assertRaisesRegex(ValueError, "symlink"),
+        ):
+            ir.save_safetensors(
+                _model_with_attributes(external_tensors), path, size_threshold_bytes=0
+            )
+        self.assertTrue(all(tensor.valid() for tensor in external_tensors))
+        with open(source, "rb") as file:
+            self.assertEqual(file.read(), b"".join(tensor.tobytes() for tensor in tensors))
+        with open(path, "rb") as file:
+            self.assertEqual(file.read(), b"unchanged")
+        self.assertEqual(set(os.listdir(destination)), {"model.onnx", "model.safetensors"})
+
     def test_duplicate_initializer_names_across_graphs_fail_before_writing(self):
         model = _model_with_attributes(_named_attribute_tensors())
         nested_graph = model.graph.node(0).attributes["body"].as_graph()
@@ -688,6 +716,24 @@ class SaveSafetensorsTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.tmpdir), ["model.safetensors.index.json"])
         with open(index_path, "rb") as file:
             self.assertEqual(file.read(), b"unchanged")
+
+    def test_escaping_index_symlink_is_rejected_before_any_data_is_written(self):
+        destination = os.path.join(self.tmpdir, "destination")
+        os.mkdir(destination)
+        outside = os.path.join(self.tmpdir, "outside.index.json")
+        index_path = os.path.join(destination, "model.safetensors.index.json")
+        os.symlink(outside, index_path)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            ir.save_safetensors(
+                _model_with_attributes(_named_attribute_tensors()),
+                os.path.join(destination, "model.onnx"),
+                convert_attributes=True,
+                size_threshold_bytes=0,
+                max_shard_size_bytes=8,
+            )
+        self.assertEqual(os.listdir(destination), ["model.safetensors.index.json"])
+        self.assertTrue(os.path.islink(index_path))
+        self.assertFalse(os.path.exists(outside))
 
     def test_invalid_shard_sizes_and_reserved_keys_fail_before_writing(self):
         for shard_size in (0, -1):

@@ -422,6 +422,30 @@ class IOFunctionsTest(unittest.TestCase):
             )
             actual_initializer.release()
 
+    def test_save_rejects_output_symlink_escaping_destination_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model, arrays, original_tensors = _create_model_with_external_attributes(tmpdir)
+            source = os.path.join(tmpdir, "attributes.data")
+            destination = os.path.join(tmpdir, "destination")
+            os.mkdir(destination)
+            os.symlink(source, os.path.join(destination, "weights.data"))
+            path = os.path.join(destination, "model.onnx")
+            with open(path, "wb") as file:
+                file.write(b"unchanged")
+            with (
+                unittest.mock.patch.object(
+                    ir.ExternalTensor, "tofile", side_effect=AssertionError("Must preflight")
+                ),
+                self.assertRaisesRegex(ValueError, "symlink"),
+            ):
+                _io.save(model, path, external_data="weights.data", size_threshold_bytes=0)
+            self.assertTrue(all(tensor.valid() for tensor in original_tensors))
+            with open(source, "rb") as file:
+                self.assertEqual(file.read(), b"".join(array.tobytes() for array in arrays))
+            with open(path, "rb") as file:
+                self.assertEqual(file.read(), b"unchanged")
+            self.assertEqual(set(os.listdir(destination)), {"model.onnx", "weights.data"})
+
     def test_save_in_place_streams_attributes_and_invalidates_restored_sources(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             model, arrays, original_tensors = _create_model_with_external_attributes(tmpdir)
