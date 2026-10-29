@@ -74,6 +74,36 @@ class DeduplicateInitializersTest(unittest.TestCase):
         new_model = self.apply_pass(model)
         self.assertEqual(len(new_model.graph.initializers), 1)
 
+    def test_string_initializers_differing_by_trailing_nul_not_deduplicated(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[2] s1 = {"a", "bc"}, string[2] s2 = {"a", "bc"}> {
+            }
+            """
+        )
+        model.graph.initializers["s2"].const_value = ir.StringTensor(
+            [b"a\x00", b"bc"], shape=ir.Shape([2])
+        )
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 2)
+
+    def test_deduplicates_numpy_backed_string_initializers(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <string[1] s1 = {"AB"}, string[1] s2 = {"AB"}> {
+            }
+            """
+        )
+        # ir.tensor() wraps a numpy string array in a plain Tensor, not a StringTensor
+        model.graph.initializers["s1"].const_value = ir.tensor(np.array([b"AB"]))
+        model.graph.initializers["s2"].const_value = ir.tensor(np.array([b"AB"]))
+        new_model = self.apply_pass(model)
+        self.assertEqual(len(new_model.graph.initializers), 1)
+
     def test_initializers_with_different_shapes_not_deduplicated(self):
         model = ir.from_onnx_text(
             """
