@@ -5,9 +5,10 @@ APIs, especially those in `onnx_ir.convenience`, `onnx_ir.traversal`, and
 `onnx_ir.analysis`.
 
 For independent batching of a single-example tensor graph, use
-[`VmapPass`](api/ir_passes_common.md#independent-batching-with-vmappass).
+{py:class}`~onnx_ir.passes.common.VmapPass`.
 It emits standard ONNX tensor operations with explicit mapped/shared inputs
-and output axes; see its operator whitelist and restrictions before applying it.
+and output axes; see its generated API documentation for supported operators and
+restrictions, and [practical examples](vmap_examples.md) for before/after graphs.
 
 ## Choose the scopes to transform
 

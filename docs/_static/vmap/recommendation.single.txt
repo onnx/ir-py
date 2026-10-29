@@ -1,0 +1,13 @@
+<
+   ir_version: 10,
+   opset_import: ["" : 18]
+>
+recommendation (int64[3] history_ids, float[4] candidate, float[16,4] embedding_table) => (float[4] user_embedding, float cosine_score)
+   <int64[1] history_axis =  {0}, int64[1] history_axis, float[3,4] history_embeddings, float[4] pooled_history, float[4] candidate_embedding>
+{
+   [node_Gather_0] history_embeddings = Gather <axis: int = 0> (embedding_table, history_ids)
+   [node_ReduceMean_1] pooled_history = ReduceMean <keepdims: int = 0> (history_embeddings, history_axis)
+   [node_LpNormalization_2] user_embedding = LpNormalization <axis: int = 0, p: int = 2> (pooled_history)
+   [node_LpNormalization_3] candidate_embedding = LpNormalization <axis: int = 0, p: int = 2> (candidate)
+   [node_MatMul_4] cosine_score = MatMul (user_embedding, candidate_embedding)
+}

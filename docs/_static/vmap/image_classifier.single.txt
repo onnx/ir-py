@@ -1,0 +1,15 @@
+<
+   ir_version: 10,
+   opset_import: ["" : 18]
+>
+image_classifier (float[1,1,8,8] image, float[4] calibration) => (float[1,3] probabilities)
+   <float[4,1,3,3] kernel =  {0.060943417,-0.20799682,0.15009025,0.18811294,-0.39020702,-0.26043588,0.02556808,-0.06324852,-0.0033602316,-0.17060879,0.1758796,0.15555838,0.013206139,0.22544825,0.093501866,-0.17185849,0.07375015,-0.19177653,0.17569005,-0.009985182,-0.03697247,-0.13618591,0.24450827,-0.030905897,-0.08566557,-0.07042671,0.10646184,0.07308881,0.08254652,0.0861642,0.42832953,-0.081283,-0.102448545,-0.16275455,0.12319589,0.22579446}, float[4,3] projection =  {-0.11394746,-0.8401565,-0.8244812,0.6505928,0.7432542,0.54315424,-0.6655097,0.23216133,0.11668581,0.21868859,0.8714288,0.22359554}, float[3] bias =  {-0.2,0.1,0.3}, float[4,1,3,3] kernel, float[4,3] projection, float[3] bias, float[1,4,8,8] convolution, float[1,4,8,8] activation, float[1,4,1,1] pooled, float[1,4] features, float[1,4] calibrated, float[1,3] logits>
+{
+   [node_Conv_0] convolution = Conv <pads: ints = [1, 1, 1, 1]> (image, kernel)
+   [node_Relu_1] activation = Relu (convolution)
+   [node_GlobalAveragePool_2] pooled = GlobalAveragePool (activation)
+   [node_Flatten_3] features = Flatten <axis: int = 1> (pooled)
+   [node_Add_4] calibrated = Add (features, calibration)
+   [node_Gemm_5] logits = Gemm (calibrated, projection, bias)
+   [node_Softmax_6] probabilities = Softmax <axis: int = -1> (logits)
+}

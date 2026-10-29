@@ -34,6 +34,7 @@ tensors
 multi_device
 model_io
 graph_transformations
+vmap_examples
 subgraphs_and_functions
 writing_passes
 performance

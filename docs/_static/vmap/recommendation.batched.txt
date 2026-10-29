@@ -1,0 +1,23 @@
+<
+   ir_version: 10,
+   opset_import: ["" : 18]
+>
+recommendation (int64[3,?] history_ids, float[?,4] candidate, float[16,4] embedding_table) => (float[4,?] user_embedding, float[?] cosine_score)
+   <int64[1] history_axis =  {0}, int64[1] history_axis, int64[?,3] val_0, float[?,3,4] history_embeddings, float[?,4] pooled_history, float[?,4] val_9, float[?,4] candidate_embedding, float[?,1,4] val_4, float[?,4,1] val_6, float[?,?,?] val_7>
+{
+   [node_Transpose_0] val_0 = Transpose <perm: ints = [1, 0]> (history_ids)
+   [node_Gather_1] val_1 = Gather <axis: int = 0> (embedding_table, val_0)
+   [node_Gather_0] history_embeddings = Transpose <perm: ints = [0, 1, 2]> (val_1)
+   [node_Constant_2] val_2 = Constant <value: tensor = int64[1] {1}> ()
+   [node_ReduceMean_1] pooled_history = ReduceMean <keepdims: int = 0> (history_embeddings, val_2)
+   [node_LpNormalization_2] val_9 = LpNormalization <axis: int = 1, p: int = 2> (pooled_history)
+   [node_LpNormalization_3] candidate_embedding = LpNormalization <axis: int = 1, p: int = 2> (candidate)
+   [node_Constant_3] val_3 = Constant <value: tensor = int64[1] {1}> ()
+   [node_Unsqueeze_4] val_4 = Unsqueeze (val_9, val_3)
+   [node_Constant_5] val_5 = Constant <value: tensor = int64[1] {2}> ()
+   [node_Unsqueeze_6] val_6 = Unsqueeze (candidate_embedding, val_5)
+   [node_MatMul_7] val_7 = MatMul (val_4, val_6)
+   [node_Constant_8] val_8 = Constant <value: tensor = int64[2] {1,2}> ()
+   [node_MatMul_4] cosine_score = Squeeze (val_7, val_8)
+   [node_Transpose_9] user_embedding = Transpose <perm: ints = [1, 0]> (val_9)
+}
