@@ -21,6 +21,7 @@ __all__ = [
     "RemoveUnusedOpsetsPass",
     "ShapeInferencePass",
     "TopologicalSortPass",
+    "VmapPass",
 ]
 
 from onnx_ir.passes.common.clear_metadata_and_docstring import (
@@ -52,3 +53,4 @@ from onnx_ir.passes.common.unused_removal import (
     RemoveUnusedNodesPass,
     RemoveUnusedOpsetsPass,
 )
+from onnx_ir.passes.common.vmap import VmapPass

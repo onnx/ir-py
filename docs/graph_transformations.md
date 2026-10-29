@@ -4,6 +4,11 @@ This page documents practical graph-editing patterns exposed by `onnx_ir` source
 APIs, especially those in `onnx_ir.convenience`, `onnx_ir.traversal`, and
 `onnx_ir.analysis`.
 
+For independent batching of a single-example tensor graph, use
+[`VmapPass`](api/ir_passes_common.md#independent-batching-with-vmappass).
+It emits standard ONNX tensor operations with explicit mapped/shared inputs
+and output axes; see its operator whitelist and restrictions before applying it.
+
 ## Choose the scopes to transform
 
 Direct iteration processes only one graph. Use recursive traversal for nested
