@@ -283,6 +283,8 @@ def _external_tensor_to_memory_tensor(
 def _file_identity(path: str | os.PathLike) -> tuple[int, int] | None:
     """Identify an existing file, following symlinks and recognizing hard links."""
     try:
+        # samefile() uses these IDs on all supported platforms. Returning them lets
+        # callers cache one stat per shared path instead of statting both per comparison.
         stat = os.stat(path)
     except FileNotFoundError:
         return None
