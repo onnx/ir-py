@@ -101,6 +101,12 @@ Notes:
 - `max_shard_size_bytes` requires `external_data`.
 - Set `convert_attribute=True` to externalize tensor attributes as well as
   initializers.
+- With the default `convert_attribute=False`, in-memory attributes stay embedded
+  and existing external attributes stay external. References that remain valid
+  in the destination directory are preserved unless their file will be overwritten.
+  Otherwise, attribute data is streamed into the requested external data file
+  (or shards), regardless of the size threshold, without materializing it in RAM.
+  Use `external_data.load_to_model(model)` explicitly to embed external attributes.
 - Single-file mode writes in the destination directory and atomically replaces
   the destination only after the new data file is complete. A failed write
   leaves the previous file unchanged.

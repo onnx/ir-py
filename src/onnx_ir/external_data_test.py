@@ -161,7 +161,7 @@ class AttributeExternalDataTest(unittest.TestCase):
             self.assertIsInstance(values[1], ir.ExternalTensor)
             np.testing.assert_array_equal(values[1].numpy(), at_threshold.numpy())
 
-    def test_unload_from_model_materializes_attribute_backed_by_destination(self):
+    def test_unload_from_model_streams_attribute_backed_by_destination(self):
         attribute_data = np.array([1.0, 2.0], dtype=np.float32)
         initializer_data = np.array([3.0, 4.0], dtype=np.float32)
 
@@ -202,18 +202,92 @@ class AttributeExternalDataTest(unittest.TestCase):
                 ir_version=10,
             )
 
-            external_data.unload_from_model(
-                model,
-                tmpdir,
-                data_filename,
-                size_threshold_bytes=0,
-            )
+            with unittest.mock.patch.object(
+                ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+            ):
+                external_data.unload_from_model(
+                    model,
+                    tmpdir,
+                    data_filename,
+                    size_threshold_bytes=0,
+                )
 
-            materialized_attribute = node.attributes["value"].as_tensor()
-            self.assertNotIsInstance(materialized_attribute, ir.ExternalTensor)
+            relocated_attribute = node.attributes["value"].as_tensor()
+            self.assertIsInstance(relocated_attribute, ir.ExternalTensor)
             self.assertFalse(attribute_tensor.valid())
-            np.testing.assert_array_equal(materialized_attribute.numpy(), attribute_data)
+            np.testing.assert_array_equal(relocated_attribute.numpy(), attribute_data)
             np.testing.assert_array_equal(initializer.const_value.numpy(), initializer_data)
+
+    def test_tensor_list_is_rebuilt_once_for_mixed_replacements(self):
+        tensors = [
+            ir.tensor(np.arange(size, dtype=np.float32), name=f"tensor_{size}")
+            for size in range(1, 101)
+        ]
+        attribute = ir.AttrTensors("values", tensors, doc_string="list annotation")
+        attribute.meta["analysis"] = "preserved"
+        node = ir.Node("", "Op", [], attributes=[attribute])
+        model = ir.Model(ir.Graph([], [], nodes=[node], name="graph"), ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_tensors = external_data.convert_tensors_to_external(
+                tensors, tmpdir, "source.data"
+            )
+            node.attributes["values"] = ir.AttrTensors(
+                "values", external_tensors, doc_string=attribute.doc_string
+            )
+            node.attributes["values"].meta.update(attribute.meta)
+            with unittest.mock.patch.object(
+                ir.Attr, "__init__", autospec=True, side_effect=ir.Attr.__init__
+            ) as attr_constructor:
+                external_data.unload_from_model(
+                    model,
+                    tmpdir,
+                    "destination.data",
+                    convert_attribute=True,
+                    size_threshold_bytes=200,
+                )
+            self.assertEqual(attr_constructor.call_count, 1)
+            updated = node.attributes["values"]
+            self.assertEqual(updated.doc_string, "list annotation")
+            self.assertEqual(updated.meta["analysis"], "preserved")
+            for actual, expected in zip(updated.as_tensors(), tensors, strict=True):
+                self.assertEqual(isinstance(actual, ir.ExternalTensor), expected.nbytes >= 200)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+            with unittest.mock.patch.object(
+                ir.Attr, "__init__", autospec=True, side_effect=ir.Attr.__init__
+            ) as attr_constructor:
+                external_data.load_to_model(model)
+            self.assertEqual(attr_constructor.call_count, 1)
+            for actual, expected in zip(
+                node.attributes["values"].as_tensors(), tensors, strict=True
+            ):
+                self.assertNotIsInstance(actual, ir.ExternalTensor)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+    def test_replacement_checks_each_distinct_file_once(self):
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.data")
+            data.tofile(path)
+            tensors = [
+                ir.ExternalTensor(
+                    "model.data",
+                    0,
+                    data.nbytes,
+                    ir.DataType.FLOAT,
+                    shape=ir.Shape(data.shape),
+                    name=f"tensor_{index}",
+                    base_dir=tmpdir,
+                )
+                for index in range(100)
+            ]
+            with unittest.mock.patch.object(
+                external_data, "_file_identity", wraps=external_data._file_identity
+            ) as file_identity:
+                external_data.convert_tensors_to_external(tensors, tmpdir, "model.data")
+            self.assertEqual(file_identity.call_count, 1)
+            self.assertTrue(all(not tensor.valid() for tensor in tensors))
 
 
 class AlignmentTest(unittest.TestCase):

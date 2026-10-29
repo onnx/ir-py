@@ -116,6 +116,9 @@ def save(
         size_threshold_bytes: Save to external data if the tensor size in bytes is equal to or larger than this threshold.
             Effective only when ``external_data`` is set.
         convert_attribute: Whether to convert tensor attributes in addition to initializers.
+            When false, existing external attributes remain external and are streamed
+            to the destination if relocation or an overwrite requires it. In-memory
+            attributes remain embedded.
             Effective only when ``external_data`` is set.
         max_shard_size_bytes: Maximum cumulative size in bytes for a single external data shard file.
             When ``None`` (the default) all external tensors are written to the single file
@@ -188,16 +191,7 @@ def save(
             if not attr.is_ref()
             and attr.type in {_enums.AttributeType.TENSOR, _enums.AttributeType.TENSORS}
         ]
-        external_attribute_tensors = [
-            reference[3]
-            for reference in _external_data._attribute_tensor_references(model)
-            if isinstance(reference[3], _core.ExternalTensor)
-        ]
-        replaced_external_data_paths: set[str] = set()
-
         try:
-            if not convert_attribute:
-                _external_data._load_external_attribute_tensors(model)
             model = _external_data.unload_from_model(
                 model,
                 base_dir,
@@ -210,7 +204,6 @@ def save(
                 max_in_flight_bytes=max_in_flight_bytes,
                 alignment=alignment,
                 align_threshold=align_threshold,
-                _replaced_paths=replaced_external_data_paths,
             )
             proto = serde.serialize_model(model)
             onnx.save(proto, path, format=format)
@@ -221,11 +214,6 @@ def save(
                 initializer.const_value = tensor
             for node, name, attr in tensor_attributes:
                 node.attributes[name] = attr
-            _external_data._invalidate_external_tensors_referencing_paths(
-                external_attribute_tensors,
-                replaced_external_data_paths,
-            )
-
     else:
         proto = serde.serialize_model(model)
         onnx.save(proto, path, format=format)
