@@ -308,7 +308,9 @@ class RemoveUnusedTest(unittest.TestCase):
                 node = model.graph.node[0]
                 self.assertEqual(list(node.output), ["y"])
                 self.assertIn("training_mode", {attr.name for attr in node.attribute})
-                self.assertEqual({attr.name: attr.i for attr in node.attribute}, {"training_mode": 0})
+                self.assertEqual(
+                    {attr.name: attr.i for attr in node.attribute}, {"training_mode": 0}
+                )
                 onnx.checker.check_model(model)
 
     def test_preserve_batchnorm_graph_outputs(self):
