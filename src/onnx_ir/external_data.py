@@ -731,6 +731,9 @@ def convert_tensors_from_external(
 ) -> list[_protocols.TensorProtocol]:
     """Convert a sequence of external tensors to in-memory tensors.
 
+    .. versionchanged:: 1.2.0
+        Tensor docstrings and metadata properties are preserved during conversion.
+
     Args:
         tensors: External tensors to be converted to in-memory tensors.
 
@@ -762,6 +765,9 @@ def convert_tensors_to_external(
         Tensors are packed densely in input order by default, and writes now
         atomically replace the destination after succeeding. Added concurrent
         writing and optional alignment controls.
+
+    .. versionchanged:: 1.2.0
+        Tensor docstrings and metadata properties are preserved during conversion.
 
     Data is written to a temporary file in the destination directory and atomically
     replaces the destination only after the write succeeds. Existing external
@@ -1028,6 +1034,11 @@ def load_to_model(model: _core.Model) -> _core.Model:
 
     All initializers and tensor attributes in the main graph and subgraphs are handled.
 
+    .. versionchanged:: 1.2.0
+        Also materializes external ``TENSOR`` and ``TENSORS`` node attributes in
+        the main graph and subgraphs. Tensor docstrings and metadata properties
+        are preserved during conversion.
+
     Args:
         model: Model to process.
     """
@@ -1076,6 +1087,17 @@ def unload_from_model(
         Initializers are packed densely in declaration order by default.
         Single-file writes now replace the destination atomically. Added
         concurrent writing, sharding, and optional alignment controls.
+
+    .. versionadded:: 1.2.0
+        Added ``convert_attribute`` to optionally store tensors in node attributes
+        as external data.
+
+    .. versionchanged:: 1.2.0
+        Tensors exactly at ``size_threshold_bytes`` are now externalized; string
+        tensors remain embedded. Tensor docstrings and metadata properties are
+        preserved during conversion. With ``convert_attribute=False``, existing
+        external attribute tensors stay external and are streamed when relocation
+        or an overwrite requires it.
 
     It should only replace initializers and requested tensor attributes in the model
     with external tensors and not make any other modifications to the model.

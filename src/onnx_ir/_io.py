@@ -78,6 +78,18 @@ def save(
         file permissions, but creates a new inode, so other hardlinks keep the old
         file contents.
 
+    .. versionadded:: 1.2.0
+        Added ``convert_attribute`` to optionally store tensors in node attributes
+        as external data.
+
+    .. versionchanged:: 1.2.0
+        Tensors exactly at ``size_threshold_bytes`` are now externalized. Tensor
+        docstrings and metadata properties are preserved during conversion.
+        With ``convert_attribute=False``, existing external attribute tensors stay
+        external and are streamed when relocation or an overwrite requires it.
+        Original attribute objects are restored after saving; external tensors
+        backed by successfully overwritten files are invalidated.
+
     .. tip::
 
         A simple progress bar can be implemented by passing a callback function as the following::
