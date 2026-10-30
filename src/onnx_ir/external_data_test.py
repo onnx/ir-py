@@ -1,5 +1,6 @@
 # Copyright (c) ONNX Project Contributors
 # SPDX-License-Identifier: Apache-2.0
+import errno
 import os
 import sys
 import tempfile
@@ -15,6 +16,7 @@ import onnx.external_data_helper
 
 import onnx_ir as ir
 from onnx_ir import external_data
+from onnx_ir._polyfill import zip
 
 
 def _sample_thread_count(stop: threading.Event, samples: list[int]) -> None:
@@ -68,6 +70,351 @@ class ExternalDataTest(unittest.TestCase):
         self.assertEqual(initializer_tensor.base_dir, expected_dir)
         attr_tensor = model.graph.node(0).attributes["value"].value
         self.assertEqual(attr_tensor.base_dir, expected_dir)
+
+
+class AttributeExternalDataTest(unittest.TestCase):
+    def test_load_to_model_materializes_initializers_and_nested_attributes(self):
+        tensors = [
+            ir.tensor(np.arange(size, dtype=np.float32), name=f"tensor_{size}")
+            for size in range(1, 5)
+        ]
+        for tensor in tensors:
+            tensor.doc_string = "tensor annotation"
+            tensor.metadata_props["tag"] = "preserved"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            external_tensors = external_data.convert_tensors_to_external(
+                tensors, tmpdir, "source.data"
+            )
+            initializer = ir.Value(name="weight", const_value=external_tensors[0])
+            memory_tensor = ir.tensor(np.array([9.0], dtype=np.float32))
+            memory_initializer = ir.Value(name="embedded", const_value=memory_tensor)
+            uninitialized = ir.Value(name="uninitialized")
+            attribute = ir.AttrTensors(
+                "values", external_tensors[2:], doc_string="list annotation"
+            )
+            attribute.meta["analysis"] = "preserved"
+            nested_node = ir.Node("", "Op", [], attributes=[attribute])
+            nested_graph = ir.Graph(
+                [], [], nodes=[nested_node], initializers=[initializer], name="nested"
+            )
+            reference = ir.RefAttr("reference", "parameter", ir.AttributeType.TENSOR)
+            absent = ir.Attr("absent", ir.AttributeType.TENSOR, None)
+            node = ir.Node(
+                "",
+                "Op",
+                [],
+                attributes=[
+                    ir.AttrTensor("value", external_tensors[1]),
+                    ir.AttrGraphs("branches", [nested_graph]),
+                    reference,
+                    absent,
+                ],
+            )
+            model = ir.Model(
+                ir.Graph(
+                    [],
+                    [],
+                    nodes=[node],
+                    initializers=[memory_initializer, uninitialized],
+                    name="main",
+                ),
+                ir_version=10,
+            )
+
+            self.assertIs(external_data.load_to_model(model), model)
+            self.assertIs(memory_initializer.const_value, memory_tensor)
+            self.assertIsNone(uninitialized.const_value)
+            self.assertIs(node.attributes["reference"], reference)
+            self.assertIs(node.attributes["absent"], absent)
+            self.assertEqual(nested_node.attributes["values"].doc_string, "list annotation")
+            self.assertEqual(nested_node.attributes["values"].meta["analysis"], "preserved")
+            os.remove(os.path.join(tmpdir, "source.data"))
+            loaded = [
+                initializer.const_value,
+                node.attributes["value"].as_tensor(),
+                *nested_node.attributes["values"].as_tensors(),
+            ]
+            for actual, expected in zip(loaded, tensors, strict=True):
+                self.assertNotIsInstance(actual, ir.ExternalTensor)
+                self.assertEqual(actual.name, expected.name)
+                self.assertEqual(actual.doc_string, expected.doc_string)
+                self.assertEqual(actual.metadata_props, expected.metadata_props)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+    def test_unload_preserves_strings_uninitialized_values_and_reference_attributes(self):
+        for convert_attributes in (False, True):
+            with self.subTest(convert_attributes=convert_attributes):
+                tensor = ir.StringTensor([b"text"], shape=ir.Shape([1]), name="strings")
+                initializer = ir.Value(name="strings", const_value=tensor)
+                uninitialized = ir.Value(name="uninitialized")
+                attributes = [
+                    ir.AttrTensor("value", tensor),
+                    ir.AttrTensors("values", [tensor]),
+                    ir.RefAttr("reference", "parameter", ir.AttributeType.TENSORS),
+                    ir.Attr("absent", ir.AttributeType.TENSOR, None),
+                ]
+                node = ir.Node("", "Op", [], attributes=attributes)
+                model = ir.Model(
+                    ir.Graph([], [], nodes=[node], initializers=[initializer, uninitialized]),
+                    ir_version=10,
+                )
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    external_data.unload_from_model(
+                        model,
+                        tmpdir,
+                        "model.data",
+                        size_threshold_bytes=0,
+                        convert_attributes=convert_attributes,
+                    )
+                self.assertIs(initializer.const_value, tensor)
+                self.assertIsNone(uninitialized.const_value)
+                for attribute in attributes:
+                    self.assertIs(node.attributes[attribute.name], attribute)
+
+    def test_unload_from_model_externalizes_attributes_in_subgraphs(self):
+        single_data = np.array([1.0, 2.0], dtype=np.float32)
+        sequence_data = [
+            np.array([3.0], dtype=np.float32),
+            np.array([4.0, 5.0], dtype=np.float32),
+        ]
+        single_tensor = ir.tensor(single_data, name="single")
+        sequence_tensors = [
+            ir.tensor(data, name=f"sequence_{index}")
+            for index, data in enumerate(sequence_data)
+        ]
+        main_node = ir.Node(
+            "",
+            "MainOp",
+            [],
+            attributes=[ir.AttrTensor("single", single_tensor)],
+        )
+        subgraph_node = ir.Node(
+            "",
+            "SubgraphOp",
+            [],
+            attributes=[ir.AttrTensors("sequence", sequence_tensors)],
+        )
+        subgraph = ir.Graph([], [], nodes=[subgraph_node], name="subgraph")
+        graph_node = ir.Node(
+            "",
+            "GraphOp",
+            [],
+            attributes=[ir.AttrGraph("body", subgraph)],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[main_node, graph_node], name="main"),
+            ir_version=10,
+        )
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_data.unload_from_model(
+                model,
+                tmpdir,
+                "attributes.data",
+                size_threshold_bytes=0,
+                convert_attributes=True,
+            )
+
+            external_single = main_node.attributes["single"].as_tensor()
+            external_sequence = subgraph_node.attributes["sequence"].as_tensors()
+            self.assertIsInstance(external_single, ir.ExternalTensor)
+            self.assertTrue(
+                all(isinstance(tensor, ir.ExternalTensor) for tensor in external_sequence)
+            )
+            np.testing.assert_array_equal(external_single.numpy(), single_data)
+            for tensor, expected in zip(external_sequence, sequence_data, strict=True):
+                np.testing.assert_array_equal(tensor.numpy(), expected)
+
+    def test_unload_from_model_attribute_threshold_is_inclusive(self):
+        below_threshold = ir.tensor(
+            np.array([1.0], dtype=np.float32),
+            name="below_threshold",
+        )
+        at_threshold = ir.tensor(
+            np.array([2.0, 3.0], dtype=np.float32),
+            name="at_threshold",
+        )
+        node = ir.Node(
+            "",
+            "Op",
+            [],
+            attributes=[
+                ir.AttrTensors("values", [below_threshold, at_threshold]),
+            ],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[node], name="graph"),
+            ir_version=10,
+        )
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_data.unload_from_model(
+                model,
+                tmpdir,
+                "attributes.data",
+                size_threshold_bytes=at_threshold.nbytes,
+                convert_attributes=True,
+            )
+
+            values = node.attributes["values"].as_tensors()
+            self.assertIs(values[0], below_threshold)
+            self.assertIsInstance(values[1], ir.ExternalTensor)
+            np.testing.assert_array_equal(values[1].numpy(), at_threshold.numpy())
+
+    def test_unload_from_model_streams_attribute_backed_by_destination(self):
+        attribute_data = np.array([1.0, 2.0], dtype=np.float32)
+        initializer_data = np.array([3.0, 4.0], dtype=np.float32)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            data_filename = "model.data"
+            with open(os.path.join(tmpdir, data_filename), "wb") as data_file:
+                data_file.write(attribute_data.tobytes())
+            attribute_tensor = ir.ExternalTensor(
+                data_filename,
+                0,
+                attribute_data.nbytes,
+                ir.DataType.FLOAT,
+                shape=ir.Shape(attribute_data.shape),
+                name="attribute",
+                base_dir=tmpdir,
+            )
+            initializer_tensor = ir.tensor(initializer_data, name="initializer")
+            initializer = ir.Value(
+                name="initializer",
+                shape=initializer_tensor.shape,
+                type=ir.TensorType(initializer_tensor.dtype),
+                const_value=initializer_tensor,
+            )
+            node = ir.Node(
+                "",
+                "Op",
+                [],
+                attributes=[ir.AttrTensor("value", attribute_tensor)],
+            )
+            model = ir.Model(
+                ir.Graph(
+                    [],
+                    [],
+                    nodes=[node],
+                    initializers=[initializer],
+                    name="graph",
+                ),
+                ir_version=10,
+            )
+
+            with unittest.mock.patch.object(
+                ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+            ):
+                external_data.unload_from_model(
+                    model,
+                    tmpdir,
+                    data_filename,
+                    size_threshold_bytes=0,
+                )
+
+            relocated_attribute = node.attributes["value"].as_tensor()
+            self.assertIsInstance(relocated_attribute, ir.ExternalTensor)
+            self.assertFalse(attribute_tensor.valid())
+            np.testing.assert_array_equal(relocated_attribute.numpy(), attribute_data)
+            np.testing.assert_array_equal(initializer.const_value.numpy(), initializer_data)
+
+    def test_tensor_list_is_rebuilt_once_for_mixed_replacements(self):
+        tensors = [
+            ir.tensor(np.arange(size, dtype=np.float32), name=f"tensor_{size}")
+            for size in range(1, 101)
+        ]
+        attribute = ir.AttrTensors("values", tensors, doc_string="list annotation")
+        attribute.meta["analysis"] = "preserved"
+        node = ir.Node("", "Op", [], attributes=[attribute])
+        model = ir.Model(ir.Graph([], [], nodes=[node], name="graph"), ir_version=10)
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            external_tensors = external_data.convert_tensors_to_external(
+                tensors, tmpdir, "source.data"
+            )
+            node.attributes["values"] = ir.AttrTensors(
+                "values", external_tensors, doc_string=attribute.doc_string
+            )
+            node.attributes["values"].meta.update(attribute.meta)
+            with unittest.mock.patch.object(
+                ir.Attr, "__init__", autospec=True, side_effect=ir.Attr.__init__
+            ) as attr_constructor:
+                external_data.unload_from_model(
+                    model,
+                    tmpdir,
+                    "destination.data",
+                    convert_attributes=True,
+                    size_threshold_bytes=200,
+                )
+            self.assertEqual(attr_constructor.call_count, 1)
+            updated = node.attributes["values"]
+            self.assertEqual(updated.doc_string, "list annotation")
+            self.assertEqual(updated.meta["analysis"], "preserved")
+            for actual, expected in zip(updated.as_tensors(), tensors, strict=True):
+                self.assertEqual(isinstance(actual, ir.ExternalTensor), expected.nbytes >= 200)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+            with unittest.mock.patch.object(
+                ir.Attr, "__init__", autospec=True, side_effect=ir.Attr.__init__
+            ) as attr_constructor:
+                external_data.load_to_model(model)
+            self.assertEqual(attr_constructor.call_count, 1)
+            for actual, expected in zip(
+                node.attributes["values"].as_tensors(), tensors, strict=True
+            ):
+                self.assertNotIsInstance(actual, ir.ExternalTensor)
+                np.testing.assert_array_equal(actual.numpy(), expected.numpy())
+
+    def test_replacement_checks_each_distinct_file_once(self):
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.data")
+            data.tofile(path)
+            tensors = [
+                ir.ExternalTensor(
+                    "model.data",
+                    0,
+                    data.nbytes,
+                    ir.DataType.FLOAT,
+                    shape=ir.Shape(data.shape),
+                    name=f"tensor_{index}",
+                    base_dir=tmpdir,
+                )
+                for index in range(100)
+            ]
+            with unittest.mock.patch.object(
+                external_data, "_file_identity", wraps=external_data._file_identity
+            ) as file_identity:
+                external_data.convert_tensors_to_external(tensors, tmpdir, "model.data")
+            self.assertEqual(file_identity.call_count, 1)
+            self.assertTrue(all(not tensor.valid() for tensor in tensors))
+
+
+class HeaderWriteTest(unittest.TestCase):
+    def test_serial_and_parallel_writes_preserve_header_and_offsets(self):
+        tensors = [
+            ir.tensor(np.array([1.0, 2.0], dtype=np.float32), name="first"),
+            ir.tensor(np.array([3.0], dtype=np.float32), name="second"),
+        ]
+        header = b"header00"
+        infos = [
+            external_data._ExternalDataInfo("first", len(header), tensors[0].nbytes),
+            external_data._ExternalDataInfo(
+                "second", len(header) + tensors[0].nbytes, tensors[1].nbytes
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for workers in (1, 4):
+                with self.subTest(workers=workers):
+                    path = os.path.join(tmpdir, f"{workers}.data")
+                    external_data._write_external_data(
+                        tensors, infos, path, max_workers=workers, header=header
+                    )
+                    with open(path, "rb") as file:
+                        self.assertEqual(
+                            file.read(),
+                            header + b"".join(tensor.tobytes() for tensor in tensors),
+                        )
 
 
 class AlignmentTest(unittest.TestCase):
@@ -417,18 +764,24 @@ class OffloadExternalTensorTest(unittest.TestCase):
     def test_atomic_replace_preserves_destination_symlink(self):
         target_name = "target.data"
         target = os.path.join(self.base_path, target_name)
-        link = os.path.join(self.base_path, self.external_data_name)
+        link_name = "linked.data"
+        link = os.path.join(self.base_path, link_name)
         with open(target, "wb") as data_file:
             data_file.write(b"old")
         try:
             os.symlink(target_name, link)
         except OSError as error:
+            if (
+                error.errno not in {errno.EACCES, errno.EPERM, errno.ENOSYS, errno.ENOTSUP}
+                and getattr(error, "winerror", None) != 1314
+            ):
+                raise
             self.skipTest(f"Cannot create symlink on this platform: {error}")
 
         external_data.convert_tensors_to_external(
             [ir.Tensor(np.arange(4, dtype=np.uint8), name="tensor")],
             self.base_path,
-            self.external_data_name,
+            link_name,
         )
 
         self.assertTrue(os.path.islink(link))

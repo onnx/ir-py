@@ -69,6 +69,8 @@ class DataType(enum.IntEnum):
     FLOAT8E8M0 = 24
     UINT2 = 25
     INT2 = 26
+    FLOAT6E2M3 = 27
+    FLOAT6E3M2 = 28
 
     @classmethod
     def from_numpy(cls, dtype: np.dtype) -> DataType:
@@ -107,6 +109,10 @@ class DataType(enum.IntEnum):
                 return DataType.INT2
             if dtype.names == ("uint2",):
                 return DataType.UINT2
+            if dtype.names == ("float6_e2m3fn",):
+                return DataType.FLOAT6E2M3
+            if dtype.names == ("float6_e3m2fn",):
+                return DataType.FLOAT6E3M2
         raise TypeError(f"Unsupported numpy data type: {dtype}")
 
     @classmethod
@@ -317,6 +323,8 @@ class DataType(enum.IntEnum):
             DataType.FLOAT8E5M2FNUZ,
             DataType.FLOAT4E2M1,
             DataType.FLOAT8E8M0,
+            DataType.FLOAT6E2M3,
+            DataType.FLOAT6E3M2,
         }
 
     def is_integer(self) -> bool:
@@ -363,6 +371,8 @@ class DataType(enum.IntEnum):
             DataType.FLOAT4E2M1,
             DataType.FLOAT8E8M0,
             DataType.INT2,
+            DataType.FLOAT6E2M3,
+            DataType.FLOAT6E3M2,
         }
 
     def is_string(self) -> bool:
@@ -405,6 +415,8 @@ _BITWIDTH_MAP = {
     DataType.FLOAT8E8M0: 8,
     DataType.INT2: 2,
     DataType.UINT2: 2,
+    DataType.FLOAT6E2M3: 6,
+    DataType.FLOAT6E3M2: 6,
 }
 
 
@@ -436,6 +448,8 @@ _NP_TYPE_TO_DATA_TYPE = {
     np.dtype(ml_dtypes.float4_e2m1fn): DataType.FLOAT4E2M1,
     np.dtype(ml_dtypes.int2): DataType.INT2,
     np.dtype(ml_dtypes.uint2): DataType.UINT2,
+    np.dtype(ml_dtypes.float6_e2m3fn): DataType.FLOAT6E2M3,
+    np.dtype(ml_dtypes.float6_e3m2fn): DataType.FLOAT6E3M2,
 }
 
 # ONNX DataType to Numpy dtype.
@@ -453,6 +467,8 @@ _DATA_TYPE_TO_SHORT_NAME = {
     DataType.FLOAT8E5M2FNUZ: "f8e5m2fnuz",
     DataType.FLOAT8E8M0: "f8e8m0",
     DataType.FLOAT4E2M1: "f4e2m1",
+    DataType.FLOAT6E2M3: "f6e2m3",
+    DataType.FLOAT6E3M2: "f6e3m2",
     DataType.COMPLEX64: "c64",
     DataType.COMPLEX128: "c128",
     DataType.INT2: "i2",

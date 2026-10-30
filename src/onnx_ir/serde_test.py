@@ -380,6 +380,8 @@ class TensorProtoTensorTest(unittest.TestCase):
                     ("UINT2", ir.DataType.UINT2),
                     ("INT2", ir.DataType.INT2),
                     ("FLOAT4E2M1", ir.DataType.FLOAT4E2M1),
+                    ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3),
+                    ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2),
                 ],
                 [
                     np.array(
@@ -418,6 +420,8 @@ class TensorProtoTensorTest(unittest.TestCase):
             ir.DataType.FLOAT4E2M1,
             ir.DataType.BFLOAT16,
             ir.DataType.FLOAT8E8M0,
+            ir.DataType.FLOAT6E2M3,
+            ir.DataType.FLOAT6E3M2,
         }:
             # There is a bug in ml_dtypes that causes equality checks to fail for these dtypes
             # See https://github.com/jax-ml/ml_dtypes/issues/301
@@ -426,6 +430,73 @@ class TensorProtoTensorTest(unittest.TestCase):
             self.assertEqual(roundtrip_array.tobytes(), original_array.tobytes())
         else:
             np.testing.assert_equal(roundtrip_array, original_array, strict=True)
+
+    @parameterized.parameterized.expand(
+        [
+            ("FLOAT6E2M3", ir.DataType.FLOAT6E2M3, ml_dtypes.float6_e2m3fn),
+            ("FLOAT6E3M2", ir.DataType.FLOAT6E3M2, ml_dtypes.float6_e3m2fn),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_int32_data(self, _: str, dtype: ir.DataType, np_dtype):
+        proto = onnx.TensorProto(data_type=int(dtype), dims=[4], int32_data=[1, 2, 3, 4])
+        tensor = serde.TensorProtoTensor(proto)
+        np.testing.assert_array_equal(
+            tensor.numpy().view(np.uint8), np.array([1, 2, 3, 4], dtype=np.uint8)
+        )
+        self.assertEqual(tensor.numpy().dtype, np.dtype(np_dtype))
+        self.assertEqual(tensor.tobytes(), b"\x81\x30\x10")
+
+    def test_tensor_proto_tensor_string_reserialization(self):
+        proto = onnx.TensorProto(
+            data_type=onnx.TensorProto.STRING,
+            dims=[1],
+            string_data=[b"value"],
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        self.assertEqual(serde.serialize_tensor(tensor), proto)
+
+    @parameterized.parameterized.expand(
+        [
+            ("negative", -1),
+            ("high_bits", 64),
+            ("truncated_high_bits", 256),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_int32_data(
+        self, _: str, value: int
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=[1], int32_data=[value]
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, r"range \[0, 63\]"):
+            serde.serialize_tensor(tensor)
+
+    @parameterized.parameterized.expand(
+        [
+            ("trailing_byte", [1], b"\x00\x00", "too large"),
+            ("padding_bits_size_1", [1], b"\x40", "nonzero padding bits"),
+            ("padding_bits_size_2", [2], b"\x00\x10", "nonzero padding bits"),
+            ("padding_bits_size_3", [3], b"\x00\x00\x04", "nonzero padding bits"),
+        ]
+    )
+    def test_tensor_proto_tensor_float6_rejects_noncanonical_raw_data(
+        self, _: str, dims: list[int], raw_data: bytes, error: str
+    ):
+        proto = onnx.TensorProto(
+            data_type=int(ir.DataType.FLOAT6E2M3), dims=dims, raw_data=raw_data
+        )
+        tensor = serde.TensorProtoTensor(proto)
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.numpy()
+        with self.assertRaisesRegex(ValueError, error):
+            tensor.tobytes()
+        with self.assertRaisesRegex(ValueError, error):
+            serde.serialize_tensor(tensor)
 
 
 class DeserializeGraphTest(unittest.TestCase):
@@ -863,6 +934,98 @@ class TypeSerializationTest(unittest.TestCase):
         proto = serde.serialize_type(seq_type)
         deserialized = serde.deserialize_type_proto_for_type(proto)
         self.assertIsInstance(deserialized, ir.SequenceType)
+
+
+@unittest.skipUnless(
+    "opaque_type" in onnx.TypeProto.DESCRIPTOR.fields_by_name,
+    "This ONNX build does not support opaque types",
+)
+class OpaqueTypeSerializationTest(unittest.TestCase):
+    def test_serialize_into_replaces_opaque_fields(self):
+        proto = ir.to_proto(ir.OpaqueType("com.example", "Handle"))
+        serde.serialize_type_into(proto, ir.OpaqueType())
+        self.assertEqual(proto.WhichOneof("value"), "opaque_type")
+        self.assertFalse(proto.opaque_type.HasField("domain"))
+        self.assertFalse(proto.opaque_type.HasField("name"))
+
+    def test_roundtrip_preserves_field_presence(self):
+        for domain, name, denotation in itertools.product(
+            (None, "", "com.example"), (None, "", "Handle"), (None, "", "handle")
+        ):
+            with self.subTest(domain=domain, name=name, denotation=denotation):
+                proto = onnx.TypeProto()
+                proto.opaque_type.SetInParent()
+                if domain is not None:
+                    proto.opaque_type.domain = domain
+                if name is not None:
+                    proto.opaque_type.name = name
+                if denotation is not None:
+                    proto.denotation = denotation
+
+                result = ir.from_proto(proto)
+                self.assertIsInstance(result.type, ir.OpaqueType)
+                self.assertEqual(result.type.domain, domain)
+                self.assertEqual(result.type.name, name)
+                self.assertEqual(result.type.denotation, denotation)
+                self.assertIsNone(result.shape)
+                self.assertEqual(ir.to_proto(result.type), proto)
+
+    def test_nested_types_roundtrip(self):
+        opaque = ir.OpaqueType("com.example", "Handle", denotation="handle")
+        for type_ in (
+            opaque,
+            ir.SequenceType(opaque, denotation="handles"),
+            ir.OptionalType(opaque),
+            ir.OptionalType(ir.SequenceType(opaque)),
+        ):
+            with self.subTest(type_=type_):
+                proto = ir.to_proto(type_)
+                result = ir.from_proto(proto)
+                self.assertEqual(result.type, type_)
+                self.assertIsNone(result.shape)
+                self.assertEqual(ir.to_proto(result.type), proto)
+
+    def test_model_roundtrip_and_clone(self):
+        value = ir.Value(name="handle", type=ir.OpaqueType("com.example", "Handle"))
+        model = ir.Model(
+            ir.Graph([value], [value], nodes=[], name="opaque", opset_imports={"": 23}),
+            ir_version=onnx.IR_VERSION,
+            domain="com.example",
+        )
+        proto = ir.to_proto(model)
+        restored = ir.from_proto(proto)
+        self.assertEqual(restored.graph.inputs[0].type, value.type)
+        self.assertIsNone(restored.graph.inputs[0].dtype)
+        self.assertIsNone(restored.graph.inputs[0].shape)
+        self.assertEqual(ir.to_proto(restored), proto)
+        self.assertEqual(ir.to_proto(restored.clone()), proto)
+
+    def test_type_attributes_roundtrip(self):
+        type_and_shape = ir.TypeAndShape(ir.OpaqueType("com.example", "Handle"), None)
+        for attr in (
+            ir.AttrTypeProto("type", type_and_shape),
+            ir.AttrTypeProtos("types", [type_and_shape]),
+        ):
+            with self.subTest(attr=attr):
+                proto = serde.serialize_attribute(attr)
+                restored = serde.deserialize_attribute(proto)
+                self.assertEqual(serde.serialize_attribute(restored), proto)
+
+    def test_shape_is_rejected(self):
+        for type_ in (
+            ir.OpaqueType(),
+            ir.SequenceType(ir.OpaqueType()),
+            ir.OptionalType(ir.SequenceType(ir.OpaqueType())),
+        ):
+            with self.subTest(type_=type_):
+                proto = ir.to_proto(type_)
+                with self.assertRaises(serde.SerdeError) as context:
+                    serde.serialize_shape_into(proto, ir.Shape([]))
+                self.assertIsInstance(context.exception.__cause__, ValueError)
+                self.assertIn(
+                    "Cannot serialize a tensor shape for opaque_type",
+                    str(context.exception.__cause__),
+                )
 
 
 class AttributeSerializationCoverageTest(unittest.TestCase):

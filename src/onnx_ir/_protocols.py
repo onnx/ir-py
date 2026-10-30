@@ -514,10 +514,9 @@ class ShapeProtocol(Protocol):
 
 @typing.runtime_checkable
 class TypeProtocol(Protocol):
-    """Protocol for ONNX tensors, Sequence tensors, Optional tensors and Sparse tensors.
+    """Protocol for ONNX tensor, sequence, optional, sparse tensor, and opaque types.
 
-    These three types of tensors share the same attribute "elem_type" so they are
-    merged in the same interface. Unlike the ONNX TensorProto, shapes are not included
+    Unlike the ONNX TensorProto, shapes are not included
     in the type and should be stored in the :class:`Value`.
 
     Attributes:
@@ -527,13 +526,13 @@ class TypeProtocol(Protocol):
             Refer to https://github.com/onnx/onnx/blob/main/docs/TypeDenotation.md#type-denotation-definition
             for pre-defined type denotations.
         elem_type: The type of its elements for nested types like Sequence[Optional] tensors.
-            Or the DataType if the type is not nested.
-        dtype: The data type of the tensor or the nested tensor.
+            Or the DataType if the type is not nested. None for opaque types.
+        dtype: The data type of the tensor or the nested tensor. None for opaque types.
     """
 
     denotation: str | None
-    elem_type: TypeProtocol | _enums.DataType
-    dtype: _enums.DataType
+    elem_type: TypeProtocol | _enums.DataType | None
+    dtype: _enums.DataType | None
 
     def __eq__(self, value: object, /) -> bool: ...
 
