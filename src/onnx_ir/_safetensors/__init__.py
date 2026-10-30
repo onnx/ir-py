@@ -6,7 +6,6 @@ from __future__ import annotations
 
 __all__ = ["save_safetensors"]
 
-import ctypes
 import functools
 import io
 import json
@@ -18,6 +17,7 @@ from typing import Any
 import packaging.version
 
 import onnx_ir as ir
+from onnx_ir._polyfill import zip
 from onnx_ir._shard_filename import get_shard_filename
 
 _HEADER_SIZE_NUMBER_SIZE = 8
@@ -42,33 +42,21 @@ _SAFETENSORS_DTYPE_TO_IR_DTYPE = {
     "U64": ir.DataType.UINT64,
     "C64": ir.DataType.COMPLEX64,
 }
-# https://github.com/huggingface/safetensors/blob/806426784adb43631e9a1102d4621126bb589347/bindings/python/src/view.rs#L77
 _IR_DTYPE_TO_SAFETENSORS_DTYPE = {
-    ir.DataType.BOOL: "bool",
-    ir.DataType.FLOAT4E2M1: "float4_e2m1fn_x2",
-    ir.DataType.FLOAT8E5M2: "float8_e5m2",
-    ir.DataType.FLOAT8E4M3FN: "float8_e4m3fn",
-    ir.DataType.FLOAT8E8M0: "float8_e8m0",
-    ir.DataType.FLOAT8E4M3FNUZ: "uint8",
-    ir.DataType.FLOAT8E5M2FNUZ: "uint8",
-    ir.DataType.BFLOAT16: "bfloat16",
-    ir.DataType.FLOAT16: "float16",
-    ir.DataType.FLOAT: "float32",
-    ir.DataType.DOUBLE: "float64",
-    ir.DataType.INT2: "uint8",
-    ir.DataType.INT4: "uint8",
-    ir.DataType.INT8: "int8",
-    ir.DataType.INT16: "int16",
-    ir.DataType.INT32: "int32",
-    ir.DataType.INT64: "int64",
-    ir.DataType.UINT2: "uint8",
-    ir.DataType.UINT4: "uint8",
-    ir.DataType.UINT8: "uint8",
-    ir.DataType.UINT16: "uint16",
-    ir.DataType.UINT32: "uint32",
-    ir.DataType.UINT64: "uint64",
-    ir.DataType.COMPLEX64: "complex64",
+    dtype: name for name, dtype in _SAFETENSORS_DTYPE_TO_IR_DTYPE.items()
 }
+_IR_DTYPE_TO_SAFETENSORS_DTYPE.update(
+    {
+        ir.DataType.FLOAT8E4M3FNUZ: "U8",
+        ir.DataType.FLOAT8E5M2FNUZ: "U8",
+        ir.DataType.FLOAT6E2M3: "U8",
+        ir.DataType.FLOAT6E3M2: "U8",
+        ir.DataType.INT2: "U8",
+        ir.DataType.INT4: "U8",
+        ir.DataType.UINT2: "U8",
+        ir.DataType.UINT4: "U8",
+    }
+)
 
 
 def _get_shard_filename(base_name: str, shard_idx: int, total_shards: int) -> str:
@@ -134,61 +122,43 @@ def _shard_tensors(
     return shards
 
 
-def _replace_tensors(
-    values: Sequence[ir.Value],
-    /,
-    location: str | os.PathLike,
-    base_dir: str | os.PathLike,
-) -> None:
-    """Replace all tensors in an ONNX model with external data from a safetensors file.
-
-    Args:
-        values: List of initialized values to replace constant values from.
-        location: Path to the safetensors file relative to the ONNX model file.
-        base_dir: Directory where the ONNX model file is stored.
-    """
-    tensors: dict[str, ir.ExternalTensor] = _read_safetensors(location, base_dir=base_dir)
-    value_map: dict[str, ir.Value] = {value.name: value for value in values}  # type: ignore[misc]
-    for name, tensor in tensors.items():
-        assert name in value_map, f"Bug: Tensor '{name}' not found in model initializers."
-        value = value_map[name]
-        model_tensor = value.const_value
-        assert model_tensor is not None
-        updated_tensor = _migrate_tensor_shape_dtype(model_tensor, tensor)
-        value.const_value = updated_tensor
-
-
 def _get_tensor_storage_shape(tensor: ir.TensorProtocol) -> Sequence[int]:
     """Get the storage shape of a tensor for safetensors."""
+    if tensor.dtype == ir.DataType.FLOAT4E2M1:
+        # Safetensors counts F4 elements, including the final padding nibble.
+        return [tensor.nbytes * 2]
     # Handle sub-byte dtypes
     if tensor.dtype.bitwidth < 8:
         return [tensor.nbytes]
     return tensor.shape.numpy()
 
 
+def _validate_file(path: str) -> None:
+    # Validate the header and byte ranges without materializing any tensors.
+    with _import_safetensors().safe_open(path, framework="numpy"):
+        pass
+
+
 def _save_file(
-    initialized_values: Sequence[ir.Value],
+    tensors: dict[str, ir.TensorProtocol],
     /,
     location: str | os.PathLike,
     base_dir: str | os.PathLike = "",
     *,
-    size_threshold_bytes: int,
     max_shard_size_bytes: int | None,
     callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
-) -> None:
-    """Save all tensors in an ONNX model to a safetensors file.
+) -> dict[str, ir.ExternalTensor]:
+    """Stream named tensors to safetensors files and return their external references.
 
     Args:
-        initialized_values: List of initialized values to consider for saving.
+        tensors: Tensors indexed by unique safetensors storage keys.
         location: Path to the safetensors file relative to the ONNX model file.
         base_dir: Directory where the ONNX model file is stored.
-        size_threshold_bytes: Save to external data if the tensor size in bytes
-            is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
-        callback: A callback function that is called after each tensor is saved.
+        callback: A callback function invoked before each tensor is written.
     """
-    safetensors = _import_safetensors()
+    _import_safetensors()
 
     # Ensure that external_data ends with .safetensors
     if not str(location).endswith(".safetensors"):
@@ -196,105 +166,77 @@ def _save_file(
             f'The path to safetensors file must have a .safetensors extension, got: "{location}"'
         )
 
-    # First, collect metadata without loading tensor data
-    tensors_to_save: list[ir.TensorProtocol] = []
-    values_to_save: list[ir.Value] = []
-    for value in initialized_values:
-        tensor = value.const_value
-        assert tensor is not None
-        if tensor.nbytes < size_threshold_bytes:
-            continue
-        tensors_to_save.append(tensor)
-        values_to_save.append(value)
+    if not tensors:
+        return {}
+    names = list(tensors)
+    tensor_shards = _shard_tensors(list(tensors.values()), max_shard_size_bytes)
+    filenames = [
+        _get_shard_filename(str(location), index, len(tensor_shards))
+        for index in range(1, len(tensor_shards) + 1)
+    ]
+    index_path = (
+        os.path.join(
+            base_dir, str(location).removesuffix(".safetensors") + ".safetensors.index.json"
+        )
+        if len(tensor_shards) > 1
+        else None
+    )
+    if max_shard_size_bytes is not None:
+        destinations = [os.path.join(base_dir, name) for name in filenames]
+        if index_path is not None:
+            destinations.append(index_path)
+        ir.external_data._check_no_existing_shard_files(destinations)
 
-    total_size = sum(tensor.nbytes for tensor in tensors_to_save)
-
-    if tensors_to_save:
-        # Determine sharding based on max_shard_size_bytes. When max_shard_size_bytes is None,
-        # It is the same as one shard (which is the same as no sharding).
-        tensor_shards = _shard_tensors(tensors_to_save, max_shard_size_bytes)
-        total_shards = len(tensor_shards)
-
-        # Save each shard, loading only necessary tensor data
-        all_filenames = []
-        weight_map: dict[str, str] = {}  # Maps tensor name to shard filename
-        current_offset = 0
-        current_index = 0
-        for shard_idx, tensor_shard in enumerate(tensor_shards, start=1):
-            shard_filename = _get_shard_filename(str(location), shard_idx, total_shards)
-
-            shard_path = os.path.join(base_dir, shard_filename)
-            all_filenames.append(shard_filename)
-
-            # Build tensor_dict for this shard only
-            shard_dict: dict[str, Any] = {}
-            for shard_index, tensor in enumerate(tensor_shard):
-                if callback is not None:
-                    callback(
-                        tensor,
-                        ir.external_data.CallbackInfo(
-                            total=len(tensors_to_save),
-                            index=current_index,
-                            offset=current_offset,
-                            filename=shard_filename,
-                            shard_total=len(tensor_shard),
-                            shard_index=shard_index,
-                        ),
-                    )
-                assert tensor.name is not None
-                shard_dict[tensor.name] = {
-                    "dtype": _IR_DTYPE_TO_SAFETENSORS_DTYPE[tensor.dtype],
-                    "shape": _get_tensor_storage_shape(tensor),
-                    "data": tensor.tobytes(),
-                }
-                # Update weight_map with shard filename
-                weight_map[tensor.name] = shard_filename
-                current_offset += tensor.nbytes
-                current_index += 1
-
-            if not hasattr(safetensors, "TensorSpec"):
-                safetensors.serialize_file(shard_dict, shard_path)
-            else:
-                # Keep strong references alive until serialize_file returns because
-                # TensorSpec stores raw data pointers.
-                tensor_data_refs = []
-                tensor_specs = {}
-                for name, spec in shard_dict.items():
-                    data = spec["data"]
-                    if not isinstance(data, bytearray):
-                        data = bytearray(data)
-                        spec["data"] = data
-                    # ctypes array backed by the same buffer — no copy needed.
-                    data_view = (ctypes.c_char * len(data)).from_buffer(data)
-                    tensor_data_refs.append((data, data_view))
-                    tensor_specs[name] = safetensors.TensorSpec(
-                        dtype=spec["dtype"],
-                        shape=spec["shape"],
-                        data_ptr=ctypes.addressof(data_view),
-                        data_len=len(data),
-                    )
-                safetensors.serialize_file(tensor_specs, shard_path)
-
-        # Save index file if sharding occurred
-        if total_shards > 1:
-            location_str = str(location)
-            if location_str.endswith(".safetensors"):
-                index_filename = (
-                    location_str.rsplit(".safetensors", 1)[0] + ".safetensors.index.json"
-                )
-            else:
-                index_filename = location_str + ".index.json"
-            index_path = os.path.join(base_dir, index_filename)
-            index_data = {
-                "metadata": {"total_size": total_size},
-                "weight_map": weight_map,
+    weight_map: dict[str, str] = {}
+    replacements: dict[str, ir.ExternalTensor] = {}
+    current_index = 0
+    for tensor_shard, filename in zip(tensor_shards, filenames, strict=True):
+        shard_names = names[current_index : current_index + len(tensor_shard)]
+        metadata = {}
+        infos = []
+        offset = 0
+        for name, tensor in zip(shard_names, tensor_shard, strict=True):
+            metadata[name] = {
+                "dtype": _IR_DTYPE_TO_SAFETENSORS_DTYPE[tensor.dtype],
+                "shape": _get_tensor_storage_shape(tensor),
+                "data_offsets": [offset, offset + tensor.nbytes],
             }
-            with open(index_path, "w") as f:
-                json.dump(index_data, f, indent=2)
+            infos.append(ir.external_data._ExternalDataInfo(name, offset, tensor.nbytes))
+            offset += tensor.nbytes
+            weight_map[name] = filename
+        header = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        )
+        header += b" " * (-len(header) % 8)
+        header = struct.pack("<Q", len(header)) + header
+        for info in infos:
+            info.offset += len(header)
+        shard_callback = (
+            ir.external_data._make_shard_callback(callback, len(tensors), current_index)
+            if callback is not None
+            else None
+        )
+        ir.external_data._write_external_data(
+            tensor_shard,
+            infos,
+            os.path.join(base_dir, filename),
+            callback=shard_callback,
+            header=header,
+            validate=_validate_file,
+        )
+        for name, tensor in _read_safetensors(filename, base_dir).items():
+            replacements[name] = _migrate_tensor_shape_dtype(tensors[name], tensor)
+        current_index += len(tensor_shard)
 
-        # Replace tensors from each shard file
-        for filename in all_filenames:
-            _replace_tensors(values_to_save, filename, base_dir)
+    if index_path is not None:
+        index_data = {
+            "metadata": {"total_size": sum(tensor.nbytes for tensor in tensors.values())},
+            "weight_map": weight_map,
+        }
+        ir.external_data._write_external_data(
+            [], [], index_path, header=json.dumps(index_data, indent=2).encode("utf-8")
+        )
+    return replacements
 
 
 def save_safetensors(
@@ -306,10 +248,12 @@ def save_safetensors(
     size_threshold_bytes: int = 256,
     max_shard_size_bytes: int | None = None,
     callback: Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None] | None = None,
+    convert_attributes: bool = False,
 ) -> None:
     """Save an ONNX model to a file with external data in a safetensors file.
 
-    The model object is unmodified after this operation.
+    The model object is unmodified after this operation, except that existing
+    external tensors backed by overwritten files are invalidated.
 
     When sharding is enabled, multiple safetensors files will be created
     with names like "model-00001-of-00003.safetensors", and an index
@@ -320,10 +264,9 @@ def save_safetensors(
     .. note::
         Because the safetensors data format uses key-value mapping to store tensors,
         all initializer names in the model (across subgraphs) must be unique.
-        Externalizing tensor attributes in nodes to safetensors files is currently not
-        supported. If you have tensors from Constant nodes that you want to externalize,
-        consider converting them to initializers first with
-        :class:`~onnx_ir.passes.common.LiftConstantsToInitializersPass`.
+        Tensor attributes use generated unique safetensors keys, independent of
+        their ONNX tensor names. Initializer names are reserved before generating
+        attribute keys, and original tensor names are preserved in the ONNX file.
 
     Example::
 
@@ -366,6 +309,18 @@ def save_safetensors(
 
     .. versionadded:: 0.1.15
 
+    .. versionadded:: 1.2.0
+        Added ``convert_attributes`` to optionally store tensors in node attributes
+        as safetensors external data.
+
+    .. versionchanged:: 1.2.0
+        Existing external attributes are preserved or streamed when relocation or
+        an overwrite requires it. Tensor names, docstrings, and metadata properties
+        are preserved. External initializers below the size threshold are embedded
+        in the model. Single-file writes replace destinations atomically; sharded
+        writes refuse to overwrite existing files. Callback offsets identify the
+        tensor's physical byte offset within its shard, including the header.
+
     Args:
         model: ONNX model to save.
         path: Path to the ONNX model file. E.g. "model.onnx".
@@ -375,13 +330,29 @@ def save_safetensors(
             is not smaller than this threshold.
         max_shard_size_bytes: Maximum size in bytes (as int) a safetensors file
             before being sharded. If None, no sharding is performed.
-        callback: A callback function that is called after each tensor is saved.
+        callback: A callback function invoked before each tensor is written.
             The callback must have signature ``Callable[[ir.TensorProtocol, ir.external_data.CallbackInfo], None]``,
-            where the first argument is the tensor being saved and the second contains metadata such as filename and progress.
+            where the first argument is the tensor being saved and the second contains
+            metadata such as filename, progress, and the byte offset within the shard.
+        convert_attributes: Whether to store tensors in node attributes as external data
+            according to ``size_threshold_bytes``, in addition to initializers.
+            When true, non-string attribute tensors at or above the threshold are
+            stored as external tensors; smaller tensors are embedded in the model.
+            When false, existing external attributes remain external and are streamed
+            to the destination if relocation or an overwrite requires it. In-memory
+            attributes remain embedded.
 
     Raises:
-        ValueError: If duplicate initializer names are found in the model.
+        ValueError: If initializer names are missing, duplicated, or reserved by safetensors.
+        ValueError: If ``max_shard_size_bytes`` is not positive.
+        ValueError: If the ONNX model and safetensors data paths are the same.
+        FileExistsError: If a destination shard or index file already exists when
+            ``max_shard_size_bytes`` is set.
     """
+    if max_shard_size_bytes is not None and max_shard_size_bytes <= 0:
+        raise ValueError(
+            f"max_shard_size_bytes must be greater than 0, got {max_shard_size_bytes}."
+        )
     # Derive external_data from path if not provided
     path_str = str(path)
     # Get the base name without extension
@@ -394,6 +365,9 @@ def save_safetensors(
     # Store the original initializer values so they can be restored if modify_model=False
     value_tensor_pairs: list[tuple[ir.Value, ir.TensorProtocol]] = []
     initializer_names: set[str] = set()
+    tensors_to_save: dict[str, ir.TensorProtocol] = {}
+    initializers_to_externalize: dict[str, ir.Value] = {}
+    initializers_to_load: list[ir.Value] = []
     for graph in model.graphs():
         for value in graph.initializers.values():
             tensor = value.const_value
@@ -405,30 +379,132 @@ def save_safetensors(
                     f"Initializer value '{value!r}' has no name (in graph {graph.name!r}). "
                     "All initializers must have names."
                 )
-            if tensor is None:
-                continue
             if name in initializer_names:
                 raise ValueError(
                     f"Duplicate initializer name found: {name} (in graph {graph.name!r})."
                     " Rename the initializers to have unique names before saving to safetensors."
                 )
             initializer_names.add(name)
+            if tensor is None:
+                continue
             value_tensor_pairs.append((value, tensor))
+            if tensor.dtype == ir.DataType.STRING:
+                continue
+            if tensor.nbytes >= size_threshold_bytes:
+                if name == "__metadata__":
+                    raise ValueError(
+                        "Initializer name '__metadata__' is reserved by safetensors. "
+                        "Rename the initializer before saving to safetensors."
+                    )
+                tensors_to_save[name] = tensor
+                initializers_to_externalize[name] = value
+            elif isinstance(tensor, ir.ExternalTensor):
+                initializers_to_load.append(value)
+
+    references = list(ir.external_data._attribute_tensor_references(model))
+    original_attributes = {
+        (node, name): node.attributes[name] for node, name, _, _ in references
+    }
+    attributes_to_externalize = {}
+    attributes_to_load = []
+    selected_attributes = []
+    overlapping_attributes = []
+    file_identity = functools.cache(ir.external_data._file_identity)
+    destination_path = os.path.join(os.path.dirname(path), external_data)
+    if os.path.normcase(os.path.abspath(path)) == os.path.normcase(
+        os.path.abspath(destination_path)
+    ):
+        raise ValueError("The ONNX model and safetensors data paths must be different.")
+    destination_identity = (
+        file_identity(destination_path) if max_shard_size_bytes is None else None
+    )
+    if (
+        destination_identity is not None
+        and file_identity(os.fspath(path)) == destination_identity
+    ):
+        raise ValueError("The ONNX model and safetensors data paths must be different.")
+    for reference in references:
+        tensor = reference[3]
+        if tensor.dtype == ir.DataType.STRING:
+            continue
+        if convert_attributes:
+            externalize = tensor.nbytes >= size_threshold_bytes
+            if not externalize and isinstance(tensor, ir.ExternalTensor):
+                attributes_to_load.append(reference)
+        elif isinstance(tensor, ir.ExternalTensor):
+            externalize = ir.external_data._attribute_needs_relocation(
+                tensor, os.path.dirname(path), file_identity
+            )
+            if (
+                not externalize
+                and destination_identity is not None
+                and file_identity(tensor.path) == destination_identity
+            ):
+                overlapping_attributes.append(reference)
+        else:
+            externalize = False
+        if externalize:
+            selected_attributes.append(reference)
+    if tensors_to_save or selected_attributes:
+        selected_attributes.extend(overlapping_attributes)
+    next_attribute_key = 0
+    for reference in selected_attributes:
+        key = f"__onnx_ir_attribute_{next_attribute_key}"
+        while key in initializer_names:
+            next_attribute_key += 1
+            key = f"__onnx_ir_attribute_{next_attribute_key}"
+        next_attribute_key += 1
+        tensors_to_save[key] = reference[3]
+        attributes_to_externalize[key] = reference
+
+    materialized_sources = [value.const_value for value in initializers_to_load]
+    materialized_sources.extend(reference[3] for reference in attributes_to_load)
+    overwritten_materialized_tensors = [
+        tensor
+        for tensor in materialized_sources
+        if isinstance(tensor, ir.ExternalTensor)
+        and destination_identity is not None
+        and file_identity(tensor.path) == destination_identity
+    ]
 
     try:
-        _save_file(
-            [value for value, _ in value_tensor_pairs],
+        loaded_initializers = ir.external_data.convert_tensors_from_external(
+            [value.const_value for value in initializers_to_load]  # type: ignore[misc]
+        )
+        loaded_attributes = ir.external_data.convert_tensors_from_external(
+            [reference[3] for reference in attributes_to_load]
+        )
+        replacements = _save_file(
+            tensors_to_save,
             external_data,
             os.path.dirname(path),
-            size_threshold_bytes=size_threshold_bytes,
             max_shard_size_bytes=max_shard_size_bytes,
             callback=callback,
+        )
+        for name, value in initializers_to_externalize.items():
+            value.const_value = replacements[name]
+        for value, tensor in zip(initializers_to_load, loaded_initializers, strict=True):
+            value.const_value = tensor
+        ir.external_data._replace_attribute_tensors(
+            [
+                *(
+                    (reference, replacements[key])
+                    for key, reference in attributes_to_externalize.items()
+                ),
+                *zip(attributes_to_load, loaded_attributes, strict=True),
+            ]
         )
         ir.save(model, path, format=format)
     finally:
         # Restore original initializers to avoid side effects
         for value, tensor in value_tensor_pairs:
             value.const_value = tensor
+        for (node, name), attr in original_attributes.items():
+            node.attributes[name] = attr
+        if overwritten_materialized_tensors and (
+            ir.external_data._file_identity(destination_path) != destination_identity
+        ):
+            ir.external_data._invalidate_external_tensors(overwritten_materialized_tensors)
 
 
 def _read_safetensors_header(file: io.IOBase) -> tuple[dict[str, dict[str, Any]], int]:
@@ -482,9 +558,10 @@ def _read_safetensors(
 def _migrate_tensor_shape_dtype(
     model_tensor: ir.TensorProtocol, safe_tensor: ir.ExternalTensor
 ) -> ir.ExternalTensor:
-    """Migrate the shape and dtype of a tensor.
+    """Restore the original ONNX tensor description after reading storage metadata.
 
-    This is needed because we store 4bit and 2bit tensors as UINT8 in safetensors.
+    Packed tensors may use a different storage shape or dtype in safetensors.
+    Storage keys must not replace the original tensor names or annotations.
 
     Args:
         model_tensor: The tensor to migrate.
@@ -493,23 +570,13 @@ def _migrate_tensor_shape_dtype(
     Returns:
         The migrated tensor.
     """
-    if model_tensor.dtype in {
-        # Types that safetensors does not support directly
-        ir.DataType.FLOAT8E4M3FNUZ,
-        ir.DataType.FLOAT8E5M2FNUZ,
-        ir.DataType.FLOAT4E2M1,  # Still need to migrate shape
-        ir.DataType.INT4,
-        ir.DataType.INT2,
-        ir.DataType.UINT4,
-        ir.DataType.UINT2,
-    }:
-        return ir.ExternalTensor(
-            location=safe_tensor.location,
-            offset=safe_tensor.offset,
-            length=safe_tensor.length,
-            dtype=model_tensor.dtype,
-            shape=model_tensor.shape,  # type: ignore[arg-type]
-            name=safe_tensor.name,
-            base_dir=safe_tensor.base_dir,
-        )
-    return safe_tensor
+    assert safe_tensor.offset is not None
+    assert safe_tensor.length is not None
+    return ir.external_data._create_external_tensor(
+        model_tensor,
+        ir.external_data._ExternalDataInfo(
+            model_tensor.name, safe_tensor.offset, safe_tensor.length
+        ),
+        safe_tensor.base_dir,
+        safe_tensor.location,
+    )

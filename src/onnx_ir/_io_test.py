@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for the _io module."""
 
+import itertools
 import os
 import tempfile
 import unittest
+import unittest.mock
 
 import numpy as np
 
 import onnx_ir as ir
 from onnx_ir import _io
+from onnx_ir._polyfill import zip
 
 
 def _create_initializer(tensor: ir.TensorProtocol) -> ir.Value:
@@ -46,6 +49,44 @@ def _create_simple_model_with_initializers() -> ir.Model:
         name="test_graph",
     )
     return ir.Model(graph, ir_version=10)
+
+
+def _create_model_with_external_attributes(directory):
+    arrays = [
+        np.array([1.0, 2.0], dtype=np.float32),
+        np.array([3.0], dtype=np.float32),
+        np.array([4.0, 5.0, 6.0], dtype=np.float32),
+    ]
+    tensors = [
+        ir.tensor(array, name=f"attribute_{index}") for index, array in enumerate(arrays)
+    ]
+    for tensor in tensors:
+        tensor.doc_string = "tensor annotation"
+        tensor.metadata_props["tag"] = "preserved"
+    external_tensors = ir.external_data.convert_tensors_to_external(
+        tensors, directory, "attributes.data"
+    )
+    subgraph_node = ir.Node(
+        "", "Op", [], attributes=[ir.AttrTensors("values", external_tensors[1:])]
+    )
+    subgraph = ir.Graph([], [], nodes=[subgraph_node], name="subgraph")
+    node = ir.Node(
+        "",
+        "Op",
+        [],
+        attributes=[
+            ir.AttrTensor("value", external_tensors[0]),
+            ir.AttrGraph("body", subgraph),
+        ],
+    )
+    initializer = _create_initializer(
+        ir.tensor(np.array([9.0, 10.0], dtype=np.float32), name="weight")
+    )
+    model = ir.Model(
+        ir.Graph([], [], nodes=[node], initializers=[initializer], name="graph"),
+        ir_version=10,
+    )
+    return model, arrays, external_tensors
 
 
 class IOFunctionsTest(unittest.TestCase):
@@ -100,6 +141,283 @@ class IOFunctionsTest(unittest.TestCase):
         self.assertIsInstance(const_attr_tensor, ir.Tensor)
         np.testing.assert_array_equal(initializer_tensor.numpy(), np.array([0.0]))
         np.testing.assert_array_equal(const_attr_tensor.numpy(), np.array([1.0]))
+
+    def test_save_with_externalized_attributes_restores_model(self):
+        single_data = np.array([1.0, 2.0], dtype=np.float32)
+        sequence_data = [
+            np.array([3.0], dtype=np.float32),
+            np.array([4.0, 5.0], dtype=np.float32),
+        ]
+        single_tensor = ir.tensor(single_data, name="single")
+        sequence_tensors = [
+            ir.tensor(data, name=f"sequence_{index}")
+            for index, data in enumerate(sequence_data)
+        ]
+        node = ir.Node(
+            "",
+            "Op",
+            [],
+            attributes=[
+                ir.AttrTensor("single", single_tensor),
+                ir.AttrTensors("sequence", sequence_tensors),
+            ],
+        )
+        model = ir.Model(
+            ir.Graph([], [], nodes=[node], name="graph"),
+            ir_version=10,
+        )
+        original_single_attribute = node.attributes["single"]
+        original_sequence_attribute = node.attributes["sequence"]
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = os.path.join(tmpdir, "model.onnx")
+            _io.save(
+                model,
+                path,
+                external_data="model.data",
+                size_threshold_bytes=0,
+                convert_attributes=True,
+            )
+
+            self.assertIs(node.attributes["single"], original_single_attribute)
+            self.assertIs(node.attributes["sequence"], original_sequence_attribute)
+            self.assertIs(node.attributes["single"].as_tensor(), single_tensor)
+            self.assertEqual(node.attributes["sequence"].as_tensors(), tuple(sequence_tensors))
+
+            loaded_model = _io.load(path)
+            loaded_node = loaded_model.graph.node(0)
+            loaded_single = loaded_node.attributes["single"].as_tensor()
+            loaded_sequence = loaded_node.attributes["sequence"].as_tensors()
+            self.assertIsInstance(loaded_single, ir.ExternalTensor)
+            self.assertTrue(
+                all(isinstance(tensor, ir.ExternalTensor) for tensor in loaded_sequence)
+            )
+            np.testing.assert_array_equal(loaded_single.numpy(), single_data)
+            for tensor, expected in zip(loaded_sequence, sequence_data, strict=True):
+                np.testing.assert_array_equal(tensor.numpy(), expected)
+
+    def test_save_preserves_non_overlapping_external_attributes_without_reading(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            model, arrays, original_tensors = _create_model_with_external_attributes(tmpdir)
+            path = os.path.join(tmpdir, "model.onnx")
+            with (
+                unittest.mock.patch.object(
+                    ir.ExternalTensor, "numpy", side_effect=AssertionError("Must not load")
+                ),
+                unittest.mock.patch.object(
+                    ir.ExternalTensor, "tofile", side_effect=AssertionError("Must not copy")
+                ),
+            ):
+                _io.save(model, path, external_data="weights.data")
+            loaded = _io.load(path)
+            actual_tensors = [
+                reference[3]
+                for reference in ir.external_data._attribute_tensor_references(loaded)
+            ]
+            for actual, original, expected in zip(
+                actual_tensors, original_tensors, arrays, strict=True
+            ):
+                self.assertIsInstance(actual, ir.ExternalTensor)
+                self.assertEqual(actual.location, original.location)
+                self.assertEqual(actual.offset, original.offset)
+                self.assertTrue(original.valid())
+                np.testing.assert_array_equal(actual.numpy(), expected)
+                actual.release()
+
+    def test_save_relocates_external_attributes_without_materializing(self):
+        for shard_size, workers, convert_attributes in itertools.product(
+            (None, 8), (1, 4), (False, True)
+        ):
+            with (
+                self.subTest(
+                    shard_size=shard_size,
+                    workers=workers,
+                    convert_attributes=convert_attributes,
+                ),
+                tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir,
+            ):
+                source = os.path.join(tmpdir, "source")
+                destination = os.path.join(tmpdir, "destination")
+                os.mkdir(source)
+                os.mkdir(destination)
+                model, arrays, original_tensors = _create_model_with_external_attributes(
+                    source
+                )
+                original_attrs = [
+                    (node, name, node.attributes[name])
+                    for node, name, _, _ in ir.external_data._attribute_tensor_references(
+                        model
+                    )
+                ]
+                path = os.path.join(destination, "model.onnx")
+                with unittest.mock.patch.object(
+                    ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+                ):
+                    _io.save(
+                        model,
+                        path,
+                        external_data="model.data",
+                        size_threshold_bytes=0 if convert_attributes else 256,
+                        convert_attributes=convert_attributes,
+                        max_shard_size_bytes=shard_size,
+                        max_workers=workers,
+                    )
+                for node, name, attr in original_attrs:
+                    self.assertIs(node.attributes[name], attr)
+                self.assertTrue(all(tensor.valid() for tensor in original_tensors))
+                os.remove(os.path.join(source, "attributes.data"))
+                loaded = _io.load(path)
+                actual_tensors = [
+                    reference[3]
+                    for reference in ir.external_data._attribute_tensor_references(loaded)
+                ]
+                for actual, expected in zip(actual_tensors, arrays, strict=True):
+                    self.assertIsInstance(actual, ir.ExternalTensor)
+                    self.assertEqual(actual.doc_string, "tensor annotation")
+                    self.assertEqual(actual.metadata_props["tag"], "preserved")
+                    np.testing.assert_array_equal(actual.numpy(), expected)
+                    actual.release()
+
+    def test_save_preserves_hardlinked_attribute_references_without_copying(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = os.path.join(tmpdir, "source")
+            destination = os.path.join(tmpdir, "destination")
+            os.mkdir(source)
+            os.mkdir(destination)
+            model, arrays, original_tensors = _create_model_with_external_attributes(source)
+            os.link(
+                os.path.join(source, "attributes.data"),
+                os.path.join(destination, "attributes.data"),
+            )
+            path = os.path.join(destination, "model.onnx")
+            with (
+                unittest.mock.patch.object(
+                    ir.ExternalTensor, "numpy", side_effect=AssertionError("Must not load")
+                ),
+                unittest.mock.patch.object(
+                    ir.ExternalTensor, "tofile", side_effect=AssertionError("Must not copy")
+                ),
+            ):
+                _io.save(model, path, external_data="weights.data", size_threshold_bytes=0)
+            self.assertTrue(all(tensor.valid() for tensor in original_tensors))
+            os.remove(os.path.join(source, "attributes.data"))
+            for reference, expected in zip(
+                ir.external_data._attribute_tensor_references(_io.load(path)),
+                arrays,
+                strict=True,
+            ):
+                actual = reference[3]
+                self.assertEqual(actual.location, "attributes.data")
+                np.testing.assert_array_equal(actual.numpy(), expected)
+                actual.release()
+
+    def test_shared_materialized_attributes_are_invalidated_once_after_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tensor = ir.tensor(np.array([1.0], dtype=np.float32), name="shared")
+            external = ir.external_data.convert_tensors_to_external(
+                [tensor], tmpdir, "model.data"
+            )[0]
+            attribute = ir.AttrTensors("values", [external, external])
+            node = ir.Node("", "Op", [], attributes=[attribute])
+            initializer = _create_initializer(
+                ir.tensor(np.array([2.0, 3.0], dtype=np.float32), name="weight")
+            )
+            model = ir.Model(
+                ir.Graph([], [], nodes=[node], initializers=[initializer]), ir_version=10
+            )
+            path = os.path.join(tmpdir, "model.onnx")
+            with self.assertLogs("onnx_ir.external_data", level="WARNING") as logs:
+                _io.save(
+                    model,
+                    path,
+                    external_data="model.data",
+                    size_threshold_bytes=8,
+                    convert_attributes=True,
+                )
+            self.assertEqual(len(logs.output), 1)
+            self.assertFalse(external.valid())
+            self.assertIs(node.attributes["values"], attribute)
+            loaded = _io.load(path)
+            for actual in loaded.graph.node(0).attributes["values"].as_tensors():
+                self.assertNotIsInstance(actual, ir.ExternalTensor)
+                np.testing.assert_array_equal(actual.numpy(), tensor.numpy())
+            actual_initializer = loaded.graph.initializers["weight"].const_value
+            np.testing.assert_array_equal(
+                actual_initializer.numpy(), initializer.const_value.numpy()
+            )
+            actual_initializer.release()
+
+    def test_save_in_place_streams_attributes_and_invalidates_restored_sources(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            model, arrays, original_tensors = _create_model_with_external_attributes(tmpdir)
+            original_attrs = [
+                (node, name, node.attributes[name])
+                for node, name, _, _ in ir.external_data._attribute_tensor_references(model)
+            ]
+            path = os.path.join(tmpdir, "model.onnx")
+            with unittest.mock.patch.object(
+                ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+            ):
+                _io.save(
+                    model,
+                    path,
+                    external_data="attributes.data",
+                    size_threshold_bytes=256,
+                )
+            for node, name, attr in original_attrs:
+                self.assertIs(node.attributes[name], attr)
+            self.assertTrue(all(not tensor.valid() for tensor in original_tensors))
+            loaded = _io.load(path)
+            for reference, expected in zip(
+                ir.external_data._attribute_tensor_references(loaded), arrays, strict=True
+            ):
+                actual = reference[3]
+                self.assertIsInstance(actual, ir.ExternalTensor)
+                np.testing.assert_array_equal(actual.numpy(), expected)
+                actual.release()
+
+    def test_save_attribute_restoration_and_invalidation_on_failure(self):
+        for convert_attributes in (False, True):
+            for failure in ("write", "replace", "create_tensor", "serialize"):
+                with (
+                    self.subTest(convert_attributes=convert_attributes, failure=failure),
+                    tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir,
+                ):
+                    model, arrays, original_tensors = _create_model_with_external_attributes(
+                        tmpdir
+                    )
+                    original_attrs = [
+                        (node, name, node.attributes[name])
+                        for node, name, _, _ in ir.external_data._attribute_tensor_references(
+                            model
+                        )
+                    ]
+                    target = {
+                        "write": "onnx_ir.external_data._ExternalDataWriter.write",
+                        "replace": "onnx_ir.external_data.os.replace",
+                        "create_tensor": "onnx_ir.external_data._create_external_tensor",
+                        "serialize": "onnx_ir._io.serde.serialize_model",
+                    }[failure]
+                    with (
+                        unittest.mock.patch(target, side_effect=RuntimeError("injected")),
+                        self.assertRaisesRegex(RuntimeError, "injected"),
+                    ):
+                        _io.save(
+                            model,
+                            os.path.join(tmpdir, "model.onnx"),
+                            external_data="attributes.data",
+                            size_threshold_bytes=8,
+                            convert_attributes=convert_attributes,
+                        )
+                    for node, name, attr in original_attrs:
+                        self.assertIs(node.attributes[name], attr)
+                    for tensor, expected in zip(original_tensors, arrays, strict=True):
+                        self.assertEqual(
+                            tensor.valid(), failure not in {"create_tensor", "serialize"}
+                        )
+                        if tensor.valid():
+                            np.testing.assert_array_equal(tensor.numpy(), expected)
+                            tensor.release()
 
     def test_save_with_sharding_creates_multiple_shard_files(self):
         """Test that max_shard_size_bytes creates multiple numbered shard files."""
