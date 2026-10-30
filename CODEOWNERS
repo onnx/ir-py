@@ -1,4 +1,4 @@
 # onnx-ir is owned by archinfra SIG.
 # This file contains additional project specific approvers
 # The list should be in sync with https://github.com/onnx/sigs/blob/main/CONTRIBUTORS
-* @onnx/sig-archinfra-approvers @titaiwangms
+* @onnx/sig-archinfra-approvers

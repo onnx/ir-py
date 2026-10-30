@@ -33,22 +33,22 @@ def _remove_unused_optional_outputs(
         return
 
     if node.op_type == "BatchNormalization":
-        # BatchNormalization op has 3 outputs: Y, running_mean, running_var
-        # If running_mean and running_var are not used, remove them, and the training_mode attribute
-        def is_used_output(i: int) -> bool:
-            if i < len(node.outputs):
-                val = node.outputs[i]
-                return val in graph_outputs or bool(val.uses())
-            return False
-
-        if is_used_output(1) or is_used_output(2):
+        # Before opset 14, output arity selects training or inference behavior.
+        if "training_mode" not in op_schema.attributes:
             return
-        if len(node.outputs) > 1:
-            node.outputs[1].name = ""
-        if len(node.outputs) > 2:
-            node.outputs[2].name = ""
-        node.attributes.pop("training_mode", None)
-        return
+        training_mode = node.attributes.get("training_mode")
+        # Changing training mode to inference changes Y because training uses batch statistics.
+        # Only remove training outputs when inference mode is statically known.
+        if training_mode is not None and (
+            training_mode.is_ref()
+            or training_mode.type != ir.AttributeType.INT
+            or training_mode.as_int() != 0
+        ):
+            return
+        # Instead of deleting the attribute, set to the default (inference mode)
+        # to prevent a potential cycle involving the AddDefaultAttributesPass
+        # adding and unused removal subsequently deleting the attribute.
+        node.attributes["training_mode"] = ir.Attr("training_mode", ir.AttributeType.INT, 0)
 
     optional_info = []
     for o in op_schema.outputs:
@@ -57,10 +57,12 @@ def _remove_unused_optional_outputs(
             return
         optional_info.append(o.option == onnx.defs.OpSchema.FormalParameterOption.Optional)
     # If no optional outputs in spec, skip delete operations
-    if len([o == 1 for o in optional_info]) == 0:
+    if not any(optional_info):
         return
 
     for i, out in enumerate(node.outputs):
+        if i >= len(optional_info):
+            continue
         if out not in graph_outputs and (not out.uses()) and optional_info[i] is True:
             out.name = ""
 
@@ -85,9 +87,15 @@ def _remove_trailing_empty_inputs(node: ir.Node) -> None:
     node.resize_inputs(new_input_count)
 
 
-def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph) -> int:
+def _remove_unused_nodes_in_graph_like(
+    function_or_graph: ir.Function | ir.Graph,
+    onnx_opset_version: int | None = None,
+    *,
+    is_subgraph: bool = False,
+) -> int:
     graph_outputs = frozenset(function_or_graph.outputs)
-    onnx_opset_version = function_or_graph.opset_imports.get("", None)
+    if not is_subgraph:
+        onnx_opset_version = function_or_graph.opset_imports.get("", onnx_opset_version)
     count = 0
     for node in reversed(function_or_graph):
         removable = True
@@ -104,10 +112,14 @@ def _remove_unused_nodes_in_graph_like(function_or_graph: ir.Function | ir.Graph
                 _remove_unused_optional_outputs(node, graph_outputs, onnx_opset_version)
             for attr in node.attributes.values():
                 if attr.type == ir.AttributeType.GRAPH:
-                    count += _remove_unused_nodes_in_graph_like(attr.as_graph())
+                    count += _remove_unused_nodes_in_graph_like(
+                        attr.as_graph(), onnx_opset_version, is_subgraph=True
+                    )
                 elif attr.type == ir.AttributeType.GRAPHS:
                     for graph in attr.as_graphs():
-                        count += _remove_unused_nodes_in_graph_like(graph)
+                        count += _remove_unused_nodes_in_graph_like(
+                            graph, onnx_opset_version, is_subgraph=True
+                        )
     return count
 
 

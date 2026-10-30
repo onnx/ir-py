@@ -142,7 +142,15 @@ uses = list(value.uses())  # Each use includes the node and input index.
 ### Types, shapes, tensors, and attributes
 
 {py:class}`onnx_ir.Value` objects carry ONNX types such as tensor, sparse tensor,
-sequence, and optional types. Tensor shapes are represented by
+sequence, optional, and opaque types. Use
+{py:class}`onnx_ir.OpaqueType` for types whose representation is defined outside
+ONNX, for example `ir.OpaqueType(domain="com.example", name="Handle")`.
+Its optional `domain` and `name` fields preserve the distinction between unset
+(`None`) and explicitly empty (`""`) values. An unset domain refers to the model's
+domain. Opaque types have no tensor shape, and their `dtype` and `elem_type` are
+`None`; assigning a tensor dtype raises `TypeError`.
+
+Tensor shapes are represented by
 {py:class}`onnx_ir.Shape` and may contain static integer dimensions or shared
 {py:class}`onnx_ir.SymbolicDim` objects. A symbolic dimension can store a SymPy
 expression, enabling shape arithmetic that can later be evaluated with concrete
@@ -171,7 +179,8 @@ tensors, graphs, types, and ONNX function attribute references.
 
 Control-flow operators store subgraphs in node attributes. A subgraph can
 implicitly capture values from an enclosing graph in addition to declaring its own
-inputs, initializers, and outputs. Each graph also carries its own opset imports.
+inputs, initializers, and outputs. Subgraph `opset_imports` are ignored; use the
+main graph's opset imports for control-flow subgraphs.
 Use {py:class}`onnx_ir.traversal.RecursiveGraphIterator` or `graph.all_nodes()` to
 visit nodes in nested subgraphs.
 
