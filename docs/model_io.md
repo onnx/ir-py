@@ -108,6 +108,12 @@ Notes:
   Otherwise, attribute data is streamed into the requested external data file
   (or shards), regardless of the size threshold, without materializing it in RAM.
   Use `external_data.load_to_model(model)` explicitly to embed external attributes.
+- External source and output paths are checked before any data is written. Preserved attribute
+  references must also satisfy the [containment policy](security.md) in the destination
+  directory: symlinks resolving within that directory are allowed, but escaping
+  symlinks and files with multiple hard links are not. Readable sources are streamed
+  when their destination references cannot be preserved; prohibited sources raise
+  before writing.
 - Single-file mode writes in the destination directory and atomically replaces
   the destination only after the new data file is complete. A failed write
   leaves the previous file unchanged.
@@ -222,5 +228,8 @@ keeping the ONNX graph in `model.onnx`.
   are preserved when valid in the destination directory. Attributes requiring
   relocation or backed by an overwritten file are streamed into safetensors,
   regardless of their size, without materializing them in RAM.
+- Source paths and preserved references follow the same [containment policy](security.md)
+  as raw external-data saves. Prohibited sources are rejected before writing, and
+  destination references are validated while source links still exist.
 - Single-file saves replace the data file atomically. Sharded saves reject existing
   destination shard and index files; choose a different output path to re-save.

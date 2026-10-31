@@ -15,7 +15,7 @@ import onnx
 import onnx.external_data_helper
 
 import onnx_ir as ir
-from onnx_ir import external_data
+from onnx_ir import _core, external_data
 from onnx_ir._polyfill import zip
 
 
@@ -388,6 +388,64 @@ class AttributeExternalDataTest(unittest.TestCase):
                 external_data.convert_tensors_to_external(tensors, tmpdir, "model.data")
             self.assertEqual(file_identity.call_count, 1)
             self.assertTrue(all(not tensor.valid() for tensor in tensors))
+
+    def test_preserved_attribute_path_checks_are_cached_per_file(self):
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data.tofile(os.path.join(tmpdir, "source.data"))
+            tensors = [
+                ir.ExternalTensor(
+                    "source.data",
+                    0,
+                    data.nbytes,
+                    ir.DataType.FLOAT,
+                    shape=ir.Shape(data.shape),
+                    name=f"tensor_{index}",
+                    base_dir=tmpdir,
+                )
+                for index in range(100)
+            ]
+            attribute = ir.AttrTensors("values", tensors)
+            node = ir.Node("", "Op", [], attributes=[attribute])
+            model = ir.Model(ir.Graph([], [], nodes=[node]), ir_version=10)
+            with unittest.mock.patch.object(
+                _core,
+                "_check_external_data_path",
+                wraps=_core._check_external_data_path,
+            ) as check_path:
+                external_data.unload_from_model(model, tmpdir, "weights.data")
+            self.assertEqual(check_path.call_count, 3)
+            self.assertIs(node.attributes["values"], attribute)
+
+    def test_programmatic_source_without_base_dir_is_relocated_to_a_safe_reference(self):
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        # Keep the relative source on the working directory's volume on Windows.
+        with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmpdir:
+            source = os.path.join(tmpdir, "source.data")
+            data.tofile(source)
+            tensor = ir.ExternalTensor(
+                os.path.relpath(source),
+                0,
+                data.nbytes,
+                ir.DataType.FLOAT,
+                shape=ir.Shape(data.shape),
+                name="trusted",
+            )
+            node = ir.Node("", "Op", [], attributes=[ir.AttrTensor("value", tensor)])
+            model = ir.Model(ir.Graph([], [], nodes=[node]), ir_version=10)
+            destination = os.path.join(tmpdir, "destination")
+            os.mkdir(destination)
+            with unittest.mock.patch.object(
+                ir.ExternalTensor, "numpy", side_effect=AssertionError("Must stream")
+            ):
+                external_data.unload_from_model(
+                    model, destination, "weights.data", size_threshold_bytes=256
+                )
+            actual = node.attributes["value"].as_tensor()
+            self.assertEqual(actual.location, "weights.data")
+            self.assertTrue(tensor.valid())
+            np.testing.assert_array_equal(actual.numpy(), data)
+            actual.release()
 
 
 class HeaderWriteTest(unittest.TestCase):
