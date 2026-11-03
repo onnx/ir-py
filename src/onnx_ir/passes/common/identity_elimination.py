@@ -45,10 +45,11 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
 
     1. For any node of the form `y = Identity(x)`, where `y` is not an output
        of any graph, replace all uses of `y` with a use of `x`, and remove the node.
-    2. If `y` is an output of a graph, and `x` is not an input of any graph,
-       we can still do the elimination, but the value `x` should be renamed to be `y`.
-    3. If `y` is a graph-output and `x` is a graph-input, we cannot eliminate
-       the node. It should be retained.
+    2. If `y` is an output of a graph, and `x` is defined in that graph and is
+       not a graph input, output, or initializer, we can eliminate the node
+       and rename `x` to be `y`.
+    3. Otherwise, if `y` is a graph output, retain the node to preserve the
+       existing names of graph inputs, outputs, and initializers.
     """
 
     def call(self, model: ir.Model) -> ir.passes.PassResult:
@@ -93,9 +94,14 @@ class IdentityEliminationPass(ir.passes.InPlacePass):
 
         output_is_graph_output = output_value.is_graph_output()
 
-        # Case 3: Both node output is graph output and node input is graph input or initializer - keep the node
+        # Case 3: Keep the node when renaming its input would change an existing
+        # graph interface or initializer name, or adopt an outer-scope value
+        # as a direct subgraph output.
         if output_is_graph_output and (
-            input_value.is_graph_input() or input_value.is_initializer()
+            input_value.is_graph_input()
+            or input_value.is_graph_output()
+            or input_value.is_initializer()
+            or input_value.graph is not graph_like
         ):
             return False
 
