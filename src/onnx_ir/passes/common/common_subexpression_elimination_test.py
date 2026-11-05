@@ -48,10 +48,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             k.name: np.random.rand(*v.shape).astype(np.float32)
             for k, v in zip(model.graph.inputs, inputs)
         }
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 2
-        options.inter_op_num_threads = 2
-        original_model_session = ort.InferenceSession(model_proto.SerializeToString(), options)
+        original_model_session = ort.InferenceSession(model_proto.SerializeToString())
         original_model_results = original_model_session.run(None, ort_inputs)
 
         result = common_subexpression_elimination.CommonSubexpressionEliminationPass(
@@ -70,7 +67,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         )
 
         result_proto = ir.serde.serialize_model(result.model)
-        result_session = ort.InferenceSession(result_proto.SerializeToString(), options)
+        result_session = ort.InferenceSession(result_proto.SerializeToString())
         result_results = result_session.run(None, ort_inputs)
 
         # Check if the models produce the same output
@@ -81,39 +78,39 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             )
 
     def test_signed_zero_float_attributes_are_not_csed(self) -> None:
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 2
-        options.inter_op_num_threads = 2
-        for attribute, positive, negative, shape in (
-            ("value_float", "0.0", "-0.0", []),
-            ("value_floats", "[0.0]", "[-0.0]", [1]),
+        inputs = {"x": np.array([1.0, -2.0], dtype=np.float32)}
+        expected = [np.array([1.0, 0.0]), np.array([0.0, 1.0])]
+        for attribute, positive, negative in (
+            ("value_float", "0.0", "-0.0"),
+            ("value_floats", "[0.0]", "[-0.0]"),
         ):
             with self.subTest(attribute=attribute):
                 model = ir.from_onnx_text(
                     f"""<ir_version: 10, opset_import: ["" : 18]>
-                    signed_zero() => (string{shape} positive, string{shape} negative) {{
+                    signed_zero(float[2] x) => (float[2] positive, float[2] negative) {{
                         zp = Constant <{attribute}={positive}> ()
                         zn = Constant <{attribute}={negative}> ()
-                        positive = Cast <to=8> (zp)
-                        negative = Cast <to=8> (zn)
+                        dp = Div (x, zp)
+                        dn = Div (x, zn)
+                        positive = Sigmoid (dp)
+                        negative = Sigmoid (dn)
                     }}"""
                 )
                 for output in model.graph.outputs:
-                    output.shape = ir.Shape(shape)
-                expected = [np.full(shape, value, dtype=object) for value in ("0", "-0")]
+                    output.shape = ir.Shape([2])
                 before = ir.to_proto(model)
                 onnx.checker.check_model(before, full_check=True)
                 original = ort.InferenceSession(
-                    before.SerializeToString(), options, providers=["CPUExecutionProvider"]
-                ).run(None, {})
+                    before.SerializeToString(), providers=["CPUExecutionProvider"]
+                ).run(None, inputs)
                 result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(
                     model
                 )
                 after = ir.to_proto(result.model)
                 onnx.checker.check_model(after, full_check=True)
                 actual = ort.InferenceSession(
-                    after.SerializeToString(), options, providers=["CPUExecutionProvider"]
-                ).run(None, {})
+                    after.SerializeToString(), providers=["CPUExecutionProvider"]
+                ).run(None, inputs)
                 for original_output, actual_output, expected_output in zip(
                     original, actual, expected
                 ):
