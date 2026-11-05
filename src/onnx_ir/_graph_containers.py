@@ -102,6 +102,8 @@ class _GraphIO(collections.UserList["_core.Value"]):
     def __setitem__(self, i, item) -> None:
         """Replace an input/output to the node."""
         if isinstance(item, Iterable) and isinstance(i, slice):
+            # Materialize once because ownership tracking and assignment both iterate item.
+            item = tuple(item)
             # Modify a slice of the list
             for value in self.data[i]:
                 self._maybe_unset_graph(value)
