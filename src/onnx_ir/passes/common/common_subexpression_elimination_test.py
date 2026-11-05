@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import onnx
 import onnxruntime as ort
 from onnxscript import FLOAT, script
 from onnxscript import opset18 as op
@@ -47,7 +48,10 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             k.name: np.random.rand(*v.shape).astype(np.float32)
             for k, v in zip(model.graph.inputs, inputs)
         }
-        original_model_session = ort.InferenceSession(model_proto.SerializeToString())
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        options.inter_op_num_threads = 2
+        original_model_session = ort.InferenceSession(model_proto.SerializeToString(), options)
         original_model_results = original_model_session.run(None, ort_inputs)
 
         result = common_subexpression_elimination.CommonSubexpressionEliminationPass(
@@ -66,7 +70,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         )
 
         result_proto = ir.serde.serialize_model(result.model)
-        result_session = ort.InferenceSession(result_proto.SerializeToString())
+        result_session = ort.InferenceSession(result_proto.SerializeToString(), options)
         result_results = result_session.run(None, ort_inputs)
 
         # Check if the models produce the same output
@@ -75,6 +79,47 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             np.testing.assert_allclose(
                 original_model_result, result_results[idx], rtol=1e-5, atol=1e-5
             )
+
+    def test_signed_zero_float_attributes_are_not_csed(self) -> None:
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        options.inter_op_num_threads = 2
+        for attribute, positive, negative, shape in (
+            ("value_float", "0.0", "-0.0", []),
+            ("value_floats", "[0.0]", "[-0.0]", [1]),
+        ):
+            with self.subTest(attribute=attribute):
+                model = ir.from_onnx_text(
+                    f"""<ir_version: 10, opset_import: ["" : 18]>
+                    signed_zero() => (string{shape} positive, string{shape} negative) {{
+                        zp = Constant <{attribute}={positive}> ()
+                        zn = Constant <{attribute}={negative}> ()
+                        positive = Cast <to=8> (zp)
+                        negative = Cast <to=8> (zn)
+                    }}"""
+                )
+                for output in model.graph.outputs:
+                    output.shape = ir.Shape(shape)
+                expected = [np.full(shape, value, dtype=object) for value in ("0", "-0")]
+                before = ir.to_proto(model)
+                onnx.checker.check_model(before, full_check=True)
+                original = ort.InferenceSession(
+                    before.SerializeToString(), options, providers=["CPUExecutionProvider"]
+                ).run(None, {})
+                result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(
+                    model
+                )
+                after = ir.to_proto(result.model)
+                onnx.checker.check_model(after, full_check=True)
+                actual = ort.InferenceSession(
+                    after.SerializeToString(), options, providers=["CPUExecutionProvider"]
+                ).run(None, {})
+                for original_output, actual_output, expected_output in zip(
+                    original, actual, expected
+                ):
+                    np.testing.assert_array_equal(original_output, expected_output)
+                    np.testing.assert_array_equal(actual_output, expected_output)
+                self.assertFalse(result.modified)
 
     def test_duplicate_operations_are_csed(self):
         """Test if the same operations are CSEd.
