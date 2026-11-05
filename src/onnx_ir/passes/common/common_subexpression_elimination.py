@@ -197,6 +197,7 @@ def _is_non_deterministic_op(node: ir.Node) -> bool:
             "RandomUniformLike",
             "RandomNormalLike",
             "Multinomial",
+            "Dropout",
         }
     )
     return node.op_type in non_deterministic_ops and _is_onnx_domain(node.domain)

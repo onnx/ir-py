@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import onnx
 import onnxruntime as ort
 from onnxscript import FLOAT, script
 from onnxscript import opset18 as op
@@ -47,7 +48,10 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             k.name: np.random.rand(*v.shape).astype(np.float32)
             for k, v in zip(model.graph.inputs, inputs)
         }
-        original_model_session = ort.InferenceSession(model_proto.SerializeToString())
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 2
+        options.inter_op_num_threads = 2
+        original_model_session = ort.InferenceSession(model_proto.SerializeToString(), options)
         original_model_results = original_model_session.run(None, ort_inputs)
 
         result = common_subexpression_elimination.CommonSubexpressionEliminationPass(
@@ -66,7 +70,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         )
 
         result_proto = ir.serde.serialize_model(result.model)
-        result_session = ort.InferenceSession(result_proto.SerializeToString())
+        result_session = ort.InferenceSession(result_proto.SerializeToString(), options)
         result_results = result_session.run(None, ort_inputs)
 
         # Check if the models produce the same output
@@ -312,6 +316,25 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         # The outputs should still have the correct names
         self.assertEqual(new_graph.outputs[0].name, output_name_0)
         self.assertEqual(new_graph.outputs[1].name, output_name_1)
+
+    def test_training_dropout_evaluations_are_not_csed(self) -> None:
+        model = ir.from_onnx_text(
+            """<ir_version: 10, opset_import: ["" : 18]>
+            dropout_pair (float[8] x) => (bool[8] disagreement) {
+                ratio = Constant <value_float=0.5> ()
+                training = Constant <value=bool training_flag {1}> ()
+                a, ma = Dropout (x, ratio, training)
+                b, mb = Dropout (x, ratio, training)
+                disagreement = Xor (ma, mb)
+            }"""
+        )
+        onnx.checker.check_model(ir.to_proto(model), full_check=True)
+        result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(model)
+        onnx.checker.check_model(ir.to_proto(result.model), full_check=True)
+        self.assertEqual(sum(node.op_type == "Dropout" for node in result.model.graph), 2)
+        xor = next(node for node in result.model.graph if node.op_type == "Xor")
+        self.assertIsNot(xor.inputs[0], xor.inputs[1])
+        self.assertFalse(result.modified)
 
     def test_non_deterministic_ops_are_not_csed(self):
         """Test if non-deterministic ops are not CSEd.
