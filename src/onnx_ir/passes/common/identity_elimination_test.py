@@ -4,7 +4,13 @@
 
 from __future__ import annotations
 
+import itertools
 import unittest
+
+import numpy as np
+import onnx
+import onnx.reference
+import onnxruntime as ort
 
 import onnx_ir as ir
 from onnx_ir.passes.common import identity_elimination
@@ -12,6 +18,176 @@ from onnx_ir.passes.common import identity_elimination
 
 class TestIdentityEliminationPass(unittest.TestCase):
     """Test cases for IdentityEliminationPass."""
+
+    def _assert_public_outputs_preserved(self, model):
+        original = ir.to_proto(model)
+        onnx.checker.check_model(original, full_check=True)
+        names = [output.name for output in original.graph.output]
+        result = identity_elimination.IdentityEliminationPass()(model)
+        rewritten = ir.to_proto(result.model)
+        self.assertEqual([output.name for output in rewritten.graph.output], names)
+        onnx.checker.check_model(rewritten, full_check=True)
+        inputs = {"x": np.array([-2, 0, 3], dtype=np.float32)}
+        expected = np.maximum(inputs["x"], 0)
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        for proto in (original, rewritten):
+            session = ort.InferenceSession(
+                proto.SerializeToString(), options, providers=["CPUExecutionProvider"]
+            )
+            for actual in session.run(names, inputs):
+                np.testing.assert_array_equal(actual, expected)
+            for actual in onnx.reference.ReferenceEvaluator(proto).run(names, inputs):
+                np.testing.assert_array_equal(actual, expected)
+        return result
+
+    def test_preserve_distinct_output_aliases(self):
+        for names in (("y", "z"), ("z", "y"), ("y", "z", "w"), ("z", "w"), ("w",)):
+            with self.subTest(names=names):
+                outputs = ", ".join(f"float[3] {name}" for name in names)
+                chain = "w = Identity(z)" if "w" in names else ""
+                original = onnx.parser.parse_model(
+                    f"""<ir_version: 8, opset_import: ["": 18]>
+                    main (float[3] x) => ({outputs}) {{
+                        y = Relu(x)
+                        z = Identity(y)
+                        {chain}
+                    }}"""
+                )
+                model = ir.from_proto(original)
+                result = self._assert_public_outputs_preserved(model)
+                self.assertEqual(result.modified, "y" not in names)
+                self.assertEqual(len(result.model.graph), len(names))
+
+    def test_preserve_function_output_aliases(self):
+        original = onnx.parser.parse_model(
+            """<ir_version: 8, opset_import: ["": 18, "local": 1]>
+            main (float[3] x) => (float[3] y, float[3] z) {
+                y, z = local.Aliases(x)
+            }"""
+        )
+        original.functions.append(
+            onnx.helper.make_function(
+                "local",
+                "Aliases",
+                ["x"],
+                ["y", "z"],
+                [
+                    onnx.helper.make_node("Relu", ["x"], ["y"]),
+                    onnx.helper.make_node("Identity", ["y"], ["z"]),
+                ],
+                [onnx.helper.make_opsetid("", 18)],
+            )
+        )
+        model = ir.from_proto(original)
+        result = self._assert_public_outputs_preserved(model)
+        function = next(iter(model.functions.values()))
+        self.assertEqual([value.name for value in function.outputs], ["y", "z"])
+        self.assertFalse(result.modified)
+
+    def test_preserve_subgraph_output_aliases(self):
+        outputs = [
+            onnx.helper.make_tensor_value_info(name, onnx.TensorProto.FLOAT, [3])
+            for name in ("y", "z")
+        ]
+        branch = onnx.helper.make_graph(
+            [
+                onnx.helper.make_node("Relu", ["x"], ["y"]),
+                onnx.helper.make_node("Identity", ["y"], ["z"]),
+            ],
+            "branch",
+            [],
+            outputs,
+        )
+        original = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [
+                    onnx.helper.make_node(
+                        "If", ["condition"], ["y", "z"], then_branch=branch, else_branch=branch
+                    )
+                ],
+                "main",
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [3])],
+                outputs,
+                initializer=[onnx.numpy_helper.from_array(np.array(True), name="condition")],
+            ),
+            opset_imports=[onnx.helper.make_opsetid("", 18)],
+            ir_version=8,
+        )
+        model = ir.from_proto(original)
+        result = self._assert_public_outputs_preserved(model)
+        for attribute in model.graph[0].attributes.values():
+            self.assertEqual(
+                [value.name for value in attribute.as_graph().outputs], ["y", "z"]
+            )
+        self.assertFalse(result.modified)
+
+    def test_captured_intermediate_identity(self):
+        for is_output, condition in itertools.product((False, True), (False, True)):
+            with self.subTest(is_output=is_output, condition=condition):
+                branches = []
+                for name in ("then", "else"):
+                    alias = f"{name}_alias"
+                    nodes = [onnx.helper.make_node("Identity", ["mid"], [alias])]
+                    output = alias
+                    if not is_output:
+                        output = f"{name}_output"
+                        nodes.append(onnx.helper.make_node("Relu", [alias], [output]))
+                    branches.append(
+                        onnx.helper.make_graph(
+                            nodes,
+                            name,
+                            [],
+                            [
+                                onnx.helper.make_tensor_value_info(
+                                    output, onnx.TensorProto.FLOAT, [3]
+                                )
+                            ],
+                        )
+                    )
+                original = onnx.helper.make_model(
+                    onnx.helper.make_graph(
+                        [
+                            onnx.helper.make_node("Relu", ["x"], ["mid"]),
+                            onnx.helper.make_node(
+                                "If",
+                                ["condition"],
+                                ["z"],
+                                then_branch=branches[0],
+                                else_branch=branches[1],
+                            ),
+                        ],
+                        "main",
+                        [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [3])],
+                        [onnx.helper.make_tensor_value_info("z", onnx.TensorProto.FLOAT, [3])],
+                        initializer=[
+                            onnx.numpy_helper.from_array(np.array(condition), name="condition")
+                        ],
+                    ),
+                    opset_imports=[onnx.helper.make_opsetid("", 18)],
+                    ir_version=8,
+                )
+                model = ir.from_proto(original)
+                captured = model.graph[0].outputs[0]
+                captured_state = (captured.name, captured.type, captured.shape, captured.graph)
+                result = self._assert_public_outputs_preserved(model)
+                self.assertEqual(result.modified, not is_output)
+                self.assertEqual(
+                    (captured.name, captured.type, captured.shape, captured.graph),
+                    captured_state,
+                )
+                for attribute in model.graph[1].attributes.values():
+                    branch = attribute.as_graph()
+                    self.assertEqual(
+                        [node.op_type for node in branch],
+                        ["Identity" if is_output else "Relu"],
+                    )
+                    self.assertIs(branch[0].inputs[0], captured)
+                    self.assertEqual(
+                        branch.outputs[0].name,
+                        f"{branch.name}_{'alias' if is_output else 'output'}",
+                    )
 
     def test_eliminate_identity_not_graph_output(self):
         """Test: y = Identity(x) where y is not a graph output."""
