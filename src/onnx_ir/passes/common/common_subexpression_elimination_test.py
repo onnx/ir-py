@@ -48,10 +48,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             k.name: np.random.rand(*v.shape).astype(np.float32)
             for k, v in zip(model.graph.inputs, inputs)
         }
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 2
-        options.inter_op_num_threads = 2
-        original_model_session = ort.InferenceSession(model_proto.SerializeToString(), options)
+        original_model_session = ort.InferenceSession(model_proto.SerializeToString())
         original_model_results = original_model_session.run(None, ort_inputs)
 
         result = common_subexpression_elimination.CommonSubexpressionEliminationPass(
@@ -70,7 +67,7 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
         )
 
         result_proto = ir.serde.serialize_model(result.model)
-        result_session = ort.InferenceSession(result_proto.SerializeToString(), options)
+        result_session = ort.InferenceSession(result_proto.SerializeToString())
         result_results = result_session.run(None, ort_inputs)
 
         # Check if the models produce the same output
