@@ -44,6 +44,18 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
             size_limit,
         )
         return True
+
+    if isinstance(const_val, ir.ExternalTensor):
+        try:
+            const_val.numpy()
+        except FileNotFoundError:
+            logger.warning(
+                "Skipped deduplication of initializer '%s' because external data file '%s' "
+                "was not found. Restore the file or set the tensor's base_dir to its directory.",
+                initializer.name,
+                const_val.path,
+            )
+            return True
     return False
 
 
@@ -70,6 +82,9 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 
     This pass detects initializers with identical shape, dtype, and content,
     and replaces all duplicate references with a canonical one.
+
+    External initializers whose data files are missing are left unchanged.
+    Other errors reading external data are propagated.
 
     Initializers are deduplicated within each graph. To deduplicate initializers
     in the model globally (across graphs), use :class:`~onnx_ir.passes.common.LiftSubgraphInitializersToMainGraphPass`
@@ -119,6 +134,9 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
     This pass detects initializers with identical shape, dtype, and hashed content,
     and replaces all duplicate references with a canonical one.
+
+    External initializers whose data files are missing are left unchanged.
+    Other errors reading external data are propagated.
 
     This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
     as it does not store the full tensor data in memory, but instead uses a hash of the tensor data.
