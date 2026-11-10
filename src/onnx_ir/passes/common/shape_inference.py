@@ -40,7 +40,10 @@ def _merge_func(model: ir.Model, inferred_proto: onnx.ModelProto) -> bool:
                 if value.shape != inferred_value.shape and inferred_value.shape is not None:
                     value.shape = inferred_value.shape
                     modified = True
-                if value.dtype != inferred_value.dtype and inferred_value.dtype is not None:
+                if value.type is None and inferred_value.type is not None:
+                    value.type = inferred_value.type
+                    modified = True
+                elif value.dtype != inferred_value.dtype and inferred_value.dtype is not None:
                     value.dtype = inferred_value.dtype
                     modified = True
             else:
