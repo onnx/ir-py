@@ -390,9 +390,9 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
         package are used. The values can be reinterpreted as bit representations
         using the ``.view()`` method.
 
-        When the data type is a string, this method returns a numpy array
-        of bytes instead of a numpy array of strings, to follow the ONNX
-        specification.
+        When the data type is a string, this method returns an object array
+        of bytes, without decoding or stripping trailing NUL bytes. Empty string
+        tensors also use object dtype and retain their shape.
 
         External tensors are not supported by this class. Use
         :class:`onnx_ir.ExternalTensor` instead.
@@ -427,7 +427,7 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
                 self._proto.raw_data, dtype=dtype.numpy().newbyteorder("<")
             ).reshape(shape)
         if dtype == _enums.DataType.STRING:
-            return np.array(self._proto.string_data).reshape(shape)
+            return np.array(self._proto.string_data, dtype=object).reshape(shape)
         if self._proto.int32_data:
             assert dtype in {
                 _enums.DataType.BFLOAT16,
