@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+import onnx
+
 import onnx_ir as ir
 
 
@@ -76,6 +78,102 @@ class GraphContainersTest(unittest.TestCase):
         graph.inputs[0:2] = [v3]
         self.assertEqual(len(graph.inputs), 1)
         self.assertEqual(graph.inputs[0].name, "z")
+
+    def test_graph_io_slice_replace_with_iterable(self):
+        for kind in ("inputs", "outputs"):
+            for iterable_type in (list, tuple, iter, lambda values: (v for v in values)):
+                for index, replacement_count in (
+                    (slice(None), 2),
+                    (slice(1, 3), 1),
+                    (slice(None, None, 2), 2),
+                    (slice(None, None, -1), 4),
+                    (slice(1, 1, 2), 0),
+                    (slice(None), 0),
+                ):
+                    with self.subTest(kind=kind, iterable_type=iterable_type, index=index):
+                        old = [ir.Value(name=f"old_{i}") for i in range(4)]
+                        new = [ir.Value(name=f"new_{i}") for i in range(replacement_count)]
+                        graph = ir.Graph([], [], nodes=[])
+                        values = getattr(graph, kind)
+                        values.extend(old)
+                        expected = list(old)
+                        expected[index] = new
+                        values[index] = iterable_type(new)
+                        self.assertEqual(list(values), expected)
+                        for value in old + new:
+                            is_member = value in expected
+                            self.assertIs(value.graph, graph if is_member else None)
+                            self.assertEqual(
+                                value.is_graph_input(), kind == "inputs" and is_member
+                            )
+                            self.assertEqual(
+                                value.is_graph_output(), kind == "outputs" and is_member
+                            )
+                        values.clear()
+                        for value in old + new:
+                            self.assertIsNone(value.graph)
+
+    def test_graph_io_slice_replace_from_self(self):
+        for kind in ("inputs", "outputs"):
+            for use_generator in (False, True):
+                with self.subTest(kind=kind, use_generator=use_generator):
+                    old = [ir.Value(name=f"value_{i}") for i in range(3)]
+                    graph = ir.Graph([], [], nodes=[])
+                    values = getattr(graph, kind)
+                    values.extend(old)
+                    replacement = (value for value in values) if use_generator else values
+                    expected = list(old)
+                    expected[1:2] = old
+                    values[1:2] = replacement
+                    self.assertEqual(list(values), expected)
+                    # Values repeated by the replacement stay owned until their last use.
+                    while values:
+                        value = values.pop()
+                        self.assertIs(value.graph, graph if value in values else None)
+                        self.assertEqual(
+                            value.is_graph_input(), kind == "inputs" and value in values
+                        )
+                        self.assertEqual(
+                            value.is_graph_output(), kind == "outputs" and value in values
+                        )
+
+    def test_graph_io_extended_slice_rejects_wrong_length(self):
+        for kind in ("inputs", "outputs"):
+            for replacement_count in (0, 1, 3):
+                with self.subTest(kind=kind, replacement_count=replacement_count):
+                    old = [ir.Value(name=f"old_{i}") for i in range(4)]
+                    new = [ir.Value(name=f"new_{i}") for i in range(replacement_count)]
+                    graph = ir.Graph([], [], nodes=[])
+                    values = getattr(graph, kind)
+                    values.extend(old)
+                    expected = list(old)
+                    with self.assertRaises(ValueError):
+                        expected[::2] = iter(new)
+                    with self.assertRaises(ValueError):
+                        values[::2] = iter(new)
+                    self.assertEqual(list(values), expected)
+
+    def test_model_clone_keeps_graph_io_after_generator_slice(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["": 18]>
+            identity (float[2] x) => (float[2] y) {
+                y = Identity(x)
+            }
+            """
+        )
+        original = ir.to_proto(model)
+        for kind in ("inputs", "outputs"):
+            with self.subTest(kind=kind):
+                clone = model.clone()
+                values = getattr(clone.graph, kind)
+                expected = list(values)
+                values[:] = (value for value in values)
+                self.assertEqual(list(values), expected)
+                serialized = ir.to_proto(clone)
+                self.assertEqual(serialized, original)
+                onnx.checker.check_model(serialized, full_check=True)
+                self.assertEqual(ir.to_proto(model), original)
 
     def test_graph_io_unimplemented_methods(self):
         v = ir.Value(name="x")
