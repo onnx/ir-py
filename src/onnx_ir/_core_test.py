@@ -4475,11 +4475,28 @@ class StringTensorTest(unittest.TestCase):
         tensor = _core.StringTensor([b"a\x00", b"\x00", b"b"], shape=_core.Shape([3]))
         self.assertEqual(tensor.numpy().tolist(), [b"a\x00", b"\x00", b"b"])
 
-    def test_numpy_empty(self):
-        tensor = _core.StringTensor([], shape=_core.Shape([0, 2]))
+    @parameterized.parameterized.expand([(0,), (0, 2), (2, 0)])
+    def test_numpy_empty(self, *shape):
+        tensor = _core.StringTensor([], shape=_core.Shape(shape))
         array = tensor.numpy()
-        self.assertEqual(array.shape, (0, 2))
+        self.assertEqual(array.shape, shape)
         self.assertEqual(array.dtype, object)
+
+    @parameterized.parameterized.expand(
+        [
+            ("scalar", [b"\xff\x00"], ()),
+            ("matrix", [b"", b"\x00", b"a\x00b", b"a\x00", b"\xff", b"\xc3\xa9"], (2, 3)),
+        ]
+    )
+    def test_numpy_preserves_raw_bytes(self, _, data, shape):
+        for backing in (data, np.array(data, dtype=object).reshape(shape)):
+            with self.subTest(backing=type(backing)):
+                tensor = _core.StringTensor(backing, shape=_core.Shape(shape))
+                array = tensor.numpy()
+                self.assertEqual(array.shape, shape)
+                self.assertEqual(array.dtype, object)
+                self.assertEqual(array.flatten().tolist(), data)
+                self.assertEqual(np.asarray(tensor).flatten().tolist(), data)
 
 
 class GraphCloneTest(unittest.TestCase):

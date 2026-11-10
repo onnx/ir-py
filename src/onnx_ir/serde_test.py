@@ -105,6 +105,40 @@ agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
 class TensorProtoTensorTest(unittest.TestCase):
     @parameterized.parameterized.expand(
         [
+            ("scalar", [b"\xff\x00"], ()),
+            ("matrix", [b"", b"\x00", b"a\x00b", b"a\x00", b"\xff", b"\xc3\xa9"], (2, 3)),
+            ("empty_vector", [], (0,)),
+            ("empty_matrix", [], (0, 2)),
+            ("empty_last_dimension", [], (2, 0)),
+        ]
+    )
+    def test_string_numpy_roundtrip_preserves_bytes_and_shape(self, _, data, shape):
+        proto = onnx.TensorProto(
+            name="strings",
+            data_type=onnx.TensorProto.STRING,
+            dims=shape,
+            string_data=data,
+        )
+        for tensor in (serde.TensorProtoTensor(proto), serde.deserialize_tensor(proto)):
+            with self.subTest(backing=type(tensor)):
+                array = tensor.numpy()
+                self.assertEqual(array.dtype, object)
+                self.assertEqual(array.shape, shape)
+                self.assertEqual(array.flatten().tolist(), data)
+                self.assertEqual(np.asarray(tensor).flatten().tolist(), data)
+                rebuilt = ir.StringTensor(array)
+                roundtrip_proto = serde.serialize_tensor(rebuilt)
+                self.assertEqual(roundtrip_proto.data_type, onnx.TensorProto.STRING)
+                self.assertEqual(tuple(roundtrip_proto.dims), shape)
+                self.assertEqual(list(roundtrip_proto.string_data), data)
+                self.assertFalse(roundtrip_proto.HasField("raw_data"))
+                roundtrip_array = serde.deserialize_tensor(roundtrip_proto).numpy()
+                self.assertEqual(roundtrip_array.dtype, object)
+                self.assertEqual(roundtrip_array.shape, shape)
+                self.assertEqual(roundtrip_array.flatten().tolist(), data)
+
+    @parameterized.parameterized.expand(
+        [
             ("FLOAT", onnx.TensorProto.FLOAT),
             ("BOOL", onnx.TensorProto.BOOL),
             ("FLOAT16", onnx.TensorProto.FLOAT16),

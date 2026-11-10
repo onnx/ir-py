@@ -5,6 +5,7 @@
 import unittest
 
 import numpy as np
+import onnx
 import parameterized
 
 import onnx_ir as ir
@@ -103,6 +104,50 @@ class DeduplicateInitializersTest(unittest.TestCase):
         model.graph.initializers["s2"].const_value = ir.tensor(np.array([b"AB"]))
         new_model = self.apply_pass(model)
         self.assertEqual(len(new_model.graph.initializers), 1)
+
+    @parameterized.parameterized.expand(
+        [
+            ("equal_bytes", [b"AB", b"\xff\x00"], [b"AB", b"\xff\x00"], True),
+            ("trailing_nul", [b"a"], [b"a\x00"], False),
+            ("empty_string", [b""], [b"\x00"], False),
+            ("element_boundaries", [b"a\x00", b"b"], [b"a", b"\x00b"], False),
+            ("empty_tensor", [], [], True),
+        ]
+    )
+    def test_proto_backed_string_initializers(self, _, left, right, should_merge):
+        initializers = [
+            ir.val(
+                name,
+                const_value=ir.serde.TensorProtoTensor(
+                    onnx.TensorProto(
+                        name=name,
+                        data_type=onnx.TensorProto.STRING,
+                        dims=[len(data)],
+                        string_data=data,
+                    )
+                ),
+            )
+            for name, data in (("left", left), ("right", right))
+        ]
+        concat = ir.node("Concat", inputs=initializers, attributes={"axis": 0})
+        model = ir.Model(
+            ir.Graph(
+                inputs=[],
+                outputs=concat.outputs,
+                nodes=[concat],
+                initializers=initializers,
+                opset_imports={"": 18},
+            ),
+            ir_version=8,
+        )
+        result = self.pass_class()(model)
+        self.assertEqual(result.modified, should_merge)
+        self.assertEqual(len(model.graph.initializers), 1 if should_merge else 2)
+        self.assertEqual(concat.inputs[0] is concat.inputs[1], should_merge)
+        for value, expected in zip(concat.inputs, (left, right)):
+            self.assertEqual(
+                list(ir.serde.serialize_tensor(value.const_value).string_data), expected
+            )
 
     def test_initializers_with_different_shapes_not_deduplicated(self):
         model = ir.from_onnx_text(

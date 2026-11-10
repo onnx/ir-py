@@ -90,8 +90,14 @@ class CommonSubexpressionEliminationPass(ir.passes.InPlacePass):
                         large_tensor = True
                         break
                     np_value = value.numpy()
-
-                    value = (np_value.shape, str(np_value.dtype), np_value.tobytes())
+                    if value.dtype.is_string():
+                        strings = tuple(
+                            s.encode("utf-8") if isinstance(s, str) else s
+                            for s in np_value.flat
+                        )
+                        value = (np_value.shape, ir.DataType.STRING, strings)
+                    else:
+                        value = (np_value.shape, str(np_value.dtype), np_value.tobytes())
                 attributes[k] = value
 
             if control_flow_op:

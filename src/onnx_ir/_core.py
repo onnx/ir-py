@@ -1120,7 +1120,12 @@ class StringTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=to
         return self._raw  # type: ignore[return-value]
 
     def numpy(self) -> npt.NDArray[np.bytes_] | npt.NDArray[np.object_]:
-        """Return the tensor as a numpy array."""
+        """Return the tensor as a numpy array.
+
+        Sequence-backed tensors use object dtype to preserve arbitrary bytes,
+        including trailing NUL bytes, and the shape of empty tensors. NumPy-backed
+        tensors retain their backing array's dtype.
+        """
         return self.__array__()
 
     def tobytes(self) -> bytes:
