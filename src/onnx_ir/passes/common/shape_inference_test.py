@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import onnx
 
 import onnx_ir as ir
 from onnx_ir.passes.common import _c_api_utils, shape_inference
@@ -49,6 +50,65 @@ class TestShapeInferencePass(unittest.TestCase):
         self.assertEqual(result.model.graph.node(0).outputs[0].dtype, ir.DataType.FLOAT)
         self.assertEqual(result.model.graph.outputs[0].shape, ir.Shape((1, 2)))
         self.assertEqual(result.model.graph.outputs[0].dtype, ir.DataType.FLOAT)
+
+    def test_pass_preserves_inferred_container_types(self):
+        tensor_type = ir.TensorType(ir.DataType.FLOAT)
+        sequence_type = ir.SequenceType(tensor_type)
+        for input_type in (tensor_type, sequence_type):
+            with self.subTest(input_type=input_type):
+                input_value = ir.Value(name="x", type=input_type, shape=ir.Shape([2]))
+                tape = ir.tape.Tape()
+                output = tape.op("Optional", inputs=[input_value])
+                model = ir.Model(
+                    ir.Graph(
+                        inputs=[input_value],
+                        outputs=[output],
+                        nodes=tape.nodes,
+                        opset_imports={"": 18},
+                        name="optional_graph",
+                    ),
+                    ir_version=10,
+                )
+                self.assertIsNone(output.type)
+
+                result = shape_inference.ShapeInferencePass()(model)
+
+                self.assertTrue(result.modified)
+                self.assertEqual(output.type, ir.OptionalType(input_type))
+                self.assertFalse(shape_inference.ShapeInferencePass()(model).modified)
+                onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+    def test_pass_preserves_loop_carried_sequence_type(self):
+        proto = onnx.parser.parse_model("""
+            <ir_version: 10, opset_import: ["" : 18]>
+            graph (float[2] x, int64 trip_count, bool cond) => (float[?] y) {
+                empty = SequenceEmpty <dtype: int = 1> ()
+                sequence = Loop (trip_count, cond, empty) <
+                    body: graph = body (
+                        int64 iteration, bool cond_in, seq(float[]) sequence_in
+                    ) => (bool cond_out, seq(float[]) sequence_out) {
+                        cond_out = Identity (cond_in)
+                        sequence_out = SequenceInsert (sequence_in, x)
+                    }
+                >
+                y = ConcatFromSequence <axis: int = 0> (sequence)
+            }
+        """)
+        model = ir.from_proto(proto)
+        empty = model.graph.node(0).outputs[0]
+        sequence = model.graph.node(1).outputs[0]
+        self.assertIsNone(empty.type)
+        self.assertIsNone(sequence.type)
+
+        result = shape_inference.ShapeInferencePass()(model)
+
+        self.assertTrue(result.modified)
+        sequence_type = ir.SequenceType(ir.TensorType(ir.DataType.FLOAT))
+        self.assertEqual(empty.type, sequence_type)
+        self.assertEqual(sequence.type, sequence_type)
+        body = model.graph.node(1).attributes["body"].as_graph()
+        self.assertEqual(body.outputs[1].type, sequence_type)
+        onnx.checker.check_model(ir.to_proto(model), full_check=True)
 
     def test_pass_with_initializers(self):
         # _BIG_TENSOR_SIZE_LIMIT is in bytes, but we create big_dim as size
