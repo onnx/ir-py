@@ -46,7 +46,7 @@ jobs:
             nox-tag: test
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.0
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
@@ -63,12 +63,12 @@ jobs:
         run: nox -t ${{ matrix.nox-tag }} --forcecolor -- --cov=src/onnx_ir --cov-report=xml --cov-append --cov-branch -n=auto --junitxml junit.xml
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report-type: test_results
@@ -80,7 +80,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.0
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -105,7 +105,7 @@ jobs:
     needs: [test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.0
         with:
           persist-credentials: false
       - name: Setup Python
@@ -121,7 +121,7 @@ jobs:
         run: |
           python -m build
       - name: Upload wheels
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         with:
           name: dist

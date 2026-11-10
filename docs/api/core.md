@@ -51,6 +51,7 @@ See [Introduction to the IR](../ir.md) for the object model and
     onnx_ir.SparseTensorType
     onnx_ir.SequenceType
     onnx_ir.OptionalType
+    onnx_ir.OpaqueType
     onnx_ir.Tensor
     onnx_ir.ExternalTensor
     onnx_ir.StringTensor

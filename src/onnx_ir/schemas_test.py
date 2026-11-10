@@ -238,6 +238,26 @@ class GetTypeFromStrTest(unittest.TestCase):
             schemas._get_type_from_str("unknown(tensor(float))")
         self.assertIn("Unknown type part: 'unknown'", str(context.exception))
 
+    @parameterized.parameterized.expand(
+        [
+            ("opaque()", ir.OpaqueType()),
+            ("opaque(Handle)", ir.OpaqueType(name="Handle")),
+            ("opaque(,Handle)", ir.OpaqueType(name="Handle")),
+            ("opaque(com.example,)", ir.OpaqueType(domain="com.example")),
+            ("opaque(com.example,Handle)", ir.OpaqueType("com.example", "Handle")),
+            (
+                "seq(opaque(com.example,Handle))",
+                ir.SequenceType(ir.OpaqueType("com.example", "Handle")),
+            ),
+            (
+                "optional(seq(opaque(com.example,Handle)))",
+                ir.OptionalType(ir.SequenceType(ir.OpaqueType("com.example", "Handle"))),
+            ),
+        ]
+    )
+    def test_opaque_types(self, type_str: str, expected: ir.TypeProtocol):
+        self.assertEqual(schemas._get_type_from_str(type_str), expected)
+
 
 class OpSignatureTest(unittest.TestCase):
     def setUp(self):

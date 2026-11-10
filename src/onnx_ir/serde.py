@@ -1153,6 +1153,12 @@ def deserialize_type_proto_for_type(
         if nested_type is None:
             raise ValueError(f"SequenceType must have elem_type set: {proto}")
         return _core.OptionalType(nested_type, denotation=denotation)
+    if proto.WhichOneof("value") == "opaque_type":
+        return _core.OpaqueType(
+            domain=_get_field(proto.opaque_type, "domain"),
+            name=_get_field(proto.opaque_type, "name"),
+            denotation=denotation,
+        )
     if proto.HasField("map_type"):
         # TODO(justinchuby): Do we need to support map types?
         raise NotImplementedError(f"Map types are not supported yet. {_PLEASE_CONTRIBUTE}")
@@ -2355,7 +2361,7 @@ def serialize_value_into(
 
 @_capture_errors(lambda type_proto, from_: repr(from_))
 def serialize_type_into(type_proto: onnx.TypeProto, from_: _protocols.TypeProtocol) -> None:
-    if from_.denotation:
+    if from_.denotation is not None:
         type_proto.denotation = from_.denotation
     if isinstance(from_, _core.TensorType):
         tensor_type_proto = type_proto.tensor_type
@@ -2369,6 +2375,14 @@ def serialize_type_into(type_proto: onnx.TypeProto, from_: _protocols.TypeProtoc
     elif isinstance(from_, _core.OptionalType):
         optional_type_proto = type_proto.optional_type
         serialize_type_into(optional_type_proto.elem_type, from_.elem_type)
+    elif isinstance(from_, _core.OpaqueType):
+        opaque_type_proto = type_proto.opaque_type
+        opaque_type_proto.Clear()
+        opaque_type_proto.SetInParent()
+        if from_.domain is not None:
+            opaque_type_proto.domain = from_.domain
+        if from_.name is not None:
+            opaque_type_proto.name = from_.name
     else:
         raise TypeError(f"Unsupported type: {from_}")
 
@@ -2399,7 +2413,7 @@ def serialize_shape_into(type_proto: onnx.TypeProto, from_: _protocols.ShapeProt
         )
         return
     tensor_type = getattr(type_proto, value_field)
-    while not isinstance(tensor_type.elem_type, int):
+    while value_field in ("sequence_type", "optional_type"):
         # Find the leaf type that has the shape field
         type_proto = tensor_type.elem_type
         value_field = type_proto.WhichOneof("value")
@@ -2411,6 +2425,8 @@ def serialize_shape_into(type_proto: onnx.TypeProto, from_: _protocols.ShapeProt
             )
             return
         tensor_type = getattr(type_proto, value_field)
+    if value_field not in ("tensor_type", "sparse_tensor_type"):
+        raise ValueError(f"Cannot serialize a tensor shape for {value_field}.")
     # When from is empty, we still need to set the shape field to an empty list by touching it
     tensor_type.shape.ClearField("dim")
     for i, dim in enumerate(from_):
