@@ -9,6 +9,7 @@ __all__ = [
 ]
 
 import logging
+import struct
 from collections.abc import Sequence
 
 import onnx_ir as ir
@@ -76,13 +77,13 @@ class CommonSubexpressionEliminationPass(ir.passes.InPlacePass):
                 # The attribute value could be directly taken from the original
                 # protobuf, so we need to make a copy of it.
                 value = v.value
-                if v.type in (
-                    ir.AttributeType.INTS,
-                    ir.AttributeType.FLOATS,
-                    ir.AttributeType.STRINGS,
-                ):
-                    # For INT, FLOAT and STRING attributes, we convert them to tuples
-                    # to ensure they are hashable.
+                if v.type is ir.AttributeType.FLOAT:
+                    # Numeric equality would conflate positive and negative zero.
+                    value = (v.type, struct.pack("!d", value))
+                elif v.type is ir.AttributeType.FLOATS:
+                    value = (v.type, tuple(struct.pack("!d", item) for item in value))
+                elif v.type in (ir.AttributeType.INTS, ir.AttributeType.STRINGS):
+                    # Convert repeated attributes to hashable tuples.
                     value = tuple(value)
                 elif v.type is ir.AttributeType.TENSOR:
                     if value.size > self.size_limit:
