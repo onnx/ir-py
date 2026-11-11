@@ -1012,6 +1012,94 @@ class ExternalTensorTest(unittest.TestCase):
             # about permission errors
             del tensor
 
+    def test_tobytes_empty_tensor_repeated_conversions(self):
+        data_path = pathlib.Path(self.base_path) / "empty.bin"
+        data_path.write_bytes(b"")
+        for shape in ([0], [2, 0, 3]):
+            for dtype in (ir.DataType.FLOAT, ir.DataType.INT4, ir.DataType.FLOAT6E2M3):
+                for numpy_first in (False, True):
+                    with self.subTest(shape=shape, dtype=dtype, numpy_first=numpy_first):
+                        tensor = _core.ExternalTensor(
+                            data_path.name,
+                            offset=0,
+                            length=0,
+                            dtype=dtype,
+                            base_dir=self.base_path,
+                            name="empty",
+                            shape=_core.Shape(shape),
+                        )
+                        if numpy_first:
+                            tensor.numpy()
+                        for _ in range(2):
+                            self.assertEqual(tensor.tobytes(), b"")
+                            array = tensor.numpy()
+                            self.assertEqual(array.shape, tuple(shape))
+                            self.assertEqual(array.dtype, dtype.numpy())
+                            self.assertIs(tensor.numpy(), array)
+                        tensor.release()
+                        self.assertEqual(tensor.tobytes(), b"")
+
+    def test_tobytes_empty_tensor_preserves_file_access_errors(self):
+        for shape in ([0], [2, 0, 3]):
+            with self.subTest(shape=shape):
+                tensor = _core.ExternalTensor(
+                    "missing.bin",
+                    offset=0,
+                    length=0,
+                    dtype=ir.DataType.FLOAT,
+                    base_dir=self.base_path,
+                    name="empty",
+                    shape=_core.Shape(shape),
+                )
+                tensor.numpy()
+                for _ in range(2):
+                    with self.assertRaises(FileNotFoundError):
+                        tensor.tobytes()
+                with (
+                    unittest.mock.patch(
+                        "builtins.open", side_effect=PermissionError("Access denied")
+                    ),
+                    self.assertRaises(PermissionError),
+                ):
+                    tensor.tobytes()
+                tensor.invalidate()
+                with self.assertRaisesRegex(ValueError, "invalidated"):
+                    tensor.tobytes()
+
+    def test_tobytes_empty_tensor_checks_containment_after_numpy(self):
+        tensor = _core.ExternalTensor(
+            os.path.join("..", "outside.bin"),
+            offset=0,
+            length=0,
+            dtype=ir.DataType.FLOAT,
+            base_dir="",
+            name="empty",
+            shape=_core.Shape([2, 0, 3]),
+        )
+        tensor.numpy()
+        tensor.base_dir = self.base_path
+        with self.assertRaisesRegex(ValueError, "path traversal"):
+            tensor.tobytes()
+
+    def test_tobytes_empty_tensor_preserves_explicit_byte_range(self):
+        data_path = pathlib.Path(self.base_path) / "empty.bin"
+        data_path.write_bytes(b"prefixdata")
+        tensor = _core.ExternalTensor(
+            data_path.name,
+            offset=6,
+            length=4,
+            dtype=ir.DataType.FLOAT,
+            base_dir=self.base_path,
+            name="empty",
+            shape=_core.Shape([0]),
+        )
+        tensor.numpy()
+        self.assertEqual(tensor.tobytes(), b"data")
+        self.assertEqual(tensor.tobytes(), b"data")
+        data_path.write_bytes(b"prefix")
+        with self.assertRaisesRegex(OSError, "shorter than expected"):
+            tensor.tobytes()
+
     def test_tofile_basic(self):
         """Test ExternalTensor.tofile() with basic functionality."""
         external_tensor = self.model.graph.initializer[0]
