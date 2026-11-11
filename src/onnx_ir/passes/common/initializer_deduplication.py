@@ -8,6 +8,7 @@ __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 
 
 import hashlib
+import io
 import logging
 
 import numpy as np
@@ -47,7 +48,10 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
 
     if isinstance(const_val, ir.ExternalTensor):
         try:
-            const_val.numpy()
+            if const_val.size == 0:
+                _tobytes(const_val)
+            else:
+                const_val.numpy()
         except FileNotFoundError:
             logger.warning(
                 "Skipped deduplication of initializer '%s' because external data file '%s' "
@@ -74,6 +78,11 @@ def _tobytes(val):
     """
     if val.dtype.is_string():
         return np.array(val.string_data()).tobytes()
+    if isinstance(val, ir.ExternalTensor) and val.size == 0:
+        # Empty tensors cannot be memory mapped. tofile still validates and opens the file.
+        buffer = io.BytesIO()
+        val.tofile(buffer)
+        return buffer.getvalue()
     return val.tobytes()
 
 
