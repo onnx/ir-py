@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for the initializer_deduplication passes."""
 
+import os
+import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 import parameterized
@@ -30,6 +33,177 @@ class DeduplicateInitializersTest(unittest.TestCase):
     def apply_pass(self, model: ir.Model) -> ir.Model:
         result = self.pass_class()(model)
         return result.model
+
+    def _create_external_model(self, shape=(3,)) -> tuple[ir.Model, str]:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => (float[3] sum)
+            <float[3] w1 = {1.0, 2.0, 3.0}, float[3] w2 = {1.0, 2.0, 3.0}> {
+                sum = Add(w1, w2)
+            }
+            """
+        )
+        for initializer in model.graph.initializers.values():
+            tensor = ir.ExternalTensor(
+                location=f"{initializer.name}.data",
+                base_dir=directory.name,
+                offset=0,
+                length=int(np.prod(shape)) * 4,
+                dtype=ir.DataType.FLOAT,
+                shape=ir.Shape(shape),
+                name=initializer.name,
+            )
+            initializer.const_value = tensor
+            initializer.shape = ir.Shape(shape)
+            self.addCleanup(tensor.release)
+        model.graph.outputs[0].shape = ir.Shape(shape)
+        return model, directory.name
+
+    @parameterized.parameterized.expand([False, True])
+    def test_missing_external_data_is_not_deduplicated(self, subgraph):
+        model, _ = self._create_external_model()
+        graph = model.graph
+        initializers = tuple(graph.initializers.values())
+        tensors = tuple(value.const_value for value in initializers)
+        if subgraph:
+            model = ir.Model(
+                ir.Graph(
+                    [],
+                    [],
+                    nodes=[ir.node("SubgraphOp", [], attributes={"body": graph})],
+                ),
+                ir_version=10,
+            )
+
+        with self.assertLogs(initializer_deduplication.logger, level="WARNING") as logs:
+            result = self.pass_class()(model)
+
+        self.assertFalse(result.modified)
+        self.assertEqual(tuple(graph.initializers.values()), initializers)
+        self.assertEqual(tuple(value.const_value for value in initializers), tensors)
+        self.assertEqual(tuple(graph[0].inputs), initializers)
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("w1.data", logs.output[0])
+        self.assertIn("base_dir", logs.output[0])
+
+    def test_readable_external_data_is_deduplicated(self):
+        model, directory = self._create_external_model()
+        for name in ("w1", "w2"):
+            np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(
+                os.path.join(directory, f"{name}.data")
+            )
+
+        result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.graph.initializers), 1)
+        self.assertIs(model.graph[0].inputs[0], model.graph[0].inputs[1])
+        np.testing.assert_array_equal(
+            model.graph.initializers["w1"].const_value.numpy(), [1.0, 2.0, 3.0]
+        )
+
+    @parameterized.parameterized.expand([((0,),), ((2, 0, 3),)])
+    def test_missing_empty_external_data_is_not_deduplicated(self, shape):
+        model, _ = self._create_external_model(shape)
+        initializers = tuple(model.graph.initializers.values())
+        tensors = tuple(value.const_value for value in initializers)
+
+        with self.assertLogs(initializer_deduplication.logger, level="WARNING") as logs:
+            result = self.pass_class()(model)
+
+        self.assertFalse(result.modified)
+        self.assertEqual(tuple(model.graph.initializers.values()), initializers)
+        self.assertEqual(tuple(model.graph[0].inputs), initializers)
+        self.assertEqual(tuple(value.const_value for value in initializers), tensors)
+        self.assertEqual(len(logs.output), 2)
+        for name, message in zip(("w1", "w2"), logs.output):
+            self.assertIn(f"{name}.data", message)
+            self.assertIn("base_dir", message)
+
+    @parameterized.parameterized.expand([((0,),), ((2, 0, 3),)])
+    def test_readable_empty_external_data_is_deduplicated(self, shape):
+        model, directory = self._create_external_model(shape)
+        for name in ("w1", "w2"):
+            with open(os.path.join(directory, f"{name}.data"), "wb"):
+                pass
+
+        result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(set(model.graph.initializers), {"w1"})
+        self.assertIs(model.graph[0].inputs[0], model.graph[0].inputs[1])
+        self.assertEqual(model.graph.initializers["w1"].const_value.numpy().shape, shape)
+
+    def test_empty_external_data_path_traversal_raises(self):
+        model, _ = self._create_external_model((0,))
+        tensor = model.graph.initializers["w1"].const_value
+        model.graph.initializers["w1"].const_value = ir.ExternalTensor(
+            location=os.path.join("..", "outside.data"),
+            base_dir=tensor.base_dir,
+            offset=0,
+            length=0,
+            dtype=ir.DataType.FLOAT,
+            shape=ir.Shape([0]),
+            name="w1",
+        )
+
+        with self.assertRaisesRegex(ValueError, "outside the base directory"):
+            self.pass_class()(model)
+
+    def test_empty_external_data_permission_error_raises(self):
+        model, directory = self._create_external_model((0,))
+        path = os.path.join(directory, "w1.data")
+
+        with (
+            mock.patch("builtins.open", side_effect=PermissionError(path)),
+            self.assertRaises(PermissionError),
+        ):
+            self.pass_class()(model)
+
+    def test_missing_external_data_does_not_prevent_other_deduplication(self):
+        model, _ = self._create_external_model()
+        for name in ("inline1", "inline2"):
+            model.graph.register_initializer(
+                ir.Value(
+                    name=name,
+                    const_value=ir.tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32)),
+                )
+            )
+        node = ir.node(
+            "Add",
+            [
+                model.graph.initializers["inline1"],
+                model.graph.initializers["inline2"],
+            ],
+        )
+        model.graph.append(node)
+
+        with self.assertLogs(initializer_deduplication.logger, level="WARNING"):
+            result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(set(model.graph.initializers), {"w1", "w2", "inline1"})
+        self.assertIs(node.inputs[0], node.inputs[1])
+        self.assertIsNot(model.graph[0].inputs[0], model.graph[0].inputs[1])
+
+    def test_corrupt_external_data_raises(self):
+        model, directory = self._create_external_model()
+        np.array([1.0], dtype=np.float32).tofile(os.path.join(directory, "w1.data"))
+
+        with self.assertRaises(ValueError):
+            self.pass_class()(model)
+
+    def test_external_data_permission_error_raises(self):
+        model, _ = self._create_external_model()
+
+        with (
+            mock.patch.object(ir.ExternalTensor, "numpy", side_effect=PermissionError),
+            self.assertRaises(PermissionError),
+        ):
+            self.pass_class()(model)
 
     def test_deduplicates_identical_initializers(self):
         model = ir.from_onnx_text(
