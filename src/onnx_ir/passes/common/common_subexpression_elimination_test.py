@@ -7,11 +7,54 @@ import unittest
 import numpy as np
 import onnx
 import onnxruntime as ort
+import pytest
 from onnxscript import FLOAT, script
 from onnxscript import opset18 as op
 
 import onnx_ir as ir
 from onnx_ir.passes.common import common_subexpression_elimination
+
+
+@pytest.mark.parametrize(
+    ("attribute", "positive", "negative"),
+    [
+        ("value_float", "0.0", "-0.0"),
+        ("value_floats", "[0.0]", "[-0.0]"),
+    ],
+)
+def test_signed_zero_float_attributes_are_not_csed(
+    attribute: str, positive: str, negative: str
+) -> None:
+    inputs = {"x": np.array([1.0, -2.0], dtype=np.float32)}
+    expected = [np.array([1.0, 0.0]), np.array([0.0, 1.0])]
+    model = ir.from_onnx_text(
+        f"""<ir_version: 10, opset_import: ["" : 18]>
+        signed_zero(float[2] x) => (float[2] positive, float[2] negative) {{
+            zp = Constant <{attribute}={positive}> ()
+            zn = Constant <{attribute}={negative}> ()
+            dp = Div (x, zp)
+            dn = Div (x, zn)
+            positive = Sigmoid (dp)
+            negative = Sigmoid (dn)
+        }}"""
+    )
+    for output in model.graph.outputs:
+        output.shape = ir.Shape([2])
+    before = ir.to_proto(model)
+    onnx.checker.check_model(before, full_check=True)
+    original = ort.InferenceSession(
+        before.SerializeToString(), providers=["CPUExecutionProvider"]
+    ).run(None, inputs)
+    result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(model)
+    after = ir.to_proto(result.model)
+    onnx.checker.check_model(after, full_check=True)
+    actual = ort.InferenceSession(
+        after.SerializeToString(), providers=["CPUExecutionProvider"]
+    ).run(None, inputs)
+    for original_output, actual_output, expected_output in zip(original, actual, expected):
+        np.testing.assert_array_equal(original_output, expected_output)
+        np.testing.assert_array_equal(actual_output, expected_output)
+    assert not result.modified
 
 
 class TestCommonSubexpressionEliminationPass(unittest.TestCase):
@@ -76,47 +119,6 @@ class TestCommonSubexpressionEliminationPass(unittest.TestCase):
             np.testing.assert_allclose(
                 original_model_result, result_results[idx], rtol=1e-5, atol=1e-5
             )
-
-    def test_signed_zero_float_attributes_are_not_csed(self) -> None:
-        inputs = {"x": np.array([1.0, -2.0], dtype=np.float32)}
-        expected = [np.array([1.0, 0.0]), np.array([0.0, 1.0])]
-        for attribute, positive, negative in (
-            ("value_float", "0.0", "-0.0"),
-            ("value_floats", "[0.0]", "[-0.0]"),
-        ):
-            with self.subTest(attribute=attribute):
-                model = ir.from_onnx_text(
-                    f"""<ir_version: 10, opset_import: ["" : 18]>
-                    signed_zero(float[2] x) => (float[2] positive, float[2] negative) {{
-                        zp = Constant <{attribute}={positive}> ()
-                        zn = Constant <{attribute}={negative}> ()
-                        dp = Div (x, zp)
-                        dn = Div (x, zn)
-                        positive = Sigmoid (dp)
-                        negative = Sigmoid (dn)
-                    }}"""
-                )
-                for output in model.graph.outputs:
-                    output.shape = ir.Shape([2])
-                before = ir.to_proto(model)
-                onnx.checker.check_model(before, full_check=True)
-                original = ort.InferenceSession(
-                    before.SerializeToString(), providers=["CPUExecutionProvider"]
-                ).run(None, inputs)
-                result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(
-                    model
-                )
-                after = ir.to_proto(result.model)
-                onnx.checker.check_model(after, full_check=True)
-                actual = ort.InferenceSession(
-                    after.SerializeToString(), providers=["CPUExecutionProvider"]
-                ).run(None, inputs)
-                for original_output, actual_output, expected_output in zip(
-                    original, actual, expected
-                ):
-                    np.testing.assert_array_equal(original_output, expected_output)
-                    np.testing.assert_array_equal(actual_output, expected_output)
-                self.assertFalse(result.modified)
 
     def test_duplicate_operations_are_csed(self):
         """Test if the same operations are CSEd.
