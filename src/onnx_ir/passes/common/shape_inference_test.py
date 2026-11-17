@@ -79,7 +79,7 @@ class TestShapeInferencePass(unittest.TestCase):
                 onnx.checker.check_model(ir.to_proto(model), full_check=True)
 
     def test_pass_preserves_loop_carried_sequence_type(self):
-        proto = onnx.parser.parse_model("""
+        model = ir.from_onnx_text("""
             <ir_version: 10, opset_import: ["" : 18]>
             graph (float[2] x, int64 trip_count, bool cond) => (float[?] y) {
                 empty = SequenceEmpty <dtype: int = 1> ()
@@ -94,7 +94,6 @@ class TestShapeInferencePass(unittest.TestCase):
                 y = ConcatFromSequence <axis: int = 0> (sequence)
             }
         """)
-        model = ir.from_proto(proto)
         empty = model.graph.node(0).outputs[0]
         sequence = model.graph.node(1).outputs[0]
         self.assertIsNone(empty.type)
