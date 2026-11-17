@@ -123,6 +123,61 @@ class DeduplicateInitializersTest(unittest.TestCase):
             self.assertIn(f"{name}.data", message)
             self.assertIn("base_dir", message)
 
+    @parameterized.parameterized.expand(["missing", "different", "same"])
+    def test_cached_external_data_uses_current_backing_path(self, current_data):
+        model, directory = self._create_external_model()
+        data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        for name in ("w1", "w2"):
+            data.tofile(os.path.join(directory, f"{name}.data"))
+        tensor = model.graph.initializers["w1"].const_value
+        cached_id = id(tensor.numpy())
+        current_directory = os.path.join(directory, "current")
+        os.mkdir(current_directory)
+        tensor.base_dir = current_directory
+        if current_data != "missing":
+            (data + 1).tofile(os.path.join(current_directory, "w1.data"))
+        if current_data == "same":
+            (data + 1).tofile(os.path.join(directory, "w2.data"))
+
+        if current_data == "missing":
+            with self.assertLogs(initializer_deduplication.logger, level="WARNING"):
+                result = self.pass_class()(model)
+        else:
+            result = self.pass_class()(model)
+
+        self.assertEqual(result.modified, current_data == "same")
+        self.assertEqual(len(model.graph.initializers), 1 if current_data == "same" else 2)
+        self.assertIs(model.graph.initializers["w1"].const_value, tensor)
+        self.assertEqual(id(tensor.numpy()), cached_id)
+
+    def test_invalidated_external_data_raises(self):
+        model, _ = self._create_external_model()
+        model.graph.initializers["w1"].const_value.invalidate()
+
+        with self.assertRaisesRegex(ValueError, "w1.*invalidated"):
+            self.pass_class()(model)
+
+    def test_empty_external_data_nonzero_length_raises_without_copying(self):
+        model, directory = self._create_external_model((0,))
+        tensor = ir.ExternalTensor(
+            location="w1.data",
+            base_dir=directory,
+            offset=0,
+            length=1024**3,
+            dtype=ir.DataType.FLOAT,
+            shape=ir.Shape([0]),
+            name="w1",
+        )
+        model.graph.initializers["w1"].const_value = tensor
+        self.addCleanup(tensor.release)
+
+        with (
+            mock.patch.object(ir.ExternalTensor, "tofile") as tofile,
+            self.assertRaisesRegex(ValueError, "w1.*length"),
+        ):
+            self.pass_class()(model)
+        tofile.assert_not_called()
+
     @parameterized.parameterized.expand([((0,),), ((2, 0, 3),)])
     def test_readable_empty_external_data_is_deduplicated(self, shape):
         model, directory = self._create_external_model(shape)

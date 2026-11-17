@@ -7,6 +7,7 @@ from __future__ import annotations
 __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 
 
+import contextlib
 import hashlib
 import io
 import logging
@@ -46,21 +47,46 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
         )
         return True
 
-    if isinstance(const_val, ir.ExternalTensor):
-        try:
-            if const_val.size == 0:
-                _tobytes(const_val)
-            else:
-                const_val.numpy()
-        except FileNotFoundError:
-            logger.warning(
-                "Skipped deduplication of initializer '%s' because external data file '%s' "
-                "was not found. Restore the file or set the tensor's base_dir to its directory.",
-                initializer.name,
-                const_val.path,
-            )
-            return True
     return False
+
+
+def _read_tensor(
+    initializer: ir.Value, stack: contextlib.ExitStack
+) -> ir.TensorProtocol | None:
+    tensor = initializer.const_value
+    assert tensor is not None
+    if not isinstance(tensor, ir.ExternalTensor):
+        return tensor
+    if not tensor.valid():
+        raise ValueError(
+            f"External tensor '{tensor.name}' is invalidated. "
+            "Restore its data and replace the initializer with a valid tensor."
+        )
+    # Validate and compare the current backing source, not a possibly stale cached array.
+    tensor = ir.ExternalTensor(
+        location=tensor.location,
+        base_dir=tensor.base_dir,
+        offset=tensor.offset,
+        length=tensor.length,
+        dtype=tensor.dtype,
+        shape=tensor.shape,
+        name=tensor.name,
+    )
+    stack.callback(tensor.release)
+    try:
+        if tensor.size == 0:
+            _tobytes(tensor)
+        else:
+            tensor.numpy()
+    except FileNotFoundError:
+        logger.warning(
+            "Skipped deduplication of initializer '%s' because external data file '%s' "
+            "was not found. Restore the file or set the tensor's base_dir to its directory.",
+            initializer.name,
+            tensor.path,
+        )
+        return None
+    return tensor
 
 
 def _tobytes(val):
@@ -79,6 +105,11 @@ def _tobytes(val):
     if val.dtype.is_string():
         return np.array(val.string_data()).tobytes()
     if isinstance(val, ir.ExternalTensor) and val.size == 0:
+        if val.length not in (None, 0):
+            raise ValueError(
+                f"Empty external tensor '{val.name}' has data length {val.length}; "
+                "expected 0. Correct the external data length or tensor shape."
+            )
         # Empty tensors cannot be memory mapped. tofile still validates and opens the file.
         buffer = io.BytesIO()
         val.tofile(buffer)
@@ -93,6 +124,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
     and replaces all duplicate references with a canonical one.
 
     External initializers whose data files are missing are left unchanged.
+    Comparisons read the current backing files independently of cached tensor data.
     Other errors reading external data are propagated.
 
     Initializers are deduplicated within each graph. To deduplicate initializers
@@ -112,28 +144,30 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
         modified = False
 
         for graph in model.graphs():
-            initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
-            for initializer in tuple(graph.initializers.values()):
-                if _should_skip_initializer(initializer, self.size_limit):
-                    continue
+            with contextlib.ExitStack() as stack:
+                initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
+                for initializer in tuple(graph.initializers.values()):
+                    if _should_skip_initializer(initializer, self.size_limit):
+                        continue
 
-                const_val = initializer.const_value
-                assert const_val is not None
+                    const_val = _read_tensor(initializer, stack)
+                    if const_val is None:
+                        continue
 
-                key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
-                if key in initializers:
-                    modified = True
-                    initializer_to_keep = initializers[key]  # type: ignore[index]
-                    initializer.replace_all_uses_with(initializer_to_keep)
-                    assert initializer.name is not None
-                    graph.initializers.pop(initializer.name)
-                    logger.info(
-                        "Replaced initializer '%s' with existing initializer '%s'",
-                        initializer.name,
-                        initializer_to_keep.name,
-                    )
-                else:
-                    initializers[key] = initializer  # type: ignore[index]
+                    key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
+                    if key in initializers:
+                        modified = True
+                        initializer_to_keep = initializers[key]  # type: ignore[index]
+                        initializer.replace_all_uses_with(initializer_to_keep)
+                        assert initializer.name is not None
+                        graph.initializers.pop(initializer.name)
+                        logger.info(
+                            "Replaced initializer '%s' with existing initializer '%s'",
+                            initializer.name,
+                            initializer_to_keep.name,
+                        )
+                    else:
+                        initializers[key] = initializer  # type: ignore[index]
 
         return ir.passes.PassResult(model=model, modified=modified)
 
@@ -145,6 +179,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     and replaces all duplicate references with a canonical one.
 
     External initializers whose data files are missing are left unchanged.
+    Comparisons read the current backing files independently of cached tensor data.
     Other errors reading external data are propagated.
 
     This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
@@ -162,45 +197,49 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
         modified = False
 
         for graph in model.graphs():
-            initializers: dict[tuple[ir.DataType, tuple[int, ...], str], ir.Value] = {}
+            with contextlib.ExitStack() as stack:
+                initializers: dict[
+                    tuple[ir.DataType, tuple[int, ...], str],
+                    tuple[ir.Value, ir.TensorProtocol],
+                ] = {}
 
-            for initializer in tuple(graph.initializers.values()):
-                if _should_skip_initializer(initializer, self.size_limit):
-                    continue
-
-                const_val = initializer.const_value
-                assert const_val is not None
-
-                # Hash tensor data to avoid storing large amounts of data in memory
-                hashed = hashlib.sha512()
-                tensor_data = const_val.numpy()
-                hashed.update(tensor_data)
-                tensor_digest = hashed.hexdigest()
-
-                tensor_dims = tuple(const_val.shape.numpy())
-
-                key = (const_val.dtype, tensor_dims, tensor_digest)
-
-                if key in initializers:
-                    if _tobytes(initializers[key].const_value) != _tobytes(const_val):
-                        logger.warning(
-                            "Initializer deduplication failed: "
-                            "hashes match but values differ with values %s and %s",
-                            initializers[key],
-                            initializer,
-                        )
+                for initializer in tuple(graph.initializers.values()):
+                    if _should_skip_initializer(initializer, self.size_limit):
                         continue
-                    modified = True
-                    initializer_to_keep = initializers[key]  # type: ignore[index]
-                    initializer.replace_all_uses_with(initializer_to_keep)
-                    assert initializer.name is not None
-                    graph.initializers.pop(initializer.name)
-                    logger.info(
-                        "Replaced initializer '%s' with existing initializer '%s'",
-                        initializer.name,
-                        initializer_to_keep.name,
-                    )
-                else:
-                    initializers[key] = initializer  # type: ignore[index]
+
+                    const_val = _read_tensor(initializer, stack)
+                    if const_val is None:
+                        continue
+
+                    # Hash tensor data to avoid storing large amounts of data in memory
+                    hashed = hashlib.sha512()
+                    hashed.update(const_val.numpy())
+                    tensor_digest = hashed.hexdigest()
+
+                    tensor_dims = tuple(const_val.shape.numpy())
+
+                    key = (const_val.dtype, tensor_dims, tensor_digest)
+
+                    if key in initializers:
+                        initializer_to_keep, previous_tensor = initializers[key]
+                        if _tobytes(previous_tensor) != _tobytes(const_val):
+                            logger.warning(
+                                "Initializer deduplication failed: "
+                                "hashes match but values differ with values %s and %s",
+                                initializer_to_keep,
+                                initializer,
+                            )
+                            continue
+                        modified = True
+                        initializer.replace_all_uses_with(initializer_to_keep)
+                        assert initializer.name is not None
+                        graph.initializers.pop(initializer.name)
+                        logger.info(
+                            "Replaced initializer '%s' with existing initializer '%s'",
+                            initializer.name,
+                            initializer_to_keep.name,
+                        )
+                    else:
+                        initializers[key] = (initializer, const_val)
 
         return ir.passes.PassResult(model=model, modified=modified)
