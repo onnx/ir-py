@@ -17,6 +17,7 @@ import contextlib
 import dataclasses
 import errno
 import heapq
+import io
 import logging
 import math
 import mmap
@@ -922,10 +923,16 @@ class ExternalTensor(TensorBase, _protocols.TensorProtocol):  # pylint: disable=
 
         This will load the tensor into memory.
 
-        Security: file access is gated by _load() which calls
-        _check_path_containment() to enforce path containment.
+        Empty tensors are read without memory mapping. The backing file must
+        still be accessible, unlike :meth:`numpy` for empty tensors.
+
+        Security: both _load() and tofile() enforce path containment.
         """
         self._check_validity()
+        if self.size == 0:
+            buffer = io.BytesIO()
+            self.tofile(buffer)
+            return buffer.getvalue()
         if self.raw is None:
             self._load()
         assert self.raw is not None
