@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 import onnx
 import onnxruntime as ort
+import parameterized
 from onnxscript import FLOAT, script
 from onnxscript import opset18 as op
 
@@ -15,6 +16,92 @@ from onnx_ir.passes.common import common_subexpression_elimination
 
 
 class TestCommonSubexpressionEliminationPass(unittest.TestCase):
+    @parameterized.parameterized.expand(
+        [
+            ("equal_multibyte", [b"AB", b"CD"], [b"AB", b"CD"], True),
+            ("equal_raw_bytes", [b"\xff\x00", b""], [b"\xff\x00", b""], True),
+            ("trailing_nul", [b"a"], [b"a\x00"], False),
+            ("empty_string", [b""], [b"\x00"], False),
+            ("element_boundaries", [b"a\x00", b"b"], [b"a", b"\x00b"], False),
+            ("empty_tensor", [], [], True),
+        ]
+    )
+    def test_string_constants_compared_by_contents(self, _, left, right, should_merge):
+        for backing in ("sequence", "object", "proto"):
+            with self.subTest(backing=backing):
+                constants = []
+                for data in (left, right):
+                    # Allocate independent bytes objects to expose reference-based keys.
+                    data = [bytes(bytearray(s)) for s in data]
+                    if backing == "proto":
+                        tensor = ir.serde.TensorProtoTensor(
+                            onnx.TensorProto(
+                                data_type=onnx.TensorProto.STRING,
+                                dims=[len(data)],
+                                string_data=data,
+                            )
+                        )
+                    elif backing == "object":
+                        tensor = ir.StringTensor(np.array(data, dtype=object))
+                    else:
+                        tensor = ir.StringTensor(data, shape=ir.Shape([len(data)]))
+                    constants.append(
+                        ir.node("Constant", inputs=[], attributes={"value": tensor})
+                    )
+                concat = ir.node(
+                    "Concat",
+                    inputs=[constant.outputs[0] for constant in constants],
+                    attributes={"axis": 0},
+                )
+                model = ir.Model(
+                    ir.Graph(
+                        inputs=[],
+                        outputs=concat.outputs,
+                        nodes=[*constants, concat],
+                        opset_imports={"": 18},
+                    ),
+                    ir_version=8,
+                )
+                result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(
+                    model
+                )
+                self.assertEqual(result.modified, should_merge)
+                self.assertEqual(len(model.graph), 2 if should_merge else 3)
+                self.assertEqual(concat.inputs[0] is concat.inputs[1], should_merge)
+
+    @parameterized.parameterized.expand(
+        [
+            ("unicode", np.array(["caf\u00e9"])),
+            ("fixed_bytes", np.array([b"caf\xc3\xa9"], dtype="S12")),
+        ]
+    )
+    def test_string_constants_with_different_numpy_dtypes_are_csed(self, _, array):
+        tensors = (
+            ir.tensor(array),
+            ir.StringTensor([b"caf\xc3\xa9"], shape=ir.Shape([1])),
+        )
+        constants = [
+            ir.node("Constant", inputs=[], attributes={"value": tensor}) for tensor in tensors
+        ]
+        concat = ir.node(
+            "Concat",
+            inputs=[node.outputs[0] for node in constants],
+            attributes={"axis": 0},
+        )
+        model = ir.Model(
+            ir.Graph(
+                inputs=[],
+                outputs=concat.outputs,
+                nodes=[*constants, concat],
+                opset_imports={"": 18},
+            ),
+            ir_version=8,
+        )
+        result = common_subexpression_elimination.CommonSubexpressionEliminationPass()(model)
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.graph), 2)
+        self.assertIs(concat.inputs[0], concat.inputs[1])
+
     def check_graph(
         self,
         model: ir.Model,
