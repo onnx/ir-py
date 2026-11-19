@@ -206,7 +206,7 @@ class GraphOutputs(_GraphIO):
     def _maybe_unset_graph(self, value: _core.Value) -> None:
         """Unset the graph for the value."""
         assert value._graph is self._graph, "Bug: value does not belong to the graph"
-        self._ref_counter[value] -= 1
+            # The value is still used by another graph output
         if self._ref_counter[value] > 0:
             # The value is still used by another graph input
             return
