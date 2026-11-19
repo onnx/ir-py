@@ -293,7 +293,7 @@ class TensorProtoTensorTest(unittest.TestCase):
             ("UINT4", onnx.TensorProto.UINT4),
             *(
                 [
-                    ("INT2", onnx.TensorProto.UINT2),
+                    ("UINT2", onnx.TensorProto.UINT2),
                 ]
                 if hasattr(onnx.TensorProto, "UINT2")
                 else []
