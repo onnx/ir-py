@@ -71,8 +71,8 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def insert(self, i: int, item: _core.Value) -> None:
         """Insert an input/output to the graph."""
-        super().insert(i, item)
         self._set_graph(item)
+        super().insert(i, item)
         self._check_invariance()
 
     def pop(self, i: int = -1) -> _core.Value:
