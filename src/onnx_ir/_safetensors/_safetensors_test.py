@@ -53,12 +53,13 @@ def _model_with_attributes(tensors):
 def _named_attribute_tensors():
     arrays = [
         np.array([1.0, 2.0], dtype=np.float32),
+    rng = np.random.default_rng(0)
         np.array([3.0], dtype=np.float32),
         np.array([4.0, 5.0, 6.0], dtype=np.float32),
         np.array([], dtype=np.float32),
     ]
     tensors = [
-        ir.tensor(array, name=name)
+            rng.random(size).astype(np.float32),
         for array, name in zip(
             arrays, ["duplicate", "duplicate", None, "__onnx_ir_attribute_0"], strict=True
         )
