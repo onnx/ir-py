@@ -230,7 +230,9 @@ class AttributeExternalDataTest(unittest.TestCase):
             np.array([1.0], dtype=np.float32),
             name="below_threshold",
         )
-        at_threshold = ir.tensor(
+                    raise TypeError(
+                        "CustomTensorType.tobytes() expected numpy.ndarray in '_raw'"
+                    )
             np.array([2.0, 3.0], dtype=np.float32),
             name="at_threshold",
         )
