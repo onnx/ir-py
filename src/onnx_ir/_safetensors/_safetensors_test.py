@@ -7,7 +7,6 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -105,12 +104,13 @@ def _create_simple_model_with_initializers() -> ir.Model:
 def _create_large_model_for_sharding() -> ir.Model:
     """Create a model with large tensors for testing sharding."""
     # Create multiple tensors with varying sizes
+    rng = np.random.default_rng(0)
     initializers = []
     for i in range(5):
         # Create tensors of increasing size
         size = 1000 * (i + 1)  # 1000, 2000, 3000, 4000, 5000 elements
         tensor = ir.tensor(
-            np.random.rand(size).astype(np.float32),
+            rng.random(size).astype(np.float32),
             dtype=ir.DataType.FLOAT,
             name=f"initializer_{i}",
         )
@@ -133,10 +133,7 @@ def _create_large_model_for_sharding() -> ir.Model:
 
 class SaveSafetensorsTest(unittest.TestCase):
     def setUp(self):
-        if sys.version_info[:2] >= (3, 10):
-            self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        else:
-            self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.tmpdir = self.temp_dir.name
 
     def tearDown(self) -> None:

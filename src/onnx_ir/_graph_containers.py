@@ -71,8 +71,8 @@ class _GraphIO(collections.UserList["_core.Value"]):
 
     def insert(self, i: int, item: _core.Value) -> None:
         """Insert an input/output to the graph."""
-        super().insert(i, item)
         self._set_graph(item)
+        super().insert(i, item)
         self._check_invariance()
 
     def pop(self, i: int = -1) -> _core.Value:
@@ -208,7 +208,7 @@ class GraphOutputs(_GraphIO):
         assert value._graph is self._graph, "Bug: value does not belong to the graph"
         self._ref_counter[value] -= 1
         if self._ref_counter[value] > 0:
-            # The value is still used by another graph input
+            # The value is still used by another graph output
             return
         value._is_graph_output = False
         if value._owned_by_graph():

@@ -3302,6 +3302,15 @@ class GraphContainersTest(unittest.TestCase):
         self.assertTrue(self.value1.is_graph_input())
         self.assertIs(self.value1.graph, self.graph)
 
+    def test_insert_input_raises_without_mutating_inputs_when_input_belongs_to_another_graph(
+        self,
+    ):
+        other_graph = _core.Graph(inputs=(), outputs=(), nodes=())
+        other_graph.inputs.append(self.value1)
+        with self.assertRaisesRegex(ValueError, "is already owned by a different graph"):
+            self.graph.inputs.insert(0, self.value1)
+        self.assertEqual(self.graph.inputs, [])
+
     def test_extend_inputs(self):
         self.graph.inputs.extend([self.value1, self.value2])
         self.assertIn(self.value1, self.graph.inputs)
