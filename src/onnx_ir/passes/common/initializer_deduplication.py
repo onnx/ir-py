@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import io
 import logging
+from collections.abc import Generator
 
 import numpy as np
 
@@ -50,6 +51,20 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
     return False
 
 
+@contextlib.contextmanager
+def _release_tensor(tensor: ir.ExternalTensor) -> Generator[None, None, None]:
+    try:
+        yield
+    except BaseException:
+        # A read-error traceback may still hold mmap-backed views. Let their
+        # eventual destruction close the mapping without masking the read error.
+        with contextlib.suppress(BufferError):
+            tensor.release()
+        raise
+    else:
+        tensor.release()
+
+
 def _read_tensor(
     initializer: ir.Value, stack: contextlib.ExitStack
 ) -> ir.TensorProtocol | None:
@@ -63,6 +78,7 @@ def _read_tensor(
             "Restore its data and replace the initializer with a valid tensor."
         )
     # Validate and compare the current backing source, not a possibly stale cached array.
+    original = tensor
     tensor = ir.ExternalTensor(
         location=tensor.location,
         base_dir=tensor.base_dir,
@@ -72,7 +88,7 @@ def _read_tensor(
         shape=tensor.shape,
         name=tensor.name,
     )
-    stack.callback(tensor.release)
+    stack.enter_context(_release_tensor(tensor))
     try:
         if tensor.size == 0:
             _tobytes(tensor)
@@ -82,6 +98,18 @@ def _read_tensor(
         logger.warning(
             "Skipped deduplication of initializer '%s' because external data file '%s' "
             "was not found. Restore the file or set the tensor's base_dir to its directory.",
+            initializer.name,
+            tensor.path,
+        )
+        return None
+    if original.raw is not None and not np.array_equal(
+        original.numpy().reshape(-1).view(np.uint8),
+        tensor.numpy().reshape(-1).view(np.uint8),
+    ):
+        logger.warning(
+            "Skipped deduplication of initializer '%s' because its cached values differ "
+            "from external data file '%s'. Restore the backing data or replace the "
+            "initializer with a tensor containing the intended values.",
             initializer.name,
             tensor.path,
         )
@@ -125,6 +153,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 
     External initializers whose data files are missing are left unchanged.
     Comparisons read the current backing files independently of cached tensor data.
+    Initializers with cached values that differ from their backing files are skipped.
     Other errors reading external data are propagated.
 
     Initializers are deduplicated within each graph. To deduplicate initializers
@@ -144,9 +173,9 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
         modified = False
 
         for graph in model.graphs():
-            with contextlib.ExitStack() as stack:
-                initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
-                for initializer in tuple(graph.initializers.values()):
+            initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
+            for initializer in tuple(graph.initializers.values()):
+                with contextlib.ExitStack() as stack:
                     if _should_skip_initializer(initializer, self.size_limit):
                         continue
 
@@ -180,6 +209,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
     External initializers whose data files are missing are left unchanged.
     Comparisons read the current backing files independently of cached tensor data.
+    Initializers with cached values that differ from their backing files are skipped.
     Other errors reading external data are propagated.
 
     This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
@@ -197,13 +227,10 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
         modified = False
 
         for graph in model.graphs():
-            with contextlib.ExitStack() as stack:
-                initializers: dict[
-                    tuple[ir.DataType, tuple[int, ...], str],
-                    tuple[ir.Value, ir.TensorProtocol],
-                ] = {}
+            initializers: dict[tuple[ir.DataType, tuple[int, ...], str], ir.Value] = {}
 
-                for initializer in tuple(graph.initializers.values()):
+            for initializer in tuple(graph.initializers.values()):
+                with contextlib.ExitStack() as stack:
                     if _should_skip_initializer(initializer, self.size_limit):
                         continue
 
@@ -221,7 +248,11 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                     key = (const_val.dtype, tensor_dims, tensor_digest)
 
                     if key in initializers:
-                        initializer_to_keep, previous_tensor = initializers[key]
+                        initializer_to_keep = initializers[key]
+                        previous_tensor = _read_tensor(initializer_to_keep, stack)
+                        if previous_tensor is None:
+                            initializers[key] = initializer
+                            continue
                         if _tobytes(previous_tensor) != _tobytes(const_val):
                             logger.warning(
                                 "Initializer deduplication failed: "
@@ -240,6 +271,6 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                             initializer_to_keep.name,
                         )
                     else:
-                        initializers[key] = (initializer, const_val)
+                        initializers[key] = initializer
 
         return ir.passes.PassResult(model=model, modified=modified)

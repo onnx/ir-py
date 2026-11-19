@@ -5,6 +5,7 @@
 import os
 import tempfile
 import unittest
+import weakref
 from unittest import mock
 
 import numpy as np
@@ -123,32 +124,103 @@ class DeduplicateInitializersTest(unittest.TestCase):
             self.assertIn(f"{name}.data", message)
             self.assertIn("base_dir", message)
 
-    @parameterized.parameterized.expand(["missing", "different", "same"])
-    def test_cached_external_data_uses_current_backing_path(self, current_data):
+    @parameterized.parameterized.expand(
+        [
+            (data, name)
+            for data in ("missing", "different", "same", "unchanged")
+            for name in ("w1", "w2")
+        ]
+    )
+    def test_cached_external_data_uses_current_backing_path(self, current_data, cached_name):
         model, directory = self._create_external_model()
         data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         for name in ("w1", "w2"):
             data.tofile(os.path.join(directory, f"{name}.data"))
-        tensor = model.graph.initializers["w1"].const_value
+        tensor = model.graph.initializers[cached_name].const_value
         cached_id = id(tensor.numpy())
         current_directory = os.path.join(directory, "current")
         os.mkdir(current_directory)
         tensor.base_dir = current_directory
         if current_data != "missing":
-            (data + 1).tofile(os.path.join(current_directory, "w1.data"))
+            current_values = data if current_data == "unchanged" else data + 1
+            current_values.tofile(os.path.join(current_directory, f"{cached_name}.data"))
         if current_data == "same":
-            (data + 1).tofile(os.path.join(directory, "w2.data"))
+            other_name = "w2" if cached_name == "w1" else "w1"
+            (data + 1).tofile(os.path.join(directory, f"{other_name}.data"))
 
-        if current_data == "missing":
+        if current_data != "unchanged":
             with self.assertLogs(initializer_deduplication.logger, level="WARNING"):
                 result = self.pass_class()(model)
         else:
             result = self.pass_class()(model)
 
-        self.assertEqual(result.modified, current_data == "same")
-        self.assertEqual(len(model.graph.initializers), 1 if current_data == "same" else 2)
-        self.assertIs(model.graph.initializers["w1"].const_value, tensor)
+        self.assertEqual(result.modified, current_data == "unchanged")
+        self.assertEqual(len(model.graph.initializers), 1 if result.modified else 2)
+        if not result.modified:
+            self.assertIs(model.graph.initializers[cached_name].const_value, tensor)
         self.assertEqual(id(tensor.numpy()), cached_id)
+        for value in model.graph[0].inputs:
+            expected = data
+            if current_data == "same" and value.const_value is not tensor:
+                expected = data + 1
+            np.testing.assert_array_equal(value.const_value.numpy(), expected)
+
+    def test_packed_external_data_validation_error_is_preserved(self):
+        model, directory = self._create_external_model((1,))
+        with open(os.path.join(directory, "w1.data"), "wb") as file:
+            file.write(b"\x40")
+        model.graph.initializers["w1"].const_value = ir.ExternalTensor(
+            location="w1.data",
+            base_dir=directory,
+            offset=0,
+            length=1,
+            dtype=ir.DataType.FLOAT6E2M3,
+            shape=ir.Shape([1]),
+            name="w1",
+        )
+
+        with self.assertRaisesRegex(ValueError, "nonzero padding bits"):
+            self.pass_class()(model)
+
+    @parameterized.parameterized.expand([ir.DataType.FLOAT, ir.DataType.FLOAT6E2M3])
+    def test_external_data_resources_are_released_per_initializer(self, dtype):
+        model, directory = self._create_external_model((1,))
+        model = ir.Model(ir.Graph([], [], nodes=[]), ir_version=10)
+        for index in range(8):
+            name = f"w{index}"
+            data = ir.tensor(np.array([index % 4], dtype=dtype.numpy()), dtype=dtype)
+            with open(os.path.join(directory, f"{name}.data"), "wb") as file:
+                file.write(data.tobytes())
+            tensor = ir.ExternalTensor(
+                location=f"{name}.data",
+                base_dir=directory,
+                offset=0,
+                length=data.nbytes,
+                dtype=dtype,
+                shape=ir.Shape([1]),
+                name=name,
+            )
+            model.graph.register_initializer(ir.Value(name=name, const_value=tensor))
+
+        mappings = []
+        arrays = []
+        load = ir.ExternalTensor._load
+
+        def tracked_load(tensor):
+            # Only the current initializer may be live when a canonical source reopens.
+            self.assertLessEqual(sum(not mapping.closed for mapping in mappings), 1)
+            self.assertLessEqual(sum(array() is not None for array in arrays), 1)
+            load(tensor)
+            mappings.append(tensor.raw)
+            arrays.append(weakref.ref(tensor.numpy()))
+
+        with mock.patch.object(ir.ExternalTensor, "_load", tracked_load):
+            result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.graph.initializers), 4)
+        self.assertTrue(all(mapping.closed for mapping in mappings))
+        self.assertTrue(all(array() is None for array in arrays))
 
     def test_invalidated_external_data_raises(self):
         model, _ = self._create_external_model()
