@@ -289,6 +289,28 @@ class DeduplicateInitializersTest(unittest.TestCase):
         new_model = self.apply_pass(model)
         self.assertEqual(len(new_model.graph.initializers), 1)
 
+    def test_deduplicates_non_contiguous_initializers(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => (float[3,2] sum)
+            <float[3,2] w1 = {0, 1, 2, 3, 4, 5}, float[3,2] w2 = {0, 1, 2, 3, 4, 5}> {
+                sum = Add(w1, w2)
+            }
+            """
+        )
+        data = np.arange(6, dtype=np.float32).reshape(2, 3).T
+        self.assertFalse(data.flags.c_contiguous)
+        model.graph.initializers["w1"].const_value = ir.tensor(data)
+        model.graph.initializers["w2"].const_value = ir.tensor(data.copy(order="C"))
+
+        result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(len(model.graph.initializers), 1)
+        self.assertIs(model.graph[0].inputs[0], model.graph[0].inputs[1])
+        np.testing.assert_array_equal(model.graph.initializers["w1"].const_value.numpy(), data)
+
     def test_initializers_with_different_shapes_not_deduplicated(self):
         model = ir.from_onnx_text(
             """

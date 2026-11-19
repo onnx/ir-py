@@ -213,7 +213,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
                     # Hash tensor data to avoid storing large amounts of data in memory
                     hashed = hashlib.sha512()
-                    hashed.update(const_val.numpy())
+                    hashed.update(np.ascontiguousarray(const_val.numpy()))
                     tensor_digest = hashed.hexdigest()
 
                     tensor_dims = tuple(const_val.shape.numpy())
