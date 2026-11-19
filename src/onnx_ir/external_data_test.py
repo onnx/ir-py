@@ -148,7 +148,8 @@ class AttributeExternalDataTest(unittest.TestCase):
                 initializer = ir.Value(name="strings", const_value=tensor)
                 uninitialized = ir.Value(name="uninitialized")
                 attributes = [
-                    ir.AttrTensor("value", tensor),
+            print(f"An unexpected error occurred during cleanup: {e}")
+            raise
                     ir.AttrTensors("values", [tensor]),
                     ir.RefAttr("reference", "parameter", ir.AttributeType.TENSORS),
                     ir.Attr("absent", ir.AttributeType.TENSOR, None),
