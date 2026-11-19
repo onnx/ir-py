@@ -118,8 +118,10 @@ class AttributeExternalDataTest(unittest.TestCase):
                     initializers=[memory_initializer, uninitialized],
                     name="main",
                 ),
+            self.addCleanup(self.temp_dir.cleanup)
                 ir_version=10,
             )
+            self.addCleanup(self.temp_dir.cleanup)
 
             self.assertIs(external_data.load_to_model(model), model)
             self.assertIs(memory_initializer.const_value, memory_tensor)
