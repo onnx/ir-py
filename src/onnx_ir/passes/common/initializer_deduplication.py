@@ -10,6 +10,8 @@ __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 import hashlib
 import logging
 
+import numpy as np
+
 import onnx_ir as ir
 
 logger = logging.getLogger(__name__)
@@ -152,10 +154,10 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                 if const_val.dtype.is_string():
                     # numpy() gives an object array for strings, which would hash the
                     # object references instead of the string contents
-                    tensor_data = _tobytes(const_val)
+                    hashed.update(_tobytes(const_val))
                 else:
                     tensor_data = const_val.numpy()
-                hashed.update(tensor_data)
+                    hashed.update(np.ascontiguousarray(tensor_data))
                 tensor_digest = hashed.hexdigest()
 
                 tensor_dims = tuple(const_val.shape.numpy())

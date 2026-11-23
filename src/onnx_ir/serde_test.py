@@ -103,6 +103,21 @@ agraph (float[1] input_x, float[2] input_y) => (float[2] result) {
 
 
 class TensorProtoTensorTest(unittest.TestCase):
+    def _assert_dlpack_matches_numpy(self, tensor: serde.TensorProtoTensor):
+        expected_array = tensor.numpy()
+        # Dtype support and read-only export restrictions depend on NumPy and ml_dtypes.
+        try:
+            expected_array.__dlpack__(stream=None)
+        except BufferError as expected_error:
+            with self.assertRaises(BufferError) as actual_error:
+                np.from_dlpack(tensor)
+            self.assertEqual(str(actual_error.exception), str(expected_error))
+        else:
+            actual_array = np.from_dlpack(tensor)
+            self.assertEqual(actual_array.dtype, expected_array.dtype)
+            np.testing.assert_array_equal(actual_array, expected_array)
+            self.assertEqual(actual_array.tobytes(), expected_array.tobytes())
+
     @parameterized.parameterized.expand(
         [
             ("scalar", [b"\xff\x00"], ()),
@@ -191,10 +206,8 @@ class TensorProtoTensorTest(unittest.TestCase):
         np.testing.assert_array_equal(
             array_from_raw_data.view(ml_dtypes.bfloat16), expected_array
         )
-        # Test dlpack
-        with self.assertRaises(BufferError):
-            # NumPy does not support bfloat16 in from_dlpack
-            np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
+        self._assert_dlpack_matches_numpy(tensor)
+        self._assert_dlpack_matches_numpy(serde.TensorProtoTensor(tensor_proto_from_raw_data))
 
     @parameterized.parameterized.expand(
         [
@@ -263,10 +276,8 @@ class TensorProtoTensorTest(unittest.TestCase):
             .astype(np.float32)
         )
         np.testing.assert_array_equal(array_from_raw_data, expected_array)
-        # Test dlpack
-        with self.assertRaises(BufferError):
-            # DL Pack does not support float8
-            np.testing.assert_array_equal(np.from_dlpack(tensor), tensor.numpy())
+        self._assert_dlpack_matches_numpy(tensor)
+        self._assert_dlpack_matches_numpy(serde.TensorProtoTensor(tensor_proto_from_raw_data))
 
     @parameterized.parameterized.expand(
         [
