@@ -353,6 +353,9 @@ class TensorProtoTensor(_core.TensorBase):  # pylint: disable=too-many-ancestors
 
     def __array__(self, dtype: Any = None) -> np.ndarray:
         """Return the tensor as a numpy array, compatible with np.array."""
+        if dtype is None:
+            # NumPy < 2.3 treats ndarray.__array__(None) as a float64 request
+            return self.numpy()
         return self.numpy().__array__(dtype)
 
     def _validate_float6_data(self) -> None:
