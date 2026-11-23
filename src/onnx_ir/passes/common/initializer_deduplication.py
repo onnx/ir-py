@@ -179,8 +179,9 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     """Remove duplicated initializer tensors (using a hashed method) from the graph.
 
-    This pass detects initializers with identical shape, dtype, and hashed content,
-    and replaces all duplicate references with a canonical one.
+    This pass detects initializers with identical shape, dtype, and SHA-512 digest,
+    and replaces all duplicate references with a canonical one. Matching digests
+    are trusted without a subsequent full-byte comparison.
 
     External initializers whose data files are missing are left unchanged.
     Other errors reading external data are propagated.
@@ -222,18 +223,6 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
                     if key in initializers:
                         initializer_to_keep = initializers[key]
-                        previous_tensor = _read_tensor(initializer_to_keep, stack)
-                        if previous_tensor is None:
-                            initializers[key] = initializer
-                            continue
-                        if _tobytes(previous_tensor) != _tobytes(const_val):
-                            logger.warning(
-                                "Initializer deduplication failed: "
-                                "hashes match but values differ with values %s and %s",
-                                initializer_to_keep,
-                                initializer,
-                            )
-                            continue
                         modified = True
                         initializer.replace_all_uses_with(initializer_to_keep)
                         assert initializer.name is not None

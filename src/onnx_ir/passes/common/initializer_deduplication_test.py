@@ -495,5 +495,26 @@ class DeduplicateInitializersTest(unittest.TestCase):
         )
 
 
+class DeduplicateHashedInitializersTest(unittest.TestCase):
+    def test_matching_digests_are_trusted_without_byte_comparison(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: ["" : 17]>
+            agraph () => ()
+            <float[2] w1 = {1.0, 2.0}, float[2] w2 = {3.0, 4.0}> {
+                sum = Add(w1, w2)
+            }
+            """
+        )
+
+        with mock.patch.object(initializer_deduplication.hashlib, "sha512") as sha512:
+            sha512.return_value.hexdigest.return_value = "matching-digest"
+            result = initializer_deduplication.DeduplicateHashedInitializersPass()(model)
+
+        self.assertTrue(result.modified)
+        self.assertEqual(set(model.graph.initializers), {"w1"})
+        self.assertIs(model.graph[0].inputs[0], model.graph[0].inputs[1])
+
+
 if __name__ == "__main__":
     unittest.main()
