@@ -77,17 +77,6 @@ def _read_tensor(
             f"External tensor '{tensor.name}' is invalidated. "
             "Restore its data and replace the initializer with a valid tensor."
         )
-    # Validate and compare the current backing source, not a possibly stale cached array.
-    original = tensor
-    tensor = ir.ExternalTensor(
-        location=tensor.location,
-        base_dir=tensor.base_dir,
-        offset=tensor.offset,
-        length=tensor.length,
-        dtype=tensor.dtype,
-        shape=tensor.shape,
-        name=tensor.name,
-    )
     stack.enter_context(_release_tensor(tensor))
     try:
         if tensor.size == 0:
@@ -98,18 +87,6 @@ def _read_tensor(
         logger.warning(
             "Skipped deduplication of initializer '%s' because external data file '%s' "
             "was not found. Restore the file or set the tensor's base_dir to its directory.",
-            initializer.name,
-            tensor.path,
-        )
-        return None
-    if original.raw is not None and not np.array_equal(
-        original.numpy().reshape(-1).view(np.uint8),
-        tensor.numpy().reshape(-1).view(np.uint8),
-    ):
-        logger.warning(
-            "Skipped deduplication of initializer '%s' because its cached values differ "
-            "from external data file '%s'. Restore the backing data or replace the "
-            "initializer with a tensor containing the intended values.",
             initializer.name,
             tensor.path,
         )
@@ -152,8 +129,6 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
     and replaces all duplicate references with a canonical one.
 
     External initializers whose data files are missing are left unchanged.
-    Comparisons read the current backing files independently of cached tensor data.
-    Initializers with cached values that differ from their backing files are skipped.
     Other errors reading external data are propagated.
 
     Initializers are deduplicated within each graph. To deduplicate initializers
@@ -208,8 +183,6 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     and replaces all duplicate references with a canonical one.
 
     External initializers whose data files are missing are left unchanged.
-    Comparisons read the current backing files independently of cached tensor data.
-    Initializers with cached values that differ from their backing files are skipped.
     Other errors reading external data are propagated.
 
     This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
