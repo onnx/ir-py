@@ -179,7 +179,7 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     """Remove duplicated initializer tensors (using a hashed method) from the graph.
 
-    This pass detects initializers with identical shape, dtype, and SHA-512 digest,
+    This pass detects initializers with identical shape, dtype, and SHA-256 digest,
     and replaces all duplicate references with a canonical one. Matching digests
     are trusted without a subsequent full-byte comparison.
 
@@ -213,7 +213,7 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
                         continue
 
                     # Hash tensor data to avoid storing large amounts of data in memory
-                    hashed = hashlib.sha512()
+                    hashed = hashlib.sha256()
                     hashed.update(np.ascontiguousarray(const_val.numpy()))
                     tensor_digest = hashed.hexdigest()
 

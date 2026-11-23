@@ -507,8 +507,8 @@ class DeduplicateHashedInitializersTest(unittest.TestCase):
             """
         )
 
-        with mock.patch.object(initializer_deduplication.hashlib, "sha512") as sha512:
-            sha512.return_value.hexdigest.return_value = "matching-digest"
+        with mock.patch.object(initializer_deduplication.hashlib, "sha256") as sha256:
+            sha256.return_value.hexdigest.return_value = "matching-digest"
             result = initializer_deduplication.DeduplicateHashedInitializersPass()(model)
 
         self.assertTrue(result.modified)
