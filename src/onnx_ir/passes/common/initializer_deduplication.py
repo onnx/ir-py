@@ -7,8 +7,11 @@ from __future__ import annotations
 __all__ = ["DeduplicateInitializersPass", "DeduplicateHashedInitializersPass"]
 
 
+import contextlib
 import hashlib
+import io
 import logging
+from collections.abc import Generator
 
 import numpy as np
 
@@ -44,7 +47,56 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
             size_limit,
         )
         return True
+
     return False
+
+
+@contextlib.contextmanager
+def _release_tensor(tensor: ir.ExternalTensor) -> Generator[None, None, None]:
+    try:
+        yield
+    finally:
+        # Callers and error tracebacks may retain mmap-backed views. Let their
+        # eventual destruction close the mapping without disrupting the pass.
+        with contextlib.suppress(BufferError):
+            tensor.release()
+
+
+def _validate_external_tensor_source(tensor: ir.ExternalTensor) -> None:
+    """Validate that the current backing path is secure and readable."""
+    tensor._check_path_containment()  # pylint: disable=protected-access
+    with open(tensor.path, "rb"):
+        pass
+
+
+def _read_tensor(
+    initializer: ir.Value, stack: contextlib.ExitStack
+) -> ir.TensorProtocol | None:
+    tensor = initializer.const_value
+    assert tensor is not None
+    if not isinstance(tensor, ir.ExternalTensor):
+        return tensor
+    if not tensor.valid():
+        raise ValueError(
+            f"External tensor '{tensor.name}' is invalidated. "
+            "Restore its data and replace the initializer with a valid tensor."
+        )
+    stack.enter_context(_release_tensor(tensor))
+    try:
+        if tensor.size == 0:
+            _tobytes(tensor)
+        else:
+            _validate_external_tensor_source(tensor)
+            tensor.numpy()
+    except FileNotFoundError:
+        logger.warning(
+            "Skipped deduplication of initializer '%s' because external data file '%s' "
+            "was not found. Restore the file or set the tensor's base_dir to its directory.",
+            initializer.name,
+            tensor.path,
+        )
+        return None
+    return tensor
 
 
 def _tobytes(val):
@@ -62,6 +114,16 @@ def _tobytes(val):
     """
     if val.dtype.is_string():
         return np.array(val.string_data()).tobytes()
+    if isinstance(val, ir.ExternalTensor) and val.size == 0:
+        if val.length not in (None, 0):
+            raise ValueError(
+                f"Empty external tensor '{val.name}' has data length {val.length}; "
+                "expected 0. Correct the external data length or tensor shape."
+            )
+        # Empty tensors cannot be memory mapped. tofile still validates and opens the file.
+        buffer = io.BytesIO()
+        val.tofile(buffer)
+        return buffer.getvalue()
     return val.tobytes()
 
 
@@ -70,6 +132,9 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 
     This pass detects initializers with identical shape, dtype, and content,
     and replaces all duplicate references with a canonical one.
+
+    External initializers whose data files are missing are left unchanged.
+    Other errors reading external data are propagated.
 
     Initializers are deduplicated within each graph. To deduplicate initializers
     in the model globally (across graphs), use :class:`~onnx_ir.passes.common.LiftSubgraphInitializersToMainGraphPass`
@@ -90,26 +155,28 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
         for graph in model.graphs():
             initializers: dict[tuple[ir.DataType, tuple[int, ...], bytes], ir.Value] = {}
             for initializer in tuple(graph.initializers.values()):
-                if _should_skip_initializer(initializer, self.size_limit):
-                    continue
+                with contextlib.ExitStack() as stack:
+                    if _should_skip_initializer(initializer, self.size_limit):
+                        continue
 
-                const_val = initializer.const_value
-                assert const_val is not None
+                    const_val = _read_tensor(initializer, stack)
+                    if const_val is None:
+                        continue
 
-                key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
-                if key in initializers:
-                    modified = True
-                    initializer_to_keep = initializers[key]  # type: ignore[index]
-                    initializer.replace_all_uses_with(initializer_to_keep)
-                    assert initializer.name is not None
-                    graph.initializers.pop(initializer.name)
-                    logger.info(
-                        "Replaced initializer '%s' with existing initializer '%s'",
-                        initializer.name,
-                        initializer_to_keep.name,
-                    )
-                else:
-                    initializers[key] = initializer  # type: ignore[index]
+                    key = (const_val.dtype, tuple(const_val.shape), _tobytes(const_val))
+                    if key in initializers:
+                        modified = True
+                        initializer_to_keep = initializers[key]  # type: ignore[index]
+                        initializer.replace_all_uses_with(initializer_to_keep)
+                        assert initializer.name is not None
+                        graph.initializers.pop(initializer.name)
+                        logger.info(
+                            "Replaced initializer '%s' with existing initializer '%s'",
+                            initializer.name,
+                            initializer_to_keep.name,
+                        )
+                    else:
+                        initializers[key] = initializer  # type: ignore[index]
 
         return ir.passes.PassResult(model=model, modified=modified)
 
@@ -117,8 +184,12 @@ class DeduplicateInitializersPass(ir.passes.InPlacePass):
 class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
     """Remove duplicated initializer tensors (using a hashed method) from the graph.
 
-    This pass detects initializers with identical shape, dtype, and hashed content,
-    and replaces all duplicate references with a canonical one.
+    This pass detects initializers with identical shape, dtype, and SHA-256 digest,
+    and replaces all duplicate references with a canonical one. Matching digests
+    are trusted without a subsequent full-byte comparison.
+
+    External initializers whose data files are missing are left unchanged.
+    Other errors reading external data are propagated.
 
     This pass should have a lower peak memory usage than :class:`DeduplicateInitializersPass`
     as it does not store the full tensor data in memory, but instead uses a hash of the tensor data.
@@ -138,42 +209,35 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
             initializers: dict[tuple[ir.DataType, tuple[int, ...], str], ir.Value] = {}
 
             for initializer in tuple(graph.initializers.values()):
-                if _should_skip_initializer(initializer, self.size_limit):
-                    continue
-
-                const_val = initializer.const_value
-                assert const_val is not None
-
-                # Hash tensor data to avoid storing large amounts of data in memory
-                hashed = hashlib.sha512()
-                tensor_data = const_val.numpy()
-                hashed.update(tensor_data)
-                tensor_digest = hashed.hexdigest()
-
-                tensor_dims = tuple(const_val.shape.numpy())
-
-                key = (const_val.dtype, tensor_dims, tensor_digest)
-
-                if key in initializers:
-                    if _tobytes(initializers[key].const_value) != _tobytes(const_val):
-                        logger.warning(
-                            "Initializer deduplication failed: "
-                            "hashes match but values differ with values %s and %s",
-                            initializers[key],
-                            initializer,
-                        )
+                with contextlib.ExitStack() as stack:
+                    if _should_skip_initializer(initializer, self.size_limit):
                         continue
-                    modified = True
-                    initializer_to_keep = initializers[key]  # type: ignore[index]
-                    initializer.replace_all_uses_with(initializer_to_keep)
-                    assert initializer.name is not None
-                    graph.initializers.pop(initializer.name)
-                    logger.info(
-                        "Replaced initializer '%s' with existing initializer '%s'",
-                        initializer.name,
-                        initializer_to_keep.name,
-                    )
-                else:
-                    initializers[key] = initializer  # type: ignore[index]
+
+                    const_val = _read_tensor(initializer, stack)
+                    if const_val is None:
+                        continue
+
+                    # Hash tensor data to avoid storing large amounts of data in memory
+                    hashed = hashlib.sha256()
+                    hashed.update(np.ascontiguousarray(const_val.numpy()))
+                    tensor_digest = hashed.hexdigest()
+
+                    tensor_dims = tuple(const_val.shape.numpy())
+
+                    key = (const_val.dtype, tensor_dims, tensor_digest)
+
+                    if key in initializers:
+                        initializer_to_keep = initializers[key]
+                        modified = True
+                        initializer.replace_all_uses_with(initializer_to_keep)
+                        assert initializer.name is not None
+                        graph.initializers.pop(initializer.name)
+                        logger.info(
+                            "Replaced initializer '%s' with existing initializer '%s'",
+                            initializer.name,
+                            initializer_to_keep.name,
+                        )
+                    else:
+                        initializers[key] = initializer
 
         return ir.passes.PassResult(model=model, modified=modified)
