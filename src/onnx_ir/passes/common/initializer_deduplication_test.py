@@ -106,6 +106,39 @@ class DeduplicateInitializersTest(unittest.TestCase):
             model.graph.initializers["w1"].const_value.numpy(), [1.0, 2.0, 3.0]
         )
 
+    def test_cached_external_data_with_missing_current_path_is_not_deduplicated(self):
+        model, directory = self._create_external_model()
+        missing_directory = os.path.join(directory, "missing")
+        for initializer in model.graph.initializers.values():
+            tensor = initializer.const_value
+            np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(tensor.path)
+            tensor.numpy()
+            tensor.base_dir = missing_directory
+
+        with self.assertLogs(initializer_deduplication.logger, level="WARNING") as logs:
+            result = self.pass_class()(model)
+
+        self.assertFalse(result.modified)
+        self.assertEqual(len(model.graph.initializers), 2)
+        self.assertEqual(len(logs.output), 2)
+        self.assertTrue(all("was not found" in message for message in logs.output))
+
+    def test_cached_external_data_still_validates_path_security(self):
+        model, _ = self._create_external_model()
+        tensor = model.graph.initializers["w1"].const_value
+        np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(tensor.path)
+        tensor.numpy()
+
+        with (
+            mock.patch.object(
+                ir.ExternalTensor,
+                "_check_path_containment",
+                side_effect=ValueError("unsafe backing path"),
+            ),
+            self.assertRaisesRegex(ValueError, "unsafe backing path"),
+        ):
+            self.pass_class()(model)
+
     @parameterized.parameterized.expand([((0,),), ((2, 0, 3),)])
     def test_missing_empty_external_data_is_not_deduplicated(self, shape):
         model, _ = self._create_external_model(shape)
@@ -144,6 +177,41 @@ class DeduplicateInitializersTest(unittest.TestCase):
                 self.pass_class()(model)
 
         apply_pass()
+        tensor.release()
+
+    def test_release_does_not_raise_with_caller_owned_view(self):
+        model, directory = self._create_external_model()
+        for name in ("w1", "w2"):
+            np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(
+                os.path.join(directory, f"{name}.data")
+            )
+        tensor = model.graph.initializers["w1"].const_value
+        caller_view = tensor.numpy()
+
+        result = self.pass_class()(model)
+
+        self.assertTrue(result.modified)
+        np.testing.assert_array_equal(caller_view, [1.0, 2.0, 3.0])
+        reloaded = tensor.numpy()
+        np.testing.assert_array_equal(reloaded, caller_view)
+        del reloaded
+        del caller_view
+        tensor.release()
+
+    def test_release_does_not_mask_active_read_error(self):
+        model, _ = self._create_external_model()
+        tensor = model.graph.initializers["w1"].const_value
+        np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(tensor.path)
+        caller_view = tensor.numpy()
+
+        with (
+            self.assertRaisesRegex(ValueError, "read failed"),
+            initializer_deduplication._release_tensor(tensor),
+        ):
+            raise ValueError("read failed")
+
+        np.testing.assert_array_equal(caller_view, [1.0, 2.0, 3.0])
+        del caller_view
         tensor.release()
 
     @parameterized.parameterized.expand([ir.DataType.FLOAT, ir.DataType.FLOAT6E2M3])
@@ -288,7 +356,11 @@ class DeduplicateInitializersTest(unittest.TestCase):
             self.pass_class()(model)
 
     def test_external_data_permission_error_raises(self):
-        model, _ = self._create_external_model()
+        model, directory = self._create_external_model()
+        for name in ("w1", "w2"):
+            np.array([1.0, 2.0, 3.0], dtype=np.float32).tofile(
+                os.path.join(directory, f"{name}.data")
+            )
 
         with (
             mock.patch.object(ir.ExternalTensor, "numpy", side_effect=PermissionError),

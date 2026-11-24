@@ -55,14 +55,18 @@ def _should_skip_initializer(initializer: ir.Value, size_limit: int) -> bool:
 def _release_tensor(tensor: ir.ExternalTensor) -> Generator[None, None, None]:
     try:
         yield
-    except BaseException:
-        # A read-error traceback may still hold mmap-backed views. Let their
-        # eventual destruction close the mapping without masking the read error.
+    finally:
+        # Callers and error tracebacks may retain mmap-backed views. Let their
+        # eventual destruction close the mapping without disrupting the pass.
         with contextlib.suppress(BufferError):
             tensor.release()
-        raise
-    else:
-        tensor.release()
+
+
+def _validate_external_tensor_source(tensor: ir.ExternalTensor) -> None:
+    """Validate that the current backing path is secure and readable."""
+    tensor._check_path_containment()  # pylint: disable=protected-access
+    with open(tensor.path, "rb"):
+        pass
 
 
 def _read_tensor(
@@ -82,6 +86,7 @@ def _read_tensor(
         if tensor.size == 0:
             _tobytes(tensor)
         else:
+            _validate_external_tensor_source(tensor)
             tensor.numpy()
     except FileNotFoundError:
         logger.warning(
