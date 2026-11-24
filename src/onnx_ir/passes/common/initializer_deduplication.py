@@ -104,16 +104,21 @@ def _tobytes(val):
 
     However, 'string_data' yields a list of bytes which cannot be hashed, i.e.,
     cannot be used to index into a dict. To generate keys for identifying
-    tensors in initializer deduplication the following converts the list of
-    bytes to an array of fixed-length strings which can be flattened into a
-    bytes-string. This, together with the tensor shape, is sufficient for
-    identifying tensors for deduplication, but it differs from the
-    representation used for serializing tensors (that is string_data) by adding
-    padding bytes so that each string occupies the same number of consecutive
-    bytes in the flattened .tobytes representation.
+    tensors in initializer deduplication the following joins the strings into
+    one bytes-string, each prefixed with its length. This, together with the
+    tensor shape, is sufficient for identifying tensors for deduplication.
+    Unlike padding to a fixed width, the length prefix keeps strings that differ
+    only by trailing NUL bytes apart.
     """
     if val.dtype.is_string():
-        return np.array(val.string_data()).tobytes()
+        if isinstance(val, ir.StringTensor):
+            strings = val.string_data()
+        else:
+            # Other tensor types holding strings may not have string_data()
+            strings = [
+                s.encode() if isinstance(s, str) else bytes(s) for s in val.numpy().flat
+            ]
+        return b"".join(len(s).to_bytes(8, "little") + s for s in strings)
     if isinstance(val, ir.ExternalTensor) and val.size == 0:
         if val.length not in (None, 0):
             raise ValueError(
@@ -219,7 +224,12 @@ class DeduplicateHashedInitializersPass(ir.passes.InPlacePass):
 
                     # Hash tensor data to avoid storing large amounts of data in memory
                     hashed = hashlib.sha256()
-                    hashed.update(np.ascontiguousarray(const_val.numpy()))
+                    if const_val.dtype.is_string():
+                        # numpy() gives an object array for strings, which would hash the
+                        # object references instead of the string contents
+                        hashed.update(_tobytes(const_val))
+                    else:
+                        hashed.update(np.ascontiguousarray(const_val.numpy()))
                     tensor_digest = hashed.hexdigest()
 
                     tensor_dims = tuple(const_val.shape.numpy())
