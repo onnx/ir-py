@@ -165,5 +165,25 @@ class RenameValuesTest(unittest.TestCase):
         self.assertIs(graph.initializers["const_0"], value)
 
 
+class ConvertAttributeTest(unittest.TestCase):
+    def test_convert_attribute_tensors_accepts_tensor_protos(self):
+        tensor_proto = ir.serde.serialize_tensor(
+            ir.tensor(np.array([1.0, 2.0], dtype=np.float32), name="proto")
+        )
+        ir_tensor = ir.tensor(np.array([3, 4], dtype=np.int64), name="ir")
+
+        attr = _convenience.convert_attribute("tensors", [tensor_proto, ir_tensor])
+
+        self.assertEqual(attr.type, ir.AttributeType.TENSORS)
+        self.assertEqual(len(attr.value), 2)
+        self.assertNotIsInstance(attr.value[0], ir.Attr)
+        self.assertIsInstance(attr.value[0], ir.TensorProtocol)
+        np.testing.assert_array_equal(attr.value[0].numpy(), [1.0, 2.0])
+        self.assertIs(attr.value[1], ir_tensor)
+        # The attribute must be serializable
+        attr_proto = ir.serde.serialize_attribute(attr)
+        self.assertEqual([t.name for t in attr_proto.tensors], ["proto", "ir"])
+
+
 if __name__ == "__main__":
     unittest.main()

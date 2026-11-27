@@ -171,7 +171,7 @@ def convert_attribute(
         tensors = []
         for t in attr:  # type: ignore[union-attr]
             if isinstance(t, onnx.TensorProto):
-                tensors.append(_core.AttrTensor(name, serde.deserialize_tensor(t)))
+                tensors.append(serde.deserialize_tensor(t))
             else:
                 tensors.append(t)  # type: ignore[arg-type]
         return _core.AttrTensors(name, tensors)  # type: ignore[arg-type]
