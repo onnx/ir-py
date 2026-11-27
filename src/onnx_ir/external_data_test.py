@@ -513,8 +513,10 @@ class OffloadExternalTensorTest(unittest.TestCase):
         # File paths
         if sys.version_info[:2] >= (3, 10):
             self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # pylint: disable=consider-using-with
+            self.addCleanup(self.temp_dir.cleanup)
         else:
             self.temp_dir = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+            self.addCleanup(self.temp_dir.cleanup)
         self.external_data_name = "external_tensors.bin"
         self.base_path = self.temp_dir.name
         self.ext_data_1 = "external_data_1.bin"
@@ -543,7 +545,8 @@ class OffloadExternalTensorTest(unittest.TestCase):
         except FileNotFoundError as e:
             print(f"FileNotFoundError: {e}")
         except Exception as e:  # pylint: disable=broad-exception-caught
-            print(f"An unexpected error occurred: {e}")
+            print(f"An unexpected error occurred during cleanup: {e}")
+            raise
 
     def _simple_model(self) -> ir.Model:
         tensor1 = ir.Tensor(
@@ -616,7 +619,7 @@ class OffloadExternalTensorTest(unittest.TestCase):
                 if isinstance(self._raw, np.ndarray):
                     return self._raw
                 else:
-                    return TypeError
+                    raise TypeError("CustomTensorType cannot be converted to a numpy array")
 
             def numpy(self) -> np.ndarray:
                 return self._raw
@@ -625,7 +628,9 @@ class OffloadExternalTensorTest(unittest.TestCase):
                 if isinstance(self._raw, np.ndarray):
                     return self._raw.tobytes()
                 else:
-                    return TypeError
+                    raise TypeError(
+                        "CustomTensorType.tobytes() expected numpy.ndarray in '_raw'"
+                    )
 
         return CustomTensorType(value)
 
